@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compliance — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Compliance-Queue</h1>
+            <p class="header-sub">Gemeldete Firmenfälle (CompanyCase) — Report-Download und Actioned.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section class="fraud-panel">
+      <div class="fraud-panel-head">
+        <h2>Zur Bearbeitung <span id="queueCount" class="fraud-badge">0</span></h2>
+        <button type="button" class="btn-nav" id="refreshQueueBtn">Aktualisieren</button>
+      </div>
+      <div id="queueList"></div>
+      <p id="queueMsg" class="fraud-help"></p>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/compliance.js"></script>
+</body>
+</html>

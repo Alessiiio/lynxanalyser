@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fälle — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Firmenfälle</h1>
+            <p class="header-sub">Akten vom Gespräch bis zum Compliance-Abschluss.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section class="fraud-panel">
+      <div class="fraud-panel-head">
+        <h2>Filter</h2>
+        <select id="statusFilter" class="ca-select">
+          <option value="under_review">In Prüfung</option>
+          <option value="confirmed_fraud,ready_for_report">Bestätigt / Doku</option>
+          <option value="reported">Gemeldet</option>
+          <option value="closed">Geschlossen</option>
+          <option value="cleared">Kein Betrug</option>
+          <option value="">Alle</option>
+        </select>
+      </div>
+      <div id="casesList"></div>
+      <p id="casesMsg" class="fraud-help"></p>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/cases.js"></script>
+</body>
+</html>

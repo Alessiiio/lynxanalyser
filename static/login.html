@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <div class="login-shell">
+    <div class="login-card">
+      <img class="login-mark" src="/static/img/lynx-mark-256.png?v=2" width="88" height="88" alt="Lynx" decoding="async">
+      <p class="header-eyebrow">Lynx</p>
+      <h1>Team-Login</h1>
+      <p class="login-lead">Firmennetz &amp; Legitimität — Zugang für freigeschaltete Case Manager, Compliance und Admins.</p>
+      <p id="loginError" class="hr-network-error hidden">Anmeldung fehlgeschlagen.</p>
+      <form id="loginForm" class="login-form">
+        <div class="form-group">
+          <label for="username">Benutzername</label>
+          <input id="username" name="username" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Passwort</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn-check" id="loginBtn">Anmelden</button>
+      </form>
+      <p class="fraud-help login-hint">Zugang nur für freigeschaltete Team-Accounts.</p>
+    </div>
+  </div>
+  <script>
+    if (new URLSearchParams(location.search).get("error")) {
+      const el = document.getElementById("loginError");
+      el.classList.remove("hidden");
+    }
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("loginBtn");
+      const err = document.getElementById("loginError");
+      err.classList.add("hidden");
+      btn.disabled = true;
+      try {
+        const resp = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: document.getElementById("username").value.trim(),
+            password: document.getElementById("password").value,
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Login fehlgeschlagen");
+        location.href = data.redirect || "/";
+      } catch (ex) {
+        err.textContent = String(ex.message || ex);
+        err.classList.remove("hidden");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

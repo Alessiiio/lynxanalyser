@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profiler-Fälle — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx · Admin</p>
+            <h1>Profiler-Fälle</h1>
+            <p class="header-sub">Offene Netzwerk-Snips mit Konten &amp; Signale — getrennt vom Firmenanalyse-Wizard.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section class="fraud-panel">
+      <div class="fraud-panel-head">
+        <h2>Filter</h2>
+        <select id="pcStatusFilter" class="ca-select" aria-label="Status">
+          <option value="open">Offen</option>
+          <option value="closed">Geschlossen</option>
+          <option value="">Alle</option>
+        </select>
+      </div>
+      <p id="pcEmpty" class="fraud-help hidden">Keine Profiler-Fälle in diesem Browser (localStorage).</p>
+      <ul id="pcList" class="profiler-cases-list"></ul>
+      <p id="pcMsg" class="fraud-help"></p>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/profiler-cases.js"></script>
+</body>
+</html>

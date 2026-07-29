@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verlauf — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Prüfungsverlauf</h1>
+            <p class="header-sub">Alle bisherigen Website-Prüfungen auf einen Blick.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <label class="expert-toggle" title="Technische Details anzeigen">
+            <span class="expert-toggle-label">Expertenmodus</span>
+            <input type="checkbox" id="expertModeToggle">
+            <span class="expert-toggle-slider"></span>
+          </label>
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section class="history-toolbar">
+      <input type="text" id="domainSearch" placeholder="Domain suchen…" autocomplete="off">
+      <select id="verdictFilter">
+        <option value="">Alle Bewertungen</option>
+        <option value="Likely Legitimate">Wahrscheinlich seriös</option>
+        <option value="Use Caution">Vorsicht geboten</option>
+        <option value="High Risk">Hohes Risiko</option>
+        <option value="Likely Fraudulent">Wahrscheinlich betrügerisch</option>
+        <option value="Critical Risk">Kritisches Risiko</option>
+      </select>
+    </section>
+
+    <section id="statsSection" class="stats-grid"></section>
+
+    <section class="history-table-wrap">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Score</th>
+            <th>Bewertung</th>
+            <th>Datum</th>
+            <th class="expert-only">Betrag</th>
+            <th class="expert-only">Währung</th>
+            <th class="expert-only">Firma</th>
+          </tr>
+        </thead>
+        <tbody id="historyTableBody">
+          <tr><td colspan="7" style="color:var(--c-muted);padding:1.5rem;">Lade Verlauf…</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <button id="loadMoreBtn" class="btn-load-more hidden">Nächste 50 laden</button>
+  </div>
+
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/history.js"></script>
+</body>
+</html>

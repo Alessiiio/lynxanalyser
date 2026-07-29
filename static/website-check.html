@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website-Check — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="progress-bar"></div>
+
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Webseiten-Check</h1>
+            <p class="header-sub">Prüft eine Webseite auf Betrugs- und Legitimitätssignale — einfach URL eingeben und starten.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <label class="expert-toggle" title="Zeigt technische Details und alle Prüfungen">
+            <span class="expert-toggle-label">Expertenmodus</span>
+            <input type="checkbox" id="expertModeToggle">
+            <span class="expert-toggle-slider"></span>
+          </label>
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section id="searchCard" class="search-card">
+      <form id="checkForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="urlInput">Website-Adresse</label>
+            <input type="text" id="urlInput" placeholder="z.B. https://beispiel.ch" autocomplete="off" required>
+          </div>
+          <div class="form-group">
+            <label for="companyInput">
+              Firmenname <span class="optional">(optional)</span>
+            </label>
+            <input type="text" id="companyInput" placeholder="z.B. Beispiel AG" autocomplete="off">
+            <span class="field-hint expert-only">Für Zefix, FINMA- und I-SCAN-Abgleich</span>
+          </div>
+        </div>
+        <div class="transaction-context-section">
+          <div class="transaction-context-header">
+            <span class="optional-badge">Optionaler Kontext</span>
+            <h2 class="transaction-context-title">Transaktionskontext</h2>
+            <p class="transaction-context-hint">
+              Mit Transaktionsbetrag erhält die KI-Analyse zusätzlichen Kontext und kann erkennen,
+              ob der Betrag zum Angebot der Webseite plausibel ist.
+            </p>
+          </div>
+          <div class="form-row transaction-context-fields">
+            <div class="form-group">
+              <label for="transactionAmountInput">Transaktionsbetrag</label>
+              <div class="amount-currency-row">
+                <input type="number" id="transactionAmountInput" min="0" step="0.01" placeholder="z.B. 25000" autocomplete="off">
+                <select id="transactionCurrencyInput" aria-label="Währung">
+                  <option value="CHF" selected>CHF</option>
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="transactionPurposeInput">Verwendungszweck</label>
+              <input type="text" id="transactionPurposeInput" placeholder="z.B. Investition, Softwarelizenz, Ferienwohnung-Anzahlung" autocomplete="off">
+            </div>
+          </div>
+        </div>
+        <button type="submit" class="btn-check" id="submitBtn">
+          <span id="submitText">Prüfung starten</span>
+          <span id="submitLoader" class="hidden">Analysiere…</span>
+        </button>
+      </form>
+    </section>
+
+    <section id="scanLoader" class="scan-loader hidden" aria-live="polite" aria-busy="true">
+      <div class="scan-loader-card">
+        <div class="scan-radar-wrap" aria-hidden="true">
+          <div class="scan-radar-ring"></div>
+          <div class="scan-radar-ring scan-radar-ring-2"></div>
+          <div class="scan-radar-sweep"></div>
+          <span class="scan-radar-core">◈</span>
+        </div>
+        <p class="scan-loader-label">Analyse läuft</p>
+        <p class="scan-loader-domain" id="scanLoaderDomain"></p>
+        <p class="scan-loader-status" id="scanLoaderStatus">Scan wird gestartet…</p>
+        <p class="scan-loader-goldlist hidden" id="scanLoaderGoldlist">Goldlist erkannt — Schnellprüfung (nur Sicherheits-Basics)</p>
+        <p class="scan-loader-blocklist hidden" id="scanLoaderBlocklist">Blocklist-Treffer — bekannter Betrug, Prüfung wird übersprungen</p>
+        <div class="scan-loader-track">
+          <div class="scan-loader-fill" id="scanLoaderFill"></div>
+        </div>
+        <p class="scan-loader-progress" id="scanLoaderProgress"></p>
+        <div class="scan-thought-log" id="scanThoughtLog">
+          <p class="scan-thought-hint">Verarbeitung</p>
+          <div class="scan-thought-lines" id="scanThoughtLines"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="results" class="hidden">
+      <div id="scoreCard" class="score-card hidden stamp-gray">
+        <div class="score-dial">
+          <div class="score-number" id="scoreNumber">–</div>
+          <div class="score-label">von 100</div>
+        </div>
+        <div class="score-info">
+          <div class="score-verdict" id="scoreVerdict">Analysiere…</div>
+          <div class="score-domain" id="scoreDomain"></div>
+          <div class="score-bar-wrap">
+            <div class="score-bar" id="scoreBar" style="width:0%"></div>
+          </div>
+          <div class="score-progress hidden" id="scoreProgress"></div>
+        </div>
+      </div>
+
+      <div id="previousScanBox" class="previous-scan-box hidden"></div>
+      <div id="transactionContextBox" class="transaction-context-box hidden"></div>
+      <div id="blocklistBox" class="blocklist-box hidden"></div>
+      <div id="goldlistBox" class="goldlist-box hidden"></div>
+      <div id="fraudConfirmBox" class="fraud-confirm-box hidden"></div>
+
+      <div id="criticalFlags" class="critical-flags hidden">
+        <h3><span class="critical-flags-icon" aria-hidden="true"></span> Wichtige Warnungen</h3>
+        <ul id="criticalFlagsList"></ul>
+      </div>
+
+      <div id="warningFlags" class="warning-flags hidden">
+        <h3>Hinweise zur Prüfung</h3>
+        <ul id="warningFlagsList"></ul>
+      </div>
+
+      <p id="simpleModeHint" class="simple-mode-hint">Die wichtigsten Prüfungen werden angezeigt. Alle Details findest du im <strong>Expertenmodus</strong>.</p>
+
+      <p id="liveResultsHeader" class="live-results-header hidden">Bereits ausgewertete Prüfungen</p>
+      <div id="checksGrid" class="checks-grid"></div>
+
+      <div class="results-actions">
+        <button class="btn-secondary hidden" id="copyBtn" onclick="copyReport()">Bericht kopieren</button>
+        <button class="btn-secondary hidden expert-only" id="pdfBtn" onclick="exportPdf()">PDF exportieren</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

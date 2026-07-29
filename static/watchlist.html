@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watchlist — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Personen-Watchlist</h1>
+            <p class="header-sub">Akte öffnen → Case aufbauen → an Ermittlung / Compliance weiterleiten.</p>
+            <p class="fraud-help" id="watchUser"></p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <div class="ca-tabs watch-tabs" role="tablist">
+      <button type="button" class="ca-tab is-active" data-tab="inbox" role="tab">Posteingang <span id="inboxBadge" class="fraud-badge">0</span></button>
+      <button type="button" class="ca-tab" data-tab="persons" role="tab">Personen</button>
+      <button type="button" class="ca-tab" data-tab="cases" role="tab">Fälle</button>
+    </div>
+
+    <section id="tabInbox" class="ca-tab-panel is-active">
+      <div class="fraud-panel">
+        <div class="fraud-panel-head">
+          <h2>Offene Funde</h2>
+          <div class="fraud-inline-actions">
+            <select id="alertSeverity" class="ca-select" aria-label="Severity">
+              <option value="">Alle Severities</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
+            <button type="button" class="btn-nav" id="refreshInboxBtn">Aktualisieren</button>
+          </div>
+        </div>
+        <p class="fraud-help">Klick öffnet die Personenakte als Case-Fenster.</p>
+        <div id="inboxList"></div>
+      </div>
+    </section>
+
+    <section id="tabPersons" class="ca-tab-panel">
+      <div class="fraud-panel">
+        <div class="fraud-panel-head">
+          <h2>Personen <span id="personCount" class="fraud-badge">0</span></h2>
+          <div class="fraud-inline-actions">
+            <button type="button" class="btn-nav" id="mergeBtn">Merge</button>
+            <button type="button" class="btn-nav" id="deletePersonsBtn">Löschen</button>
+            <button type="button" class="btn-nav" id="runMonitoringBtn">Monitoring</button>
+          </div>
+        </div>
+        <div class="watch-filters">
+          <input id="personSearch" class="watch-reason" placeholder="Name suchen…" />
+          <select id="statusFilter" class="ca-select" aria-label="Status">
+            <option value="">Aktiv + Confirmed Fraud</option>
+            <option value="active">Nur aktiv</option>
+            <option value="confirmed_fraud">Confirmed Fraud</option>
+            <option value="low_priority">Niedrige Prio</option>
+            <option value="cleared">Cleared (Archiv)</option>
+            <option value="active,confirmed_fraud,low_priority,cleared">Alle Status</option>
+          </select>
+          <select id="sortFilter" class="ca-select" aria-label="Sortierung">
+            <option value="priority">Priorität</option>
+            <option value="added_at">Neueste zuerst</option>
+          </select>
+          <label class="watch-merge-label"><input type="checkbox" id="openAlertOnly" /> Offene Alerts</label>
+        </div>
+        <div id="personList"></div>
+        <div class="watch-pager">
+          <button type="button" class="btn-nav" id="prevPageBtn">Zurück</button>
+          <span id="pageInfo" class="fraud-help"></span>
+          <button type="button" class="btn-nav" id="nextPageBtn">Weiter</button>
+        </div>
+        <div class="watch-manual-add">
+          <input id="manualName" class="watch-reason" placeholder="Nachname, Vorname" />
+          <input id="manualResidence" class="watch-reason" placeholder="Wohnort (optional)" />
+          <button type="button" class="btn-check" id="addPersonBtn">Hinzufügen</button>
+        </div>
+        <p id="watchMsg" class="fraud-help"></p>
+      </div>
+    </section>
+
+    <section id="tabCases" class="ca-tab-panel">
+      <div class="fraud-panel">
+        <div class="fraud-panel-head">
+          <h2>Fälle <span id="caseCount" class="fraud-badge">0</span></h2>
+          <button type="button" class="btn-nav" id="refreshCasesBtn">Aktualisieren</button>
+        </div>
+        <p class="fraud-help">Gruppiert nach Ursprungsfirma — Löschen entfernt alle Personen des Falls von der Watchlist.</p>
+        <div id="caseList"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="caseModal" class="watch-case-modal hidden" role="dialog" aria-modal="true" aria-labelledby="caseModalTitle">
+    <div class="watch-case-modal-backdrop" data-close-modal></div>
+    <div class="watch-case-modal-panel fraud-panel">
+      <div class="watch-case-modal-head">
+        <div>
+          <p class="header-eyebrow">Personenakte / Case</p>
+          <h2 id="caseModalTitle">—</h2>
+        </div>
+        <button type="button" class="btn-nav" data-close-modal aria-label="Schliessen">Schliessen</button>
+      </div>
+      <p id="caseModalMeta" class="fraud-entry-meta"></p>
+      <p id="caseModalStatus" class="fraud-help"></p>
+      <div id="caseModalBody" class="watch-case-modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/watchlist.js"></script>
+</body>
+</html>

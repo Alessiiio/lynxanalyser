@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx · Admin</p>
+            <h1>Admin-Panel</h1>
+            <p class="header-sub">Anwendungseinstellungen, Anonymisierung und Benutzer.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <p id="adminMsg" class="fraud-help" role="status"></p>
+
+    <section class="fraud-panel admin-panel">
+      <div class="fraud-panel-head">
+        <h2>Demo &amp; Anonymisierung</h2>
+      </div>
+      <label class="admin-toggle-row">
+        <input type="checkbox" id="adminAnonToggle">
+        <span>
+          <strong>Anonymisierungsmodus</strong>
+          <span class="fraud-help">Maskiert Firmen-, Personen- und Ortsnamen in der UI (stabil hash-basiert). Ideal für Tests, Demos und Screenshots. Daten in der DB bleiben unverändert.</span>
+        </span>
+      </label>
+      <p id="adminAnonMeta" class="fraud-help"></p>
+    </section>
+
+    <section class="fraud-panel admin-panel">
+      <div class="fraud-panel-head">
+        <h2>Runtime (.env — nur Lesen)</h2>
+      </div>
+      <dl id="adminRuntime" class="admin-runtime"></dl>
+      <p class="fraud-help">API-Keys und Secrets nur über <code>.env</code> / Deployment — nicht hier.</p>
+    </section>
+
+    <section class="fraud-panel admin-panel">
+      <div class="fraud-panel-head">
+        <h2>Benutzer</h2>
+        <button type="button" class="btn-nav" id="adminRefreshUsers">Aktualisieren</button>
+      </div>
+      <ul id="adminUserList" class="admin-user-list"></ul>
+
+      <h3 class="profiler-section-title">Neuer Benutzer</h3>
+      <form id="adminCreateUser" class="admin-create-form">
+        <label class="profiler-field">
+          <span>Benutzername</span>
+          <input name="username" required minlength="2" maxlength="64" autocomplete="off">
+        </label>
+        <label class="profiler-field">
+          <span>Anzeigename</span>
+          <input name="display_name" required maxlength="128">
+        </label>
+        <label class="profiler-field">
+          <span>Rolle</span>
+          <select name="role" class="ca-select">
+            <option value="case_manager">Case Manager</option>
+            <option value="compliance">Compliance</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <label class="profiler-field">
+          <span>Passwort (min. 12)</span>
+          <input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password">
+        </label>
+        <button type="submit" class="btn-check">Anlegen</button>
+      </form>
+    </section>
+
+    <section class="fraud-panel admin-panel">
+      <div class="fraud-panel-head">
+        <h2>Schnellzugriff</h2>
+      </div>
+      <div class="admin-quick-links">
+        <a class="btn-nav" href="/profiler">Profiler</a>
+        <a class="btn-nav" href="/profiler-cases">Profiler-Fälle</a>
+        <a class="btn-nav" href="/api/health/detail" target="_blank" rel="noopener">Health Detail</a>
+        <a class="btn-nav" href="/">Firmenanalyse</a>
+      </div>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blocklist — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="progress-bar"></div>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Blocklist</h1>
+            <p class="header-sub">Vom Analyst bestätigte Betrugs-Domains — für schnelle Erkennung und KI-Lernen.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <label class="expert-toggle" title="Technische Details auf anderen Seiten">
+            <span class="expert-toggle-label">Expertenmodus</span>
+            <input type="checkbox" id="expertModeToggle">
+            <span class="expert-toggle-slider"></span>
+          </label>
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section class="search-card">
+      <div class="goldlist-list-header">
+        <h2 class="section-title">Bestätigte Betrugs-Domains</h2>
+        <span id="blocklistCount" class="goldlist-count">0 Einträge</span>
+      </div>
+      <p class="section-hint">Neue Einträge werden über «Als Betrug bestätigen» auf der Check-Seite hinzugefügt.</p>
+      <p id="blocklistEmpty" class="section-hint">Noch keine Domains auf der Blocklist.</p>
+      <ul id="blocklistItems" class="blocklist-items"></ul>
+    </section>
+  </div>
+
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/blocklist.js"></script>
+</body>
+</html>

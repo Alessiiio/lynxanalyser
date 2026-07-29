@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.py[cod]
+.env
+*.egg-info/
+.DS_Store
+fraud_checks.db
+*.db-journal
+*.db-wal
+*.db-shm
+compliance_reports/
+case_reports/
+data/shab_month_cache/
+LAUNCH_ACCESS.txt
+

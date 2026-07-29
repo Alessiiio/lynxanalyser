@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firmenanalyse — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <div class="container ca-page is-idle" id="caPage">
+    <header class="site-header ca-header-compact">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Firmenanalyse</h1>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section id="caIdleHome" class="ca-idle" aria-label="Start">
+      <div class="ca-idle-hero">
+        <img class="ca-idle-mark" src="/static/img/lynx-mark-256.png?v=2" width="112" height="112" alt="" decoding="async">
+        <p class="ca-idle-name">Lynx</p>
+        <h2 class="ca-idle-tagline">Tarnfirmen im Netz erkennen</h2>
+        <p class="ca-idle-lead">HR-Netzwerk prüfen — optional vor dem Anruf, Pflicht für die Akte danach.</p>
+      </div>
+    </section>
+
+    <section class="ca-search-bar search-card" id="caSearchBar">
+      <form id="searchForm" class="ca-search-form">
+        <div class="form-group ca-search-company" style="position:relative">
+          <label for="companyInput">Firma</label>
+          <input type="text" id="companyInput" placeholder="Name oder Autocomplete…" autocomplete="off" required>
+          <ul id="suggestBox" class="ca-suggest hidden"></ul>
+        </div>
+        <div class="ca-search-actions">
+          <button type="button" class="btn-nav ca-search-cancel-btn hidden" id="caSearchCancelBtn">Abbrechen</button>
+          <button type="submit" class="btn-check" id="searchBtn">Analysieren</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="caIdleExtras" class="ca-idle-extras">
+      <p id="caIdlePulse" class="ca-idle-pulse" aria-live="polite">
+        <a href="/cases" class="ca-idle-pulse-link"><strong id="caPulseCases">—</strong> offene Fälle</a>
+        <span class="ca-idle-pulse-sep" aria-hidden="true">·</span>
+        <a href="/watchlist" class="ca-idle-pulse-link"><strong id="caPulseWatch">—</strong> auf der Watchlist</a>
+      </p>
+
+      <nav class="ca-idle-shortcuts" aria-label="Schnellzugriff">
+        <a class="ca-idle-shortcut" href="/cases">Fälle</a>
+        <a class="ca-idle-shortcut" href="/watchlist">Watchlist</a>
+        <a class="ca-idle-shortcut" href="/website-check">Website-Check</a>
+        <a class="ca-idle-shortcut ca-idle-shortcut-admin hidden" href="/profiler" id="caIdleProfiler">Profiler</a>
+      </nav>
+    </div>
+
+    <section id="caRecentSearches" class="ca-recent search-card hidden" aria-label="Zuletzt gesucht">
+      <div class="ca-recent-head">
+        <h2 class="ca-recent-title">Zuletzt gesucht</h2>
+        <button type="button" class="ca-tool-link" id="caRecentClearBtn">Leeren</button>
+      </div>
+      <ul id="caRecentList" class="ca-recent-list"></ul>
+    </section>
+
+    <div id="branchSignalHint" class="ca-branch-hint fraud-help hidden"></div>
+    <div id="caError" class="hr-network-error hidden"></div>
+    <div id="caStatus" class="fraud-net-status hidden" role="status" aria-live="polite">
+      <div class="ca-status-row">
+        <span id="caStatusText"></span>
+      </div>
+      <div id="caProgressWrap" class="ca-progress-wrap hidden" aria-hidden="true">
+        <div id="caProgressBar" class="ca-progress-bar" style="width:0%"></div>
+      </div>
+    </div>
+    <div id="caNotify" class="ca-toast hidden" role="status" aria-live="polite"></div>
+
+    <section id="caResults" class="ca-results hidden">
+      <div class="ca-firm-bar" id="companyCard"></div>
+      <div id="warningsBox" class="ca-warnings hidden"></div>
+      <section id="caOpenCases" class="fraud-panel ca-open-cases hidden" style="margin-bottom:0.55rem">
+        <div class="fraud-panel-head">
+          <h2>Team — offene Fälle</h2>
+          <a class="btn-nav" href="/cases">Alle Fälle</a>
+        </div>
+        <div id="caOpenCasesBody" class="fraud-help">Lade…</div>
+      </section>
+
+      <div class="ca-workspace">
+        <div class="ca-graph-col hr-graph-panel" id="caGraphPanel">
+          <div class="fraud-graph-toolbar">
+            <span class="fraud-graph-title">Netzwerk</span>
+            <span id="caHeavyBadge" class="ca-heavy-badge hidden" title="Viele SHAB-/Personen-Einträge — tiefe Suche kann belasten">Grossfirma</span>
+            <div class="ca-graph-find-wrap" id="caGraphFindWrap">
+              <input type="search" id="caGraphFindInput" class="ca-graph-find-input" placeholder="Knoten suchen…" autocomplete="off" aria-label="Knoten im Netzwerk suchen">
+              <span id="caGraphFindMeta" class="ca-graph-find-meta" aria-live="polite"></span>
+            </div>
+            <button type="button" class="btn-nav ca-search-start-btn" id="deepBtn">Suche starten</button>
+          </div>
+          <div class="ca-level-slider-wrap">
+            <label class="ca-level-slider-label" for="deepLevelRange">
+              Ebene <strong id="deepLevelValue">2</strong>
+              <span id="deepLevelTitle" class="ca-level-slider-title">Ehemalige + Struktur</span>
+            </label>
+            <input type="range" id="deepLevelRange" class="ca-level-slider" min="1" max="5" step="1" value="2"
+              list="deepLevelTicks" aria-label="Analyse-Ebene">
+            <datalist id="deepLevelTicks">
+              <option value="1" label="E1"></option>
+              <option value="2" label="E2"></option>
+              <option value="3" label="E3"></option>
+              <option value="4" label="E4"></option>
+              <option value="5" label="E5"></option>
+            </datalist>
+            <div class="ca-level-ticks" aria-hidden="true">
+              <span>E1</span><span>E2</span><span>E3</span><span>E4</span><span>E5</span>
+            </div>
+          </div>
+          <div class="ca-graph-stage">
+            <div id="caGraph" class="hr-graph-canvas ca-graph-canvas"></div>
+            <div class="ca-graph-controls" aria-label="Graph-Steuerung">
+              <button type="button" class="ca-graph-ctrl" id="graphFullscreenBtn" title="Vollbild" aria-label="Netzwerk Vollbild" aria-pressed="false">
+                <svg class="ca-fs-icon-expand" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>
+                </svg>
+                <svg class="ca-fs-icon-collapse hidden" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>
+                </svg>
+              </button>
+              <button type="button" class="ca-graph-ctrl" id="graphZoomInBtn" title="Vergrössern" aria-label="Vergrössern">+</button>
+              <button type="button" class="ca-graph-ctrl" id="graphZoomOutBtn" title="Verkleinern" aria-label="Verkleinern">−</button>
+              <button type="button" class="ca-graph-ctrl" id="fitGraphBtn" title="Zentrieren / Einpassen" aria-label="Zentrieren">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+                  <path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <ul class="ca-graph-legend" aria-label="Legende">
+            <li><span class="ca-leg-swatch ca-leg-seed"></span><span>Kernfirma</span></li>
+            <li><span class="ca-leg-swatch ca-leg-company"></span><span>Verbunden</span></li>
+            <li><span class="ca-leg-swatch ca-leg-person" aria-hidden="true"></span><span>Person</span></li>
+            <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig</span></li>
+            <li><span class="ca-leg-swatch ca-leg-case" aria-hidden="true">⚠</span><span>Fall / Watchlist</span></li>
+          </ul>
+        </div>
+
+        <aside class="ca-side">
+          <div class="ca-side-tabs" role="tablist">
+            <button type="button" class="ca-side-tab is-active" data-side="persons">Personen</button>
+            <button type="button" class="ca-side-tab" data-side="timeline">Timeline</button>
+            <button type="button" class="ca-side-tab" data-side="details">Details</button>
+          </div>
+          <div id="sidePersons" class="ca-side-panel is-active">
+            <div id="personsBox"></div>
+          </div>
+          <div id="sideTimeline" class="ca-side-panel">
+            <div id="timelineBox"></div>
+          </div>
+          <div id="sideDetails" class="ca-side-panel">
+            <div id="detailsBox"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <div id="caHeavyModal" class="ca-heavy-modal hidden" role="dialog" aria-modal="true" aria-labelledby="caHeavyModalTitle">
+    <div class="ca-heavy-modal-backdrop" data-heavy-close></div>
+    <div class="ca-heavy-modal-panel">
+      <h2 id="caHeavyModalTitle">Tiefe Suche — Performance</h2>
+      <p id="caHeavyModalBody" class="ca-heavy-modal-body"></p>
+      <p class="ca-heavy-modal-hint">Empfehlung: sichere Suche (Ebene ≤ 2, weniger Personensuchen).</p>
+      <div class="ca-heavy-modal-actions">
+        <button type="button" class="btn-nav ca-heavy-cancel" data-heavy-close>Abbrechen</button>
+        <div class="ca-heavy-modal-primary">
+          <button type="button" class="btn-check" id="caHeavySafeBtn">Sichere Suche</button>
+          <button type="button" class="btn-nav" id="caHeavyFullBtn">Trotzdem fortfahren</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/cantons.js"></script>
+  <script src="/static/company-analysis.js"></script>
+  <script src="/static/profiler-enter.js"></script>
+</body>
+</html>

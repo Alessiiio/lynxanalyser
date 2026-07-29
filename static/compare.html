@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vergleich — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Zwei Webseiten vergleichen</h1>
+            <p class="header-sub">Parallele Prüfung — z.B. echte Bank-URL vs. verdächtige Kopie.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <label class="expert-toggle" title="Technische Details anzeigen">
+            <span class="expert-toggle-label">Expertenmodus</span>
+            <input type="checkbox" id="expertModeToggle">
+            <span class="expert-toggle-slider"></span>
+          </label>
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <section class="search-card">
+      <form id="compareForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="urlA">Webseite A</label>
+            <input type="text" id="urlA" placeholder="https://echte-seite.ch" required>
+          </div>
+          <div class="form-group">
+            <label for="urlB">Webseite B</label>
+            <input type="text" id="urlB" placeholder="https://verdaechtig.example" required>
+          </div>
+        </div>
+        <button type="submit" class="btn-check" id="compareBtn">Vergleich starten</button>
+      </form>
+    </section>
+
+    <section id="compareResults" class="hidden">
+      <div class="compare-grid" id="compareGrid"></div>
+    </section>
+  </div>
+
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/compare.js"></script>
+</body>
+</html>

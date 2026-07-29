@@ -1,0 +1,53 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: production
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      HTTPS_ONLY: "1"
+      # App is not published; only Caddy can reach it.
+      FORWARDED_ALLOW_IPS: "*"
+      DATABASE_PATH: /app/data/fraud_checks.db
+      GOLDLIST_PATH: /app/data/goldlist.txt
+      BLOCKLIST_PATH: /app/data/blocklist.json
+      ALLOWED_HOSTS: "${DOMAIN:-localhost},localhost,127.0.0.1"
+    volumes:
+      - lynx_data:/app/data
+      - lynx_case_reports:/app/case_reports
+      - lynx_compliance_reports:/app/compliance_reports
+    expose:
+      - "8000"
+    networks:
+      - lynx
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${DOMAIN:-localhost}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - lynx
+
+volumes:
+  lynx_data:
+  lynx_case_reports:
+  lynx_compliance_reports:
+  caddy_data:
+  caddy_config:
+
+networks:
+  lynx:
+    driver: bridge

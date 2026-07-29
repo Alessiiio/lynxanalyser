@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Akte — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1 id="caseTitle">Firmenakte</h1>
+            <p class="header-sub" id="caseSub"></p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button type="button" class="btn-nav" id="deleteCasePageBtn">Akte löschen</button>
+          <a class="btn-nav" href="/cases">Alle Fälle</a>
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <ol class="fraud-steps" id="caseStepper" aria-label="Fallstufen">
+      <li class="fraud-step" data-step="review"><span>1</span> In Prüfung</li>
+      <li class="fraud-step" data-step="confirm"><span>2</span> Bestätigung</li>
+      <li class="fraud-step" data-step="docs"><span>3</span> Dokumentation</li>
+      <li class="fraud-step" data-step="report"><span>4</span> Reporting</li>
+      <li class="fraud-step" data-step="closed"><span>5</span> Compliance</li>
+    </ol>
+
+    <p id="caseNextStep" class="case-next-step hidden" role="status"></p>
+    <p id="caseMsg" class="fraud-help"></p>
+
+    <section class="fraud-panel case-context-panel" id="panelHitContext">
+      <button type="button" class="case-hit-toggle" id="hitContextToggle" aria-expanded="true" aria-controls="hitContextBody">
+        <span class="case-hit-toggle-main">
+          <span class="case-hit-chevron" aria-hidden="true">▾</span>
+          <strong>Zahlungs-Hit</strong>
+          <span class="fraud-help case-hit-toggle-hint">Optional — ohne Kundendaten</span>
+        </span>
+        <span class="case-hit-summary" id="hitContextSummary"></span>
+      </button>
+      <div id="hitContextBody" class="case-hit-body">
+        <p class="fraud-help">Betrag, Währung und Zahlungszweck aus dem Detection-Hit. Hilft der Akte nach dem Kundengespräch.</p>
+        <div class="case-hit-grid" id="hitContextForm">
+          <label class="case-confirm-label" for="hitAmount">Betrag</label>
+          <input type="number" id="hitAmount" class="watch-reason" step="0.01" min="0" placeholder="z. B. 49990">
+          <label class="case-confirm-label" for="hitCurrency">Währung</label>
+          <input type="text" id="hitCurrency" class="watch-reason" maxlength="3" placeholder="CHF" value="CHF">
+          <label class="case-confirm-label" for="hitReference">Zahlungszweck / Ref.</label>
+          <input type="text" id="hitReference" class="watch-reason" maxlength="256" placeholder="z. B. Renovation">
+          <label class="case-confirm-label" for="hitNote">Kurznotiz (intern)</label>
+          <input type="text" id="hitNote" class="watch-reason" maxlength="1024" placeholder="Same day · Detection-Hit — keine Kundennamen">
+        </div>
+        <div class="fraud-inline-actions case-hit-actions">
+          <button type="button" class="btn-case-equal btn-case-confirm" id="saveHitContextBtn" style="width:auto;min-width:10rem">Kontext speichern</button>
+        </div>
+        <p id="hitContextReadonly" class="case-hit-readonly hidden"></p>
+      </div>
+    </section>
+
+    <section class="fraud-panel" id="panelConfirm">
+      <div class="fraud-panel-head"><h2>Bestätigung</h2></div>
+      <p class="fraud-help">
+        Typischer Ablauf: Kundengespräch → Betrug erkannt oder entkräftet → hier festhalten.
+        Netzwerk-Prüfung in der Firmenanalyse ist ein Bonus, keine Pflicht.
+      </p>
+      <div class="case-confirm-block" id="confirmActions">
+        <label class="case-confirm-label" for="fraudType">Betrugsart</label>
+        <select id="fraudType" class="ca-select case-confirm-select">
+          <option value="">Betrugsart wählen…</option>
+          <option value="investment_scam">Investment-Scam</option>
+          <option value="fake_bank_employee">Falscher Bankmitarbeiter</option>
+          <option value="romance_scam">Romance-Scam</option>
+          <option value="other">Sonstiges</option>
+        </select>
+        <div class="case-confirm-btns">
+          <button type="button" class="btn-case-equal btn-case-confirm" id="confirmFraudBtn">Betrug bestätigt</button>
+          <button type="button" class="btn-case-equal btn-case-clear" id="clearCaseBtn">Kein Betrug — schliessen</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="fraud-panel" id="panelDocs">
+      <div class="fraud-panel-head">
+        <h2>Dokumentation</h2>
+        <span id="checkProgress" class="fraud-badge">0/0</span>
+      </div>
+      <p class="fraud-help" id="checkGateHint">Sicherung, Bankbeziehung zu Firma/Organen, dann Journal.</p>
+      <nav class="docs-wiz-nav" id="docsWizardNav" aria-label="Dokumentationsschritte"></nav>
+      <div class="docs-wiz-stage" id="docsWizardStage"></div>
+      <input type="checkbox" id="paymentBlocked" class="hidden" tabindex="-1" aria-hidden="true">
+      <input type="hidden" id="paymentNote" value="">
+      <textarea id="journalText" class="hidden" aria-hidden="true" maxlength="4000"></textarea>
+      <div id="bankChecks" class="hidden" aria-hidden="true"></div>
+      <div id="journalList" class="hidden" aria-hidden="true"></div>
+    </section>
+
+    <section class="fraud-panel" id="panelReport">
+      <div class="fraud-panel-head"><h2>Reporting</h2></div>
+      <p class="fraud-help" id="reportHint">Report erst nach vollständiger Checkliste — Übergabe an Compliance.</p>
+      <div class="case-confirm-btns" style="max-width:28rem">
+        <button type="button" class="btn-case-equal btn-case-confirm" id="generateReportBtn" disabled title="Checkliste unvollständig">Report erzeugen</button>
+        <a class="btn-case-equal btn-case-clear hidden" id="downloadReportBtn" href="#" target="_blank" rel="noopener">Report herunterladen</a>
+      </div>
+    </section>
+
+    <section class="fraud-panel hidden" id="panelCompliance">
+      <div class="fraud-panel-head"><h2>Compliance — Fall abschliessen</h2></div>
+      <p class="fraud-help" id="complianceHint">
+        Report liegt vor. Mit Notiz als erledigt markieren → Fall wird geschlossen (weiterhin einsehbar).
+      </p>
+      <div class="watch-status-row" id="complianceActions">
+        <input type="text" id="complianceNote" class="watch-reason" placeholder="Compliance-Notiz (Pflicht)" maxlength="1024">
+        <button type="button" class="btn-case-equal btn-case-confirm" id="actionCaseBtn" style="width:auto;min-width:12rem">Actioned — Fall schliessen</button>
+      </div>
+      <p class="fraud-help hidden" id="complianceDone"></p>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/case.js"></script>
+</body>
+</html>
