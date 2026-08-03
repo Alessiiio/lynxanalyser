@@ -22,6 +22,7 @@ data/shab_month_cache/
 data/fraud_network_cache/
 *.md
 !README.md
+!CHANGELOG.md
 deploy/
 LAUNCH_ACCESS.txt
 assets/
