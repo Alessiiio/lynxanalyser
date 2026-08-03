@@ -22,11 +22,14 @@ from app.database import (
     WatchedPersonStatusHistory,
     async_session,
 )
+from app.hr_network.moneyhouse_person import search_person_mandates
 from app.hr_network.person_search import (
+    _CANTON_REGISTRY,
     _person_label_matches,
     parse_person_query,
     search_person_in_sogc,
 )
+from app.hr_network.zefix_resolve import format_company_uid, resolve_company_detail
 
 logger = logging.getLogger(__name__)
 
@@ -104,9 +107,9 @@ async def _get_or_create_scan_row(session, person_id: int) -> PersonWatchScan:
     row = result.scalar_one_or_none()
     if row:
         return row
-    # First scan: look back 6 years (not 12) — keeps interactive SHAB scans usable.
+    # First scan: 3y lookback for interactive CH-wide scans (extend via repeat scans).
     today = date.today()
-    start = today.replace(year=today.year - 6)
+    start = today.replace(year=today.year - 3)
     row = PersonWatchScan(
         person_id=person_id,
         last_scanned_month=f"{start.year:04d}-{start.month:02d}",
@@ -117,7 +120,77 @@ async def _get_or_create_scan_row(session, person_id: int) -> PersonWatchScan:
     return row
 
 
-async def scan_watched_person_incremental(person_id: int) -> dict[str, Any]:
+async def _seed_exclude_uid(
+    *,
+    seed_uid: str | None,
+    source_company_ehraid: int | None,
+    source_company_name: str | None,
+) -> str | None:
+    """Resolve seed company UID so the SHAB scan can skip the known firm."""
+    if seed_uid:
+        return seed_uid
+    from app.checks.zefix_check import _zefix_get
+
+    if source_company_ehraid:
+        try:
+            detail = await asyncio.to_thread(
+                _zefix_get, f"/company/ehraid/{int(source_company_ehraid)}"
+            )
+            if isinstance(detail, dict) and detail.get("uid"):
+                return str(detail["uid"])
+        except Exception:
+            logger.debug(
+                "SHAB exclude_uid: ehraid %s failed", source_company_ehraid, exc_info=True
+            )
+    if source_company_name:
+        try:
+            detail = await resolve_company_detail(source_company_name, None)
+            if detail.get("uid"):
+                return str(detail["uid"])
+        except Exception:
+            logger.debug("SHAB exclude_uid: name resolve failed", exc_info=True)
+    return None
+
+
+async def _resolve_watch_shab_scope(
+    *,
+    canton_override: str | None,
+    source_company_ehraid: int | None,
+    source_company_name: str | None,
+    seed_uid: str | None,
+) -> dict[str, Any]:
+    """
+    Default: ganze Schweiz — Mandate in mehreren Kantonen müssen sichtbar sein.
+    Optionaler Kanton nur als manueller Schnellfilter (unvollständig).
+    """
+    exclude_uid = await _seed_exclude_uid(
+        seed_uid=seed_uid,
+        source_company_ehraid=source_company_ehraid,
+        source_company_name=source_company_name,
+    )
+    override = (canton_override or "").strip().upper() or None
+    if override and override in _CANTON_REGISTRY:
+        return {
+            "registry_office_id": _CANTON_REGISTRY[override],
+            "canton": override,
+            "exclude_uid": exclude_uid,
+            "scope_source": "manual_canton",
+        }
+
+    return {
+        "registry_office_id": None,
+        "canton": None,
+        "exclude_uid": exclude_uid,
+        "scope_source": "nationwide",
+    }
+
+
+async def scan_watched_person_incremental(
+    person_id: int,
+    *,
+    canton: str | None = None,
+    include_shab: bool = False,
+) -> dict[str, Any]:
     async with async_session() as session:
         person = await session.get(WatchedPerson, person_id)
         if not person:
@@ -130,32 +203,140 @@ async def scan_watched_person_incremental(person_id: int) -> dict[str, Any]:
         months = _months_from(last_month, include_overlap=2)
         years_back = max(1, len(months) // 12 + 1)
 
-        # Prefer registry from source company if we stored ehraid only — fall back nationwide.
-        registry_office_id = None
+        display_name = person.display_name
+        residence = person.residence
+        source_ehraid = person.source_company_ehraid
+        source_name = person.source_company_name
+
+        links = list(
+            (
+                await session.execute(
+                    select(PersonCompanyLink).where(PersonCompanyLink.person_id == person_id)
+                )
+            ).scalars().all()
+        )
+        seed_only_like = (not links) or all(
+            l.is_seed_company or l.relation_type == "seed" for l in links
+        )
+        if include_shab and seed_only_like and len(months) <= 4:
+            today = date.today()
+            start = today.replace(year=today.year - 3)
+            scan_row.last_scanned_month = f"{start.year:04d}-{start.month:02d}"
+            last_month = scan_row.last_scanned_month
+            months = _months_from(last_month, include_overlap=2)
+            years_back = max(1, len(months) // 12 + 1)
+
+        seed_uid = None
+        for link in links:
+            if link.is_seed_company or link.relation_type == "seed":
+                if link.company_uid:
+                    seed_uid = link.company_uid
+                    break
+        if not seed_uid:
+            for link in links:
+                if link.company_uid:
+                    seed_uid = link.company_uid
+                    break
 
         await session.commit()
 
-    # Run search outside the session hold
-    try:
-        result = await search_person_in_sogc(
-            person.display_name,
-            exclude_uid=None,
-            registry_office_id=registry_office_id,
-            years_back=min(years_back, 6),
-            max_seconds=45.0,
-            deep=False,
-        )
-    except Exception as e:
-        logger.warning("Incremental scan failed for %s: %s", person.display_name, e)
-        return {"error": str(e), "new_links": 0, "alerts": 0}
+    # ── 1) Primary: Moneyhouse person search → Zefix firm resolve ─────────
+    mh = await asyncio.to_thread(
+        search_person_mandates, display_name, residence=residence
+    )
+    matches: list[dict[str, Any]] = []
+    zefix_resolved = 0
+    zefix_failed: list[str] = []
 
-    # Filter to months we care about
-    month_set = {f"{y:04d}-{m:02d}" for y, m in months}
-    matches = []
-    for hit in result.get("matches") or []:
-        sogc = (hit.get("sogc_date") or "")[:7]
-        if not month_set or sogc in month_set or not sogc:
-            matches.append(hit)
+    for company in mh.get("companies") or []:
+        cname = (company.get("name") or "").strip()
+        if not cname:
+            continue
+        try:
+            detail = await resolve_company_detail(cname, None)
+        except Exception as e:
+            logger.info("Zefix resolve failed for Moneyhouse firm %r: %s", cname, e)
+            zefix_failed.append(cname)
+            matches.append(
+                {
+                    "name": cname,
+                    "uid": None,
+                    "ehraid": None,
+                    "role_hint": None,
+                    "sogc_date": company.get("from"),
+                    "snippet": "Moneyhouse-Mandat (Zefix-Auflösung ausstehend)",
+                    "person_name": (mh.get("matched_person") or {}).get("name"),
+                    "source": "moneyhouse",
+                }
+            )
+            continue
+        zefix_resolved += 1
+        matches.append(
+            {
+                "name": detail.get("name") or cname,
+                "uid": format_company_uid(detail) or detail.get("uid"),
+                "ehraid": detail.get("ehraid"),
+                "role_hint": None,
+                "sogc_date": company.get("from") or detail.get("sogcDate"),
+                "snippet": f"Moneyhouse-Mandat · Zefix {detail.get('status') or ''}".strip(),
+                "person_name": (mh.get("matched_person") or {}).get("name"),
+                "legal_seat": detail.get("legalSeat"),
+                "source": "moneyhouse+zefix",
+            }
+        )
+
+    # ── 2) Optional SHAB supplement (slow; off by default for watchlist UI) ─
+    shab_result: dict[str, Any] | None = None
+    if include_shab:
+        scope = await _resolve_watch_shab_scope(
+            canton_override=canton,
+            source_company_ehraid=source_ehraid,
+            source_company_name=source_name,
+            seed_uid=seed_uid,
+        )
+        registry_office_id = scope.get("registry_office_id")
+        canton_code = scope.get("canton")
+        has_cantonal = bool(registry_office_id or canton_code)
+        if has_cantonal:
+            years_back = min(years_back, 12)
+            max_seconds = 70.0
+        else:
+            years_back = min(years_back, 3)
+            max_seconds = 60.0
+        try:
+            shab_result = await search_person_in_sogc(
+                display_name,
+                exclude_uid=scope.get("exclude_uid"),
+                registry_office_id=registry_office_id,
+                canton=canton_code,
+                all_cantons=False,
+                years_back=years_back,
+                max_seconds=max_seconds,
+                deep=False,
+            )
+            month_set = {f"{y:04d}-{m:02d}" for y, m in months}
+            known_keys = {
+                re.sub(r"\D", "", str(m.get("uid") or ""))
+                or str(m.get("ehraid") or m.get("name") or "").lower()
+                for m in matches
+            }
+            for hit in shab_result.get("matches") or []:
+                sogc = (hit.get("sogc_date") or "")[:7]
+                if month_set and sogc and sogc not in month_set:
+                    continue
+                key = (
+                    re.sub(r"\D", "", str(hit.get("uid") or ""))
+                    or str(hit.get("ehraid") or hit.get("name") or "").lower()
+                )
+                if key in known_keys:
+                    continue
+                known_keys.add(key)
+                hit = dict(hit)
+                hit["source"] = "shab"
+                matches.append(hit)
+        except Exception as e:
+            logger.warning("Optional SHAB supplement failed for %s: %s", display_name, e)
+            shab_result = {"error": str(e)}
 
     new_links = 0
     alerts_created = 0
@@ -164,15 +345,17 @@ async def scan_watched_person_incremental(person_id: int) -> dict[str, Any]:
     async with async_session() as session:
         person = await session.get(WatchedPerson, person_id)
         scan_row = await _get_or_create_scan_row(session, person_id)
-        existing = await session.execute(
-            select(PersonCompanyLink).where(PersonCompanyLink.person_id == person_id)
+        existing_links = list(
+            (
+                await session.execute(
+                    select(PersonCompanyLink).where(PersonCompanyLink.person_id == person_id)
+                )
+            ).scalars().all()
         )
         known_ehraids = {
-            link.company_ehraid for link in existing.scalars().all() if link.company_ehraid
+            link.company_ehraid for link in existing_links if link.company_ehraid
         }
-        known_names = {
-            (link.company_name or "").lower() for link in existing.scalars().all()
-        }
+        known_names = {(link.company_name or "").lower() for link in existing_links}
 
         for hit in matches:
             ehraid = hit.get("ehraid")
@@ -184,12 +367,16 @@ async def scan_watched_person_incremental(person_id: int) -> dict[str, Any]:
                 continue
 
             confidence = estimate_match_confidence(watched=person, hit=hit)
+            if (hit.get("source") or "").startswith("moneyhouse"):
+                confidence = "high" if ehraid_i else "medium"
             role = hit.get("role_hint")
             link = PersonCompanyLink(
                 person_id=person_id,
                 company_ehraid=ehraid_i,
                 company_name=name,
-                company_uid=hit.get("uid"),
+                company_uid=hit.get("uid") if isinstance(hit.get("uid"), str) else (
+                    str(hit.get("uid")) if hit.get("uid") else None
+                ),
                 role=role,
                 relation_type="newly_found",
                 is_seed_company=False,
@@ -205,10 +392,11 @@ async def scan_watched_person_incremental(person_id: int) -> dict[str, Any]:
             alert_type, severity = _alert_type_for_role(role)
             if confidence == "low":
                 severity = "low"
+            src = hit.get("source") or "scan"
             msg = (
                 f"«{person.display_name}» neu verknüpft mit «{name}»"
                 + (f" ({role})" if role else "")
-                + f" — Konfidenz: {confidence}"
+                + f" — Konfidenz: {confidence} · Quelle: {src}"
             )
             alert = NetworkAlert(
                 alert_type=alert_type,
@@ -227,23 +415,47 @@ async def scan_watched_person_incremental(person_id: int) -> dict[str, Any]:
                 "severity": severity,
                 "company_name": name,
                 "confidence": confidence,
+                "source": src,
             })
 
         today = date.today()
-        scan_row.last_scanned_month = f"{today.year:04d}-{today.month:02d}"
+        # Moneyhouse path is complete for mandate discovery; advance cursor.
+        # If SHAB supplement was incomplete, keep cursor for retry.
+        shab_incomplete = bool(
+            include_shab and shab_result and shab_result.get("search_complete") is False
+        )
+        if not shab_incomplete:
+            scan_row.last_scanned_month = f"{today.year:04d}-{today.month:02d}"
         scan_row.last_run_at = datetime.now(timezone.utc)
         await session.commit()
 
+    matched = mh.get("matched_person") or {}
     return {
         "person_id": person_id,
-        "display_name": person.display_name,
-        "months_considered": len(months),
-        "raw_matches": len(result.get("matches") or []),
+        "display_name": display_name,
+        "months_considered": len(months) if include_shab else 0,
+        "raw_matches": len(matches),
         "new_links": new_links,
         "alerts": alerts_created,
         "created_alerts": created_alerts,
-        "search_elapsed": result.get("elapsed_seconds"),
-        "search_complete": result.get("search_complete"),
+        "method": "moneyhouse_person+zefix",
+        "moneyhouse": {
+            "matched_person": matched.get("name"),
+            "residence": matched.get("residence"),
+            "companies_found": len(mh.get("companies") or []),
+            "candidates": mh.get("candidates"),
+            "note": mh.get("note"),
+            "enabled": mh.get("enabled"),
+        },
+        "zefix_resolved": zefix_resolved,
+        "zefix_failed": zefix_failed,
+        "include_shab": include_shab,
+        "search_elapsed": (shab_result or {}).get("elapsed_seconds"),
+        "search_complete": not shab_incomplete,
+        "registry_scope": (shab_result or {}).get("registry_scope") or "Moneyhouse→Zefix",
+        "canton": canton,
+        "note": mh.get("note") or (shab_result or {}).get("note"),
+        "nationwide": False,
     }
 
 
@@ -568,6 +780,8 @@ async def list_watched_persons(
                 "source_company_name": p.source_company_name,
                 "source_reason": p.source_reason,
                 "status": p.status,
+                "flag_undesired_customer": bool(getattr(p, "flag_undesired_customer", False)),
+                "flag_aml": bool(getattr(p, "flag_aml", False)),
                 "added_at": p.added_at.isoformat() if p.added_at else None,
                 "notes": p.notes,
                 "company_count": len(links),
@@ -691,6 +905,8 @@ async def get_watched_person_dossier(person_id: int) -> dict[str, Any]:
             "source_company_name": person.source_company_name,
             "source_reason": person.source_reason,
             "status": person.status,
+            "flag_undesired_customer": bool(getattr(person, "flag_undesired_customer", False)),
+            "flag_aml": bool(getattr(person, "flag_aml", False)),
             "added_at": person.added_at.isoformat() if person.added_at else None,
             "notes": person.notes,
             "case_notes": person.case_notes,
@@ -826,6 +1042,28 @@ async def update_watched_person_case_notes(person_id: int, case_notes: str) -> d
         person.case_notes = (case_notes or "")[:4000] or None
         await session.commit()
         return {"id": person.id, "case_notes": person.case_notes}
+
+
+async def update_watched_person_flags(
+    person_id: int,
+    *,
+    flag_undesired_customer: bool | None = None,
+    flag_aml: bool | None = None,
+) -> dict[str, Any]:
+    async with async_session() as session:
+        person = await session.get(WatchedPerson, person_id)
+        if not person:
+            raise LookupError("Person nicht gefunden")
+        if flag_undesired_customer is not None:
+            person.flag_undesired_customer = bool(flag_undesired_customer)
+        if flag_aml is not None:
+            person.flag_aml = bool(flag_aml)
+        await session.commit()
+        return {
+            "id": person.id,
+            "flag_undesired_customer": bool(person.flag_undesired_customer),
+            "flag_aml": bool(person.flag_aml),
+        }
 
 
 async def update_watched_person_status(

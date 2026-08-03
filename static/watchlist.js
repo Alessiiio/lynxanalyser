@@ -7,6 +7,11 @@ const STATUSES = [
   { value: "confirmed_fraud", label: "Confirmed Fraud" },
 ];
 
+const STATUS_LABEL = Object.fromEntries(STATUSES.map((s) => [s.value, s.label]));
+
+let shabProgressTimer = null;
+let shabProgressValue = 0;
+
 function d(value, kind) {
   return typeof anon === "function" ? anon(value, kind) : value;
 }
@@ -60,12 +65,12 @@ async function openCaseModal(personId, { autoScan = false } = {}) {
   const body = document.getElementById("caseModalBody");
   const title = document.getElementById("caseModalTitle");
   const meta = document.getElementById("caseModalMeta");
-  const statusEl = document.getElementById("caseModalStatus");
+  stopShabProgress(true);
   modal.classList.remove("hidden");
   document.body.classList.add("watch-modal-open");
   title.textContent = "Lade Akte…";
   meta.textContent = "";
-  statusEl.textContent = "";
+  setCaseStatus("");
   body.innerHTML = `<p class="fraud-help">Lade Registerdaten…</p>`;
 
   const resp = await fetch(`/api/watched-persons/${personId}`);
@@ -77,10 +82,11 @@ async function openCaseModal(personId, { autoScan = false } = {}) {
   currentDossier = p;
   renderCaseModal(p);
 
-  // Kein Auto-SHAB-Scan — blockiert die UI ~30–60s. Nur manuell per Button.
+  // Kein Auto-Scan — nur manuell per Button.
   if (p.seed_only || (p.companies || []).length <= 1) {
-    statusEl.textContent =
-      "Hinweis: Bisher nur Seed-Firma. «Weitere Firmen in SHAB suchen» manuell starten (kann ~1 Min. dauern).";
+    setCaseStatus(
+      "Bisher nur Seed-Firma. «Mandate suchen» nutzt Moneyhouse (Person) + Zefix (Firma)."
+    );
   }
 }
 
@@ -94,15 +100,16 @@ function renderCaseModal(p) {
   const sourceLink = sourceSafe
     ? `<a href="${esc(sourceSafe)}" target="_blank" rel="noopener">${esc(d(p.source_company_name, "company"))}</a>`
     : esc(d(p.source_company_name || "—", "company"));
+  const statusLabel = STATUS_LABEL[p.status] || p.status;
   const caseHint = p.has_company_case && p.linked_case_id
     ? `<a class="btn-nav" href="/cases/${p.linked_case_id}">Zur Firmenakte #${p.linked_case_id}</a>`
     : `<span class="watch-no-case-badge">Ohne Akte</span>
        <span class="fraud-help">Frühwarnung — bei Verdacht in der Firmenanalyse eine Akte eröffnen.</span>`;
   meta.innerHTML = `
-    <span class="fraud-speed-hint">${esc(p.status)}</span>
-    ${p.residence ? `<span>${esc(p.residence)}</span>` : ""}
-    <span>${esc(p.source_reason || "")}</span>
-    <span>Ursprung: ${sourceLink}</span>
+    <span class="watch-meta-pill watch-meta-pill--${esc(p.status || "active")}">${esc(statusLabel)}</span>
+    ${p.residence ? `<span class="watch-meta-pill">${esc(p.residence)}</span>` : ""}
+    ${p.source_reason ? `<span class="watch-meta-pill">${esc(p.source_reason)}</span>` : ""}
+    <span class="watch-meta-pill">Ursprung: ${sourceLink}</span>
     <span class="watch-case-hint-row">${caseHint}</span>
   `;
 
@@ -112,71 +119,96 @@ function renderCaseModal(p) {
   const onlySeed = p.seed_only || companies.every((c) => c.is_seed_company || c.relation_type === "seed");
 
   body.innerHTML = `
-    <div class="watch-case-grid">
-      <section class="watch-dossier-section">
-        <h3>1 · Status</h3>
-        <div class="watch-status-row">
-          <select id="dossierStatus" class="ca-select">
-            ${STATUSES.map((s) =>
-              `<option value="${s.value}" ${s.value === p.status ? "selected" : ""}>${s.label}</option>`
-            ).join("")}
-          </select>
-          <input id="dossierReason" class="watch-reason" placeholder="Begründung (Pflicht)" />
-          <button type="button" class="btn-nav" id="dossierSaveStatus">Speichern</button>
-        </div>
-        ${hist.length ? `<ul class="watch-hist-list">${hist.slice(0, 4).map((h) =>
-          `<li>${esc(h.changed_at)} · ${esc(h.old_status)} → ${esc(h.new_status)} · ${esc(h.changed_by)}</li>`
-        ).join("")}</ul>` : ""}
-      </section>
+    <div class="watch-case-layout">
+      <div class="watch-case-col watch-case-col--side">
+        <section class="watch-dossier-card">
+          <h3>Status &amp; Flags</h3>
+          <div class="watch-status-row">
+            <select id="dossierStatus" class="ca-select" aria-label="Status">
+              ${STATUSES.map((s) =>
+                `<option value="${s.value}" ${s.value === p.status ? "selected" : ""}>${s.label}</option>`
+              ).join("")}
+            </select>
+            <input id="dossierReason" class="watch-reason" placeholder="Begründung (Pflicht)" />
+            <button type="button" class="btn-nav" id="dossierSaveStatus">Speichern</button>
+          </div>
+          <div class="watch-flags-row">
+            <label class="watch-flag-check">
+              <input type="checkbox" id="flagUndesired" ${p.flag_undesired_customer ? "checked" : ""}>
+              <span>Unerwünschter Kunde</span>
+            </label>
+            <label class="watch-flag-check">
+              <input type="checkbox" id="flagAml" ${p.flag_aml ? "checked" : ""}>
+              <span>AML</span>
+            </label>
+            <button type="button" class="btn-nav" id="dossierSaveFlags">Flags speichern</button>
+          </div>
+          ${hist.length ? `<ul class="watch-hist-list">${hist.slice(0, 4).map((h) =>
+            `<li>${esc(formatDateTimeDisplay(h.changed_at))} · ${esc(h.old_status)} → ${esc(h.new_status)} · ${esc(h.changed_by)}</li>`
+          ).join("")}</ul>` : ""}
+        </section>
 
-      <section class="watch-dossier-section">
-        <h3>2 · Firmenverbindungen <span class="fraud-badge">${companies.length}</span></h3>
-        ${onlySeed ? `<p class="watch-seed-hint">Nur Seed-Firma vom bestätigten Fraud-Fall. Weitere Mandate erscheinen nach SHAB-Scan (öffentliche Register).</p>` : ""}
-        <div class="fraud-inline-actions" style="margin-bottom:0.5rem">
-          <button type="button" class="btn-check" id="dossierScan">Weitere Firmen in SHAB suchen</button>
-        </div>
-        ${companies.length ? `<div class="watch-table-wrap"><table class="watch-table">
-          <thead><tr><th>Firma</th><th>Rolle</th><th>Herkunft</th><th>Seit</th><th></th></tr></thead>
-          <tbody>${companies.map((c) => {
-            const origin = c.is_seed_company || c.relation_type === "seed"
-              ? "seed" : (c.relation_type === "newly_found" ? "newly_found" : (c.relation_type || "—"));
-            const href = c.name ? `/?company=${encodeURIComponent(c.name)}` : null;
-            return `<tr>
-              <td>${esc(d(c.name, "company"))}${c.uid ? `<div class="fraud-help">${esc(d(c.uid, "uid"))}</div>` : ""}</td>
-              <td>${esc(c.role || "—")}</td>
-              <td>${esc(origin)}</td>
-              <td>${esc((c.first_detected_at || "").slice(0, 10))}</td>
-              <td>${href ? `<a class="btn-nav" href="${href}">Analyse</a>` : ""}</td>
-            </tr>`;
-          }).join("")}</tbody>
-        </table></div>` : `<p class="fraud-help">Keine Firmenverbindungen.</p>`}
-      </section>
+        <section class="watch-dossier-card">
+          <h3>Fallnotiz</h3>
+          <p class="fraud-help">Sachverhalt, Hypothesen, Verweise — keine Bankkundendaten im Klartext.</p>
+          <textarea id="caseNotes" class="fraud-net-textarea" rows="5" placeholder="Was wissen wir? Was prüfen? Interne Referenzen…">${esc(p.case_notes || "")}</textarea>
+          <div class="fraud-inline-actions" style="margin-top:0.5rem">
+            <button type="button" class="btn-nav" id="saveCaseNotes">Notiz speichern</button>
+          </div>
+        </section>
+      </div>
 
-      <section class="watch-dossier-section">
-        <h3>3 · Fund-Historie <span class="fraud-badge">${alerts.length}</span></h3>
-        ${alerts.length ? `<ul class="fraud-side-list">${alerts.map((a) => `
-          <li>
-            <div class="fraud-side-item-title">${esc(a.severity)} · ${esc(a.alert_type)}
-              ${a.acknowledged ? `<span class="fraud-speed-hint">quittiert</span>` : ""}
-            </div>
-            <div class="fraud-entry-meta">${esc(a.message)}</div>
-            <div class="fraud-side-links">
-              ${!a.acknowledged ? `<button type="button" class="btn-nav" data-ack="${a.id}">Quittieren</button>` : ""}
-              <button type="button" class="btn-check" data-to-case="${a.id}">In neue Akte überführen</button>
-            </div>
-          </li>
-        `).join("")}</ul>` : `<p class="fraud-help">Keine Funde.</p>`}
-      </section>
+      <div class="watch-case-col watch-case-col--main">
+        <section class="watch-dossier-card">
+          <div class="watch-dossier-card-head">
+            <h3>Firmenverbindungen <span class="fraud-badge">${companies.length}</span></h3>
+          </div>
+          ${onlySeed ? `<p class="watch-seed-hint">Nur Seed-Firma bisher. Mandate werden per Moneyhouse-Personensuche gefunden und über Zefix (UID/EHRAID) verknüpft.</p>` : ""}
+          <div class="watch-scan-controls">
+            <button type="button" class="btn-check" id="dossierScan">Mandate suchen</button>
+            <label class="watch-flag-check" title="Optionaler SHAB-Nachscan (langsam)">
+              <input type="checkbox" id="dossierScanShab">
+              <span>+ SHAB</span>
+            </label>
+          </div>
+          <p class="fraud-help watch-scan-hint">Personensuche: Moneyhouse → Firmenabgleich: Zefix. Die Firmensuche / Analyse bleibt auf Zefix.</p>
+          ${companies.length ? `<div class="watch-table-wrap"><table class="watch-table">
+            <thead><tr><th>Firma</th><th>Rolle</th><th>Herkunft</th><th>Seit</th><th></th></tr></thead>
+            <tbody>${companies.map((c) => {
+              const origin = c.is_seed_company || c.relation_type === "seed"
+                ? "seed" : (c.relation_type === "newly_found" ? "newly_found" : (c.relation_type || "—"));
+              const href = c.name ? `/?company=${encodeURIComponent(c.name)}` : null;
+              return `<tr>
+                <td>${esc(d(c.name, "company"))}${c.uid ? `<div class="fraud-help">${esc(d(c.uid, "uid"))}</div>` : ""}</td>
+                <td>${esc(c.role || "—")}</td>
+                <td>${esc(origin)}</td>
+                <td>${esc(formatDateDisplay(c.first_detected_at))}</td>
+                <td>${href ? `<a class="btn-nav" href="${href}">Analyse</a>` : ""}</td>
+              </tr>`;
+            }).join("")}</tbody>
+          </table></div>` : `<p class="fraud-help">Keine Firmenverbindungen.</p>`}
+        </section>
 
-      <section class="watch-dossier-section">
-        <h3>4 · Fallnotiz (für Ermittlung)</h3>
-        <p class="fraud-help">Sachverhalt, Hypothesen, Verweise — keine Bankkundendaten im Klartext.</p>
-        <textarea id="caseNotes" class="fraud-net-textarea" rows="4" placeholder="Was wissen wir? Was prüfen? Interne Referenzen…">${esc(p.case_notes || "")}</textarea>
-        <div class="fraud-inline-actions" style="margin-top:0.5rem">
-          <button type="button" class="btn-nav" id="saveCaseNotes">Notiz speichern</button>
+        <section class="watch-dossier-card">
+          <h3>Fund-Historie <span class="fraud-badge">${alerts.length}</span></h3>
+          ${alerts.length ? `<ul class="fraud-side-list">${alerts.map((a) => `
+            <li>
+              <div class="fraud-side-item-title">${esc(a.severity)} · ${esc(a.alert_type)}
+                ${a.acknowledged ? `<span class="fraud-speed-hint">quittiert</span>` : ""}
+              </div>
+              <div class="fraud-entry-meta">${esc(a.message)}</div>
+              <div class="fraud-side-links">
+                ${!a.acknowledged ? `<button type="button" class="btn-nav" data-ack="${a.id}">Quittieren</button>` : ""}
+                <button type="button" class="btn-check" data-to-case="${a.id}">In neue Akte überführen</button>
+              </div>
+            </li>
+          `).join("")}</ul>` : `<p class="fraud-help">Keine Funde.</p>`}
+        </section>
+
+        <div class="watch-case-footer">
           <a class="btn-check" id="downloadDossier" href="/api/watched-persons/${p.id}/investigation-report" target="_blank" rel="noopener">Ermittlungsdossier PDF</a>
         </div>
-      </section>
+      </div>
     </div>
   `;
 
@@ -203,6 +235,23 @@ function wireCaseModalActions(personId) {
     }
     setCaseStatus(`Status → ${d.status}`);
     openCaseModal(personId, { autoScan: false });
+    loadPersons();
+  });
+
+  document.getElementById("dossierSaveFlags")?.addEventListener("click", async () => {
+    const flag_undesired_customer = !!document.getElementById("flagUndesired")?.checked;
+    const flag_aml = !!document.getElementById("flagAml")?.checked;
+    const r = await fetch(`/api/watched-persons/${personId}/flags`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ flag_undesired_customer, flag_aml }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      setCaseStatus(formatDetail(d.detail) || "Flags speichern fehlgeschlagen");
+      return;
+    }
+    setCaseStatus("Flags gespeichert");
     loadPersons();
   });
 
@@ -248,26 +297,100 @@ function wireCaseModalActions(personId) {
   });
 }
 
+function startShabProgress({ nationwide = false } = {}) {
+  stopShabProgress(false);
+  shabProgressValue = 4;
+  const feedback = document.getElementById("caseModalScanFeedback");
+  const wrap = document.getElementById("caseScanProgressWrap");
+  const bar = document.getElementById("caseScanProgressBar");
+  feedback?.classList.remove("hidden");
+  wrap?.classList.remove("hidden");
+  wrap?.setAttribute("aria-hidden", "false");
+  if (bar) bar.style.width = `${shabProgressValue}%`;
+
+  const eta = nationwide ? 55000 : 8000;
+  const tickMs = 280;
+  const targetBeforeDone = 92;
+  shabProgressTimer = setInterval(() => {
+    const step = Math.max(0.35, (targetBeforeDone - shabProgressValue) * (tickMs / eta) * 1.4);
+    shabProgressValue = Math.min(targetBeforeDone, shabProgressValue + step);
+    if (bar) bar.style.width = `${shabProgressValue.toFixed(1)}%`;
+  }, tickMs);
+}
+
+function finishShabProgress() {
+  return new Promise((resolve) => {
+    stopShabProgress(false);
+    const wrap = document.getElementById("caseScanProgressWrap");
+    const bar = document.getElementById("caseScanProgressBar");
+    shabProgressValue = 100;
+    if (bar) bar.style.width = "100%";
+    setTimeout(() => {
+      wrap?.classList.add("hidden");
+      wrap?.setAttribute("aria-hidden", "true");
+      if (bar) bar.style.width = "0%";
+      shabProgressValue = 0;
+      resolve();
+    }, 320);
+  });
+}
+
+function stopShabProgress(hide = true) {
+  if (shabProgressTimer) {
+    clearInterval(shabProgressTimer);
+    shabProgressTimer = null;
+  }
+  if (hide) {
+    const wrap = document.getElementById("caseScanProgressWrap");
+    const bar = document.getElementById("caseScanProgressBar");
+    const feedback = document.getElementById("caseModalScanFeedback");
+    wrap?.classList.add("hidden");
+    wrap?.setAttribute("aria-hidden", "true");
+    if (bar) bar.style.width = "0%";
+    if (feedback && !(document.getElementById("caseModalStatus")?.textContent || "").trim()) {
+      feedback.classList.add("hidden");
+    }
+    shabProgressValue = 0;
+  }
+}
+
 async function runShabScan(personId, { quiet = false } = {}) {
-  const statusEl = document.getElementById("caseModalStatus");
   const btn = document.getElementById("dossierScan");
+  const includeShab = !!document.getElementById("dossierScanShab")?.checked;
   if (btn) btn.disabled = true;
-  if (!quiet) setCaseStatus("SHAB-Scan läuft (kann bis ~60s dauern)…");
+  if (!quiet) {
+    setCaseStatus(
+      includeShab
+        ? "Mandate: Moneyhouse + Zefix, danach optionaler SHAB-Nachscan…"
+        : "Mandate suchen (Moneyhouse → Zefix-Abgleich)…"
+    );
+    startShabProgress({ nationwide: includeShab });
+  }
   try {
-    const r = await fetch(`/api/watched-persons/${personId}/scan`, { method: "POST" });
-    const d = await r.json();
+    const qs = includeShab ? "?include_shab=1" : "";
+    const r = await fetch(`/api/watched-persons/${personId}/scan${qs}`, { method: "POST" });
+    const data = await r.json();
+    await finishShabProgress();
     if (!r.ok) {
-      setCaseStatus(formatDetail(d.detail) || d.error || "Scan fehlgeschlagen");
+      setCaseStatus(formatDetail(data.detail) || data.error || "Scan fehlgeschlagen");
       return;
     }
-    setCaseStatus(
-      `Scan fertig: ${d.new_links || 0} neue Firmen, ${d.alerts || 0} Alerts` +
-      (d.raw_matches != null ? ` · ${d.raw_matches} SHAB-Treffer` : "")
-    );
+    const mh = data.moneyhouse || {};
+    const summary =
+      `Fertig: ${data.new_links || 0} neue Firmen, ${data.alerts || 0} Alerts` +
+      (mh.matched_person ? ` · Person: ${mh.matched_person}` : "") +
+      (data.zefix_resolved != null ? ` · Zefix ${data.zefix_resolved}` : "") +
+      (mh.companies_found != null ? ` · MH-Mandate ${mh.companies_found}` : "") +
+      (data.zefix_failed && data.zefix_failed.length
+        ? ` · ohne Zefix: ${data.zefix_failed.join(", ")}`
+        : "");
+    setCaseStatus(summary);
     await openCaseModal(personId, { autoScan: false });
+    setCaseStatus(summary);
     loadPersons();
     loadInbox();
   } catch (e) {
+    stopShabProgress(true);
     setCaseStatus(String(e.message || e));
   } finally {
     if (btn) btn.disabled = false;
@@ -276,7 +399,12 @@ async function runShabScan(personId, { quiet = false } = {}) {
 
 function setCaseStatus(msg) {
   const el = document.getElementById("caseModalStatus");
-  if (el) el.textContent = msg;
+  const feedback = document.getElementById("caseModalScanFeedback");
+  if (el) el.textContent = msg || "";
+  if (feedback) {
+    if (msg) feedback.classList.remove("hidden");
+    else if (!shabProgressTimer) feedback.classList.add("hidden");
+  }
 }
 
 async function loadInbox() {
@@ -372,13 +500,17 @@ async function loadPersons() {
     const active = selectedPersonId === p.id ? " is-selected" : "";
     const inter = p.probable_intermediary
       ? `<span class="watch-inter-badge">Intermediär</span>` : "";
+    const undesired = p.flag_undesired_customer
+      ? `<span class="watch-flag-badge is-undesired" title="Unerwünschter Kunde">Unerwünscht</span>` : "";
+    const aml = p.flag_aml
+      ? `<span class="watch-flag-badge is-aml" title="AML">AML</span>` : "";
     const caseBadge = p.has_company_case
       ? `<span class="watch-case-link-badge" title="Mit Firmenakte">Akte #${esc(String(p.linked_case_id || ""))}</span>`
       : `<span class="watch-no-case-badge" title="Frühwarnung ohne Firmenakte — Akte eröffnen empfohlen">Ohne Akte</span>`;
     return `<li class="watch-person-row${active}${p.probable_intermediary ? " is-intermediary-collapsed" : ""}${p.has_company_case ? "" : " is-no-case"}">
       <button type="button" class="watch-person-summary" data-select="${p.id}">
         <span class="fraud-side-item-title">${esc(d(p.display_name, "person"))}
-          <span class="fraud-speed-hint">${esc(p.status)}</span>${inter}${caseBadge}
+          <span class="fraud-speed-hint">${esc(p.status)}</span>${inter}${undesired}${aml}${caseBadge}
         </span>
         <span class="fraud-entry-meta">
           <span>${p.company_count || 0} Firmen</span>

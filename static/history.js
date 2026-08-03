@@ -137,7 +137,7 @@ function renderTable(scans, append) {
 
   for (const scan of scans) {
     const color = VERDICT_COLORS[scan.verdict] || "gray";
-    const date = scan.checked_at ? new Date(scan.checked_at).toLocaleString() : "–";
+    const date = scan.checked_at ? formatDateTimeDisplay(scan.checked_at) : "–";
     const company = scan.company_name || "–";
     const amount = scan.transaction_amount != null
       ? Number(scan.transaction_amount).toLocaleString("de-CH", { maximumFractionDigits: 2 })

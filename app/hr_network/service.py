@@ -6,7 +6,14 @@ import asyncio
 from typing import Any
 
 import config
-from app.checks.zefix_check import _format_uid, _zefix_search
+from app.checks.zefix_check import (
+    _format_uid,
+    _is_active,
+    _is_being_cancelled,
+    _is_cancelled,
+    _status_key,
+    _zefix_search,
+)
 
 
 def _legal_form_label(legal_form: Any) -> str:
@@ -88,6 +95,7 @@ async def build_hr_network(company: str | None = None, uid: str | None = None) -
             "ehraid": seed.get("ehraid"),
             "uid": seed.get("uid"),
             "status": seed.get("status"),
+            "deletion_date": seed.get("deletion_date"),
             "legal_form": seed.get("legal_form"),
             "canton": (
                 (seed.get("canton") or {}).get("id")
@@ -117,28 +125,65 @@ async def build_hr_network(company: str | None = None, uid: str | None = None) -
     }
 
 
-async def search_companies_preview(name: str, limit: int = 8) -> list[dict]:
+async def search_companies_preview(name: str, limit: int = 12) -> list[dict]:
     if not config.ZEFIX_USERNAME or not config.ZEFIX_PASSWORD:
         raise PermissionError("Zefix-Zugangsdaten fehlen")
-    results = await asyncio.to_thread(_zefix_search, name)
-    preview = []
-    for item in (results or [])[:limit]:
+    # Include cancelled firms — fraud cases often involve deleted shells.
+    results = await asyncio.to_thread(
+        _zefix_search, name, active_only=False, max_entries=max(limit * 4, 40)
+    )
+
+    def _to_preview(item: dict) -> dict:
+        status_key = _status_key(item)
         status = item.get("status", {})
         status_label = (
-            status.get("shortDescription", status.get("key", ""))
+            status.get("shortDescription", status.get("key", status_key))
             if isinstance(status, dict)
-            else status
+            else (status or status_key)
         )
-        preview.append({
+        cancelled = _is_cancelled(item)
+        being = _is_being_cancelled(item)
+        deletion = item.get("deletionDate") or item.get("deleteDate")
+        return {
             "name": item.get("name"),
             "ehraid": item.get("ehraid"),
             "uid": _format_uid(str(item.get("uid", "") or "")),
             "status": status_label,
+            "status_key": status_key,
+            "is_cancelled": cancelled,
+            "is_being_cancelled": being,
+            "deletion_date": deletion,
             "canton": (
                 (item.get("canton") or {}).get("id")
                 if isinstance(item.get("canton"), dict)
                 else item.get("canton")
             ),
             "legal_seat": item.get("legalSeat"),
-        })
-    return preview
+        }
+
+    active: list[dict] = []
+    liquidating: list[dict] = []
+    cancelled: list[dict] = []
+    other: list[dict] = []
+    for item in results or []:
+        row = _to_preview(item)
+        if row["is_cancelled"]:
+            cancelled.append(row)
+        elif row["is_being_cancelled"]:
+            liquidating.append(row)
+        elif _is_active(item):
+            active.append(row)
+        else:
+            other.append(row)
+
+    # Keep room for deleted / in-liquidation hits so they are not drowned out
+    # by many ACTIVE name matches (important for fraud shell companies).
+    inactive = liquidating + cancelled
+    reserve = min(len(inactive), max(3, limit // 3))
+    active_take = max(0, limit - reserve)
+    preview = active[:active_take] + inactive[:reserve]
+    if len(preview) < limit:
+        preview.extend(other[: limit - len(preview)])
+    if len(preview) < limit:
+        preview.extend(active[active_take : active_take + (limit - len(preview))])
+    return preview[:limit]

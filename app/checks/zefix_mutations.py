@@ -270,7 +270,7 @@ def analyze_mutations(
     )
     if is_new_only and latest_date:
         warnings.append(
-            f"Neueintragung vom {latest_date.isoformat()} — junges Unternehmen"
+            f"Neueintragung vom {latest_date.strftime('%d-%m-%Y')} — junges Unternehmen"
         )
 
     if not pubs:

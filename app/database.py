@@ -106,6 +106,8 @@ class WatchedPerson(Base):
     )
     notes: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
     case_notes: Mapped[Optional[str]] = mapped_column(String(4000), nullable=True)
+    flag_undesired_customer: Mapped[bool] = mapped_column(Boolean, default=False)
+    flag_aml: Mapped[bool] = mapped_column(Boolean, default=False)
 
     company_links: Mapped[list["PersonCompanyLink"]] = relationship(
         back_populates="person",
@@ -461,6 +463,16 @@ def _migrate_watched_person_columns(conn) -> None:
     existing = {col["name"] for col in insp.get_columns("watched_persons")}
     if "case_notes" not in existing:
         conn.execute(text("ALTER TABLE watched_persons ADD COLUMN case_notes VARCHAR(4000)"))
+    if "flag_undesired_customer" not in existing:
+        conn.execute(
+            text(
+                "ALTER TABLE watched_persons ADD COLUMN flag_undesired_customer BOOLEAN DEFAULT 0"
+            )
+        )
+    if "flag_aml" not in existing:
+        conn.execute(
+            text("ALTER TABLE watched_persons ADD COLUMN flag_aml BOOLEAN DEFAULT 0")
+        )
 
 
 def _migrate_company_case_columns(conn) -> None:

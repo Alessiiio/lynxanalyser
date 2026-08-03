@@ -12,6 +12,12 @@ from pydantic import BaseModel, Field
 import config
 from app.database import User
 from app.hr_network.fraud_network import build_fraud_network
+from app.hr_network.fraud_network_cache import (
+    cache_status_for_company,
+    cached_at_iso,
+    load_cached_for_company,
+    store_cached_for_company,
+)
 from app.hr_network.person_monitoring import (
     acknowledge_alert,
     add_watched_person_manual,
@@ -26,6 +32,7 @@ from app.hr_network.person_monitoring import (
     run_person_monitoring,
     scan_watched_person_incremental,
     update_watched_person_case_notes,
+    update_watched_person_flags,
     update_watched_person_status,
 )
 from app.investigation_dossier import build_investigation_dossier_pdf
@@ -43,6 +50,7 @@ class FraudNetworkAnalyzeRequest(BaseModel):
     company_ids: Optional[list[str]] = None
     ad_hoc_company: Optional[dict] = None
     max_person_searches: int = Field(8, ge=0, le=20)
+    force_refresh: bool = False
 
 
 class WatchedPersonAddRequest(BaseModel):
@@ -64,6 +72,11 @@ class WatchedPersonMergeRequest(BaseModel):
 
 class CaseNotesRequest(BaseModel):
     case_notes: str = Field("", max_length=4000)
+
+
+class WatchedPersonFlagsRequest(BaseModel):
+    flag_undesired_customer: Optional[bool] = None
+    flag_aml: Optional[bool] = None
 
 
 class WatchedPersonDeleteRequest(BaseModel):
@@ -130,16 +143,56 @@ async def fraud_network_redirect():
     return RedirectResponse(url="/cases", status_code=302)
 
 
+@router.get("/api/fraud-network/cache-status")
+async def api_fraud_network_cache_status(
+    name: str = Query(""),
+    uid: str = Query(""),
+    _user: User = Depends(get_current_user),
+):
+    """L4/L5 disk-cache presence for a firm (shared across users, 7 days)."""
+    n = name.strip() or None
+    u = uid.strip() or None
+    if not n and not u:
+        raise HTTPException(status_code=400, detail="name or uid required")
+    return cache_status_for_company(company_name=n, company_uid=u)
+
+
 @router.post("/api/fraud-network/analyze")
 async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_request: Request):
     enforce_rate_limit(http_request)
+    ad_hoc = body.ad_hoc_company or {}
+    name = (ad_hoc.get("name") or "").strip() or None
+    uid = (ad_hoc.get("uid") or "").strip() or None
+    use_cache = body.level >= 4 and not body.company_ids
+    if use_cache and (name or uid) and not body.force_refresh:
+        hit, key = load_cached_for_company(
+            level=body.level, company_name=name, company_uid=uid
+        )
+        if hit is not None and key:
+            out = dict(hit)
+            out["cached"] = True
+            out["cached_at"] = cached_at_iso(key)
+            out["level"] = body.level
+            return out
     try:
-        return await build_fraud_network(
+        result = await build_fraud_network(
             level=body.level,
             company_ids=body.company_ids,
             ad_hoc_company=body.ad_hoc_company,
             max_person_searches=body.max_person_searches,
         )
+        if use_cache and (name or uid) and isinstance(result, dict):
+            store_cached_for_company(
+                level=body.level,
+                company_name=name,
+                company_uid=uid,
+                payload=result,
+            )
+        out = dict(result) if isinstance(result, dict) else result
+        if isinstance(out, dict):
+            out["cached"] = False
+            out["cached_at"] = None
+        return out
     except PermissionError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except ValueError as e:
@@ -200,10 +253,22 @@ async def api_add_watched_person(body: WatchedPersonAddRequest):
 
 
 @router.post("/api/watched-persons/{person_id}/scan")
-async def api_scan_watched_person(person_id: int, http_request: Request):
+async def api_scan_watched_person(
+    person_id: int,
+    http_request: Request,
+    canton: str = Query("", description="Optional — only used if include_shab=1"),
+    include_shab: bool = Query(
+        False,
+        description="Optional slow SHAB supplement. Default: Moneyhouse person search + Zefix firm resolve.",
+    ),
+):
     enforce_rate_limit(http_request)
     try:
-        return await scan_watched_person_incremental(person_id)
+        return await scan_watched_person_incremental(
+            person_id,
+            canton=canton.strip().upper() or None,
+            include_shab=include_shab,
+        )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
@@ -227,6 +292,24 @@ async def api_update_case_notes(
 ):
     try:
         return await update_watched_person_case_notes(person_id, body.case_notes)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.patch("/api/watched-persons/{person_id}/flags")
+async def api_update_watched_flags(
+    person_id: int,
+    body: WatchedPersonFlagsRequest,
+    _user: User = Depends(require_role("case_manager", "admin", "compliance")),
+):
+    if body.flag_undesired_customer is None and body.flag_aml is None:
+        raise HTTPException(status_code=400, detail="Mindestens ein Flag setzen")
+    try:
+        return await update_watched_person_flags(
+            person_id,
+            flag_undesired_customer=body.flag_undesired_customer,
+            flag_aml=body.flag_aml,
+        )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -425,7 +508,7 @@ async def api_hr_network_person_search(
 async def api_hr_network_search(
     http_request: Request,
     q: str = Query(..., min_length=2),
-    limit: int = Query(8, ge=1, le=20),
+    limit: int = Query(12, ge=1, le=25),
 ):
     enforce_rate_limit(http_request)
     try:

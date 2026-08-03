@@ -16,7 +16,7 @@ from app.checker import ALL_CHECKS
 from app.checks.llm_content_check import log_ollama_startup_status
 from app.database import init_db
 from app.hr_network.scheduler import shutdown_monitoring_scheduler, start_monitoring_scheduler
-from app.routes import auth, cases, checker, compliance, lists, network, swiss_banks, admin
+from app.routes import auth, cases, checker, compliance, lists, network, swiss_banks, admin, product
 from app.routes.deps import load_user_from_session
 from app.security import MutatingOriginMiddleware, SecurityHeadersMiddleware
 
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 _fastapi_kwargs = {
     "title": "Lynx",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "lifespan": lifespan,
 }
 if config.IS_PRODUCTION:
@@ -69,6 +69,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(product.router)
 app.include_router(network.router)
 app.include_router(cases.router)
 app.include_router(checker.router)

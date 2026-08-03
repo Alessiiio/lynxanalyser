@@ -60,7 +60,7 @@ async function loadCases() {
           </span>
           <span class="fraud-entry-meta">
             ${c.company_uid ? `<code>${esc(typeof anon === "function" ? anon(c.company_uid, "uid") : c.company_uid)}</code>` : ""}
-            <span>von ${esc(typeof anon === "function" ? anon(c.opened_by, "user") : c.opened_by)} · ${(c.opened_at || "").slice(0, 10)}</span>
+            <span>von ${esc(typeof anon === "function" ? anon(c.opened_by, "user") : c.opened_by)} · ${formatDateDisplay(c.opened_at)}</span>
             ${c.fraud_type ? `<span>${esc(c.fraud_type)}</span>` : ""}
             ${c.status === "confirmed_fraud" || c.status === "ready_for_report"
               ? `<span>Checkliste: ${c.bank_checks_done}/${c.bank_checks_total}</span>`

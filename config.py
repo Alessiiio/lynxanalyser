@@ -13,6 +13,11 @@ URLSCAN_API_KEY: str = os.getenv("URLSCAN_API_KEY", "")
 ZEFIX_USERNAME: str = os.getenv("ZEFIX_USERNAME", "")
 ZEFIX_PASSWORD: str = os.getenv("ZEFIX_PASSWORD", "")
 
+# Person→Mandate lookup only (not firm search). Resolve hits via Zefix.
+MONEYHOUSE_PERSON_SEARCH: bool = os.getenv(
+    "MONEYHOUSE_PERSON_SEARCH", "1"
+).strip().lower() in {"1", "true", "yes", ""}
+
 # IOSCO I-SCAN international warnings (separate from FINMA check)
 # Request key: api@iosco.org — https://www.iosco.org/i-scan/
 IOSCO_ISCAN_API_KEY: str = os.getenv("IOSCO_ISCAN_API_KEY", "")
@@ -45,11 +50,13 @@ ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development").strip().lower()
 IS_PRODUCTION: bool = ENVIRONMENT in {"production", "prod", "launch"}
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
-# Set HTTPS_ONLY=1 when served behind TLS (required for secure cookies on the public internet)
-HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "0").strip().lower() in {"1", "true", "yes"}
-
 # Public hostname for Caddy / TrustedHost (comma-separated). Empty = middleware off.
 DOMAIN: str = os.getenv("DOMAIN", "").strip()
+
+# Set HTTPS_ONLY=1 when served behind TLS (required for secure cookies on the public internet).
+# Without DOMAIN, assume plain HTTP (local) — Secure cookies would break login/session.
+_https_env = os.getenv("HTTPS_ONLY", "0").strip().lower() in {"1", "true", "yes"}
+HTTPS_ONLY: bool = bool(_https_env and DOMAIN)
 _raw_hosts = os.getenv("ALLOWED_HOSTS", "").strip()
 if _raw_hosts:
     ALLOWED_HOSTS: list[str] = [h.strip() for h in _raw_hosts.split(",") if h.strip()]

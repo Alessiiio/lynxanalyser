@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Changelog — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx · Produkt</p>
+            <h1>Changelog</h1>
+            <p class="header-sub">Keep a Changelog — Quelle <code>CHANGELOG.md</code> (Semantic Versioning).</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <p id="changelogMsg" class="fraud-help" role="status"></p>
+    <section class="fraud-panel">
+      <div class="fraud-panel-head">
+        <h2>Einträge</h2>
+        <span id="changelogCount" class="fraud-badge">0</span>
+      </div>
+      <ol id="changelogList" class="changelog-list"></ol>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/changelog.js"></script>
+</body>
+</html>

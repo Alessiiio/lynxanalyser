@@ -19,6 +19,7 @@ tests/
 case_reports/
 compliance_reports/
 data/shab_month_cache/
+data/fraud_network_cache/
 *.md
 !README.md
 deploy/

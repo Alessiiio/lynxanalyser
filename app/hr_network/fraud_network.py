@@ -66,11 +66,18 @@ async def _resolve_detail(name: str | None, uid: str | None) -> dict:
 
 def _company_summary(detail: dict, *, seed: bool = False) -> dict[str, Any]:
     uid_raw = str(detail.get("uid") or "")
+    status = detail.get("status")
+    status_key = ""
+    if isinstance(status, dict):
+        status_key = str(status.get("id") or status.get("key") or status.get("shortDescription") or "")
+    else:
+        status_key = str(status or "")
     return {
         "name": detail.get("name"),
         "ehraid": detail.get("ehraid"),
         "uid": _format_uid(uid_raw) if uid_raw else None,
-        "status": detail.get("status"),
+        "status": status_key or status,
+        "deletion_date": detail.get("deletionDate") or detail.get("deleteDate"),
         "legal_form": _legal_form_label(detail.get("legalForm")),
         "canton": detail.get("canton"),
         "registry_office_id": detail.get("registryOfCommerceId"),

@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 import config
 from app.database import User
 from app.routes.deps import enforce_rate_limit, require_role
 from app.settings_store import get_admin_settings, get_public_settings, set_setting
 
-router = APIRouter(dependencies=[Depends(enforce_rate_limit)])
+router = APIRouter()
+
+_STATIC = Path(__file__).resolve().parents[2] / "static"
 
 
 class AdminSettingsPatch(BaseModel):
@@ -22,7 +25,7 @@ class AdminSettingsPatch(BaseModel):
 
 @router.get("/admin")
 async def admin_page(_user: User = Depends(require_role("admin"))):
-    return FileResponse("static/admin.html")
+    return FileResponse(_STATIC / "admin.html")
 
 
 @router.get("/api/admin/settings")
@@ -49,8 +52,10 @@ async def api_get_admin_settings(_user: User = Depends(require_role("admin"))):
 @router.patch("/api/admin/settings")
 async def api_patch_admin_settings(
     body: AdminSettingsPatch,
+    http_request: Request,
     user: User = Depends(require_role("admin")),
 ):
+    enforce_rate_limit(http_request)
     updated: dict[str, Any] = {}
     by = user.display_name or user.username
     if body.anonymize_mode is not None:

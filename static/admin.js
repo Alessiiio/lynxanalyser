@@ -68,7 +68,7 @@
     const m = meta?.anonymize_mode;
     if (metaEl) {
       metaEl.textContent = m?.updated_at
-        ? `Zuletzt: ${(m.updated_at || "").slice(0, 19).replace("T", " ")} · ${m.updated_by || "—"}`
+        ? `Zuletzt: ${formatDateTimeDisplay(m.updated_at)} · ${m.updated_by || "—"}`
         : "Noch nie gesetzt — Standard: aus.";
     }
     toggle.onchange = async () => {

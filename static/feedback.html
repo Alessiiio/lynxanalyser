@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedback & Wishlist — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx · Produkt</p>
+            <h1>Feedback & Wishlist</h1>
+            <p class="header-sub">Bugs und Feature-Wünsche — Datei <code>data/wishlist.json</code> / <code>WISHLIST.md</code>.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <p id="feedbackPageMsg" class="fraud-help" role="status"></p>
+
+    <section class="fraud-panel" style="margin-bottom: 1rem;">
+      <div class="fraud-panel-head">
+        <h2>Filter</h2>
+      </div>
+      <div class="fb-filters">
+        <label>Status
+          <select id="fbFilterStatus">
+            <option value="">Alle</option>
+            <option value="open">Offen</option>
+            <option value="reviewing">In Prüfung</option>
+            <option value="in_progress">In Arbeit</option>
+            <option value="done">Erledigt</option>
+            <option value="rejected">Abgelehnt</option>
+          </select>
+        </label>
+        <label>Typ
+          <select id="fbFilterType">
+            <option value="">Alle</option>
+            <option value="bug">Bug</option>
+            <option value="feature">Feature-Wunsch</option>
+          </select>
+        </label>
+        <button type="button" class="btn-nav" id="fbReloadBtn">Aktualisieren</button>
+      </div>
+    </section>
+
+    <section class="fraud-panel">
+      <div class="fraud-panel-head">
+        <h2>Einträge</h2>
+        <span id="fbCount" class="fraud-badge">0</span>
+      </div>
+      <ul id="fbList" class="changelog-list"></ul>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/feedback-page.js"></script>
+</body>
+</html>

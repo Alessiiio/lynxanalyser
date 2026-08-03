@@ -40,15 +40,71 @@ def _zefix_get(path: str) -> dict | list:
         return json.loads(r.read().decode())
 
 
-def _zefix_search(company_name: str) -> list:
-    payload = json.dumps(
-        {"name": company_name, "maxEntries": 10, "languageKey": "en"}
-    ).encode()
+def _zefix_search(company_name: str, *, active_only: bool = False, max_entries: int = 10) -> list:
+    """Search Zefix Public REST.
+
+    active_only=False includes CANCELLED / deleted companies (needed for fraud work).
+    """
+    payload = {
+        "name": company_name,
+        "maxEntries": max(1, min(int(max_entries or 10), 50)),
+        "languageKey": "de",
+        "activeOnly": bool(active_only),
+    }
     headers = {**_HEADERS, "Authorization": _auth_header()}
-    req = Request(f"{_ZEFIX_BASE}/company/search", data=payload, headers=headers, method="POST")
+    req = Request(
+        f"{_ZEFIX_BASE}/company/search",
+        data=json.dumps(payload).encode(),
+        headers=headers,
+        method="POST",
+    )
     with urllib.request.urlopen(req, timeout=15) as r:
         data = json.loads(r.read().decode())
     return data if isinstance(data, list) else []
+
+
+def _status_key(company: dict | None) -> str:
+    if not company:
+        return ""
+    status = company.get("status", {})
+    if isinstance(status, dict):
+        return str(
+            status.get("id")
+            or status.get("key")
+            or status.get("shortDescription")
+            or ""
+        ).upper()
+    return str(status or "").upper()
+
+
+def _is_being_cancelled(company: dict | None) -> bool:
+    key = _status_key(company)
+    return "BEING_CANCEL" in key or "AUFLÖS" in key or "AUFLOES" in key
+
+
+def _is_cancelled(company: dict | None) -> bool:
+    """True for struck-off firms (not still in liquidation)."""
+    key = _status_key(company)
+    if not key or _is_being_cancelled(company):
+        return False
+    return key == "CANCELLED" or any(
+        tok in key
+        for tok in ("DELETE", "GELÖSCHT", "GELOESCHT", "RADIERT", "RADIÉ", "RADIE")
+    )
+
+
+def _is_active(company: dict) -> bool:
+    key = _status_key(company)
+    if _is_cancelled(company) or _is_being_cancelled(company):
+        return False
+    return key in ("ACTIVE", "INSCRIT", "EINGETRAGEN", "ISCRITTA", "A", "EXISTIEREND", "AKTIV")
+
+
+def _format_uid(uid: str) -> str:
+    digits = "".join(c for c in uid if c.isdigit())
+    if len(digits) == 9:
+        return f"CHE-{digits[:3]}.{digits[3:6]}.{digits[6:9]}"
+    return uid
 
 
 async def _fetch_homepage_html(url: str) -> str:
@@ -338,19 +394,3 @@ class ZefixCheck(BaseCheck):
                 summary=f"Zefix lookup failed: {err[:120]}",
                 details={},
             )
-
-
-def _is_active(company: dict) -> bool:
-    status = company.get("status", {})
-    if isinstance(status, dict):
-        key = (status.get("key", "") or status.get("shortDescription", "")).upper()
-    else:
-        key = str(status).upper()
-    return key in ("ACTIVE", "INSCRIT", "EINGETRAGEN", "ISCRITTA", "A")
-
-
-def _format_uid(uid: str) -> str:
-    digits = "".join(c for c in uid if c.isdigit())
-    if len(digits) == 9:
-        return f"CHE-{digits[:3]}.{digits[3:6]}.{digits[6:9]}"
-    return uid

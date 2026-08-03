@@ -33,7 +33,8 @@ const SITE_NAV = [
   { href: "/compare", label: "Vergleich", group: "more", roles: ["case_manager", "admin", "compliance"] },
   { href: "/blocklist", label: "Blocklist", group: "more", roles: ["case_manager", "admin", "compliance"] },
   { href: "/goldlist", label: "Goldlist", group: "more", roles: ["case_manager", "admin", "compliance"] },
-  { href: "/admin", label: "Admin", group: "more", roles: ["admin"] },
+  { href: "/changelog", label: "Changelog", group: "more", roles: ["case_manager", "admin", "compliance"] },
+  { href: "/feedback", label: "Feedback", group: "more", roles: ["case_manager", "admin", "compliance"] },
   { href: "/profiler", label: "Profiler", group: "more", roles: ["admin"] },
   { href: "/profiler-cases", label: "Profiler-Fälle", group: "more", roles: ["admin"] },
 ];
@@ -117,6 +118,60 @@ function anonHash(s) {
   }
   return Math.abs(h >>> 0);
 }
+
+/**
+ * Display dates as DD-MM-YYYY (no exceptions in UI).
+ * Accepts ISO (YYYY-MM-DD), DD.MM.YYYY, DD-MM-YYYY, or Date-parseable strings.
+ */
+function formatDateDisplay(value, empty = "—") {
+  if (value == null || value === "" || value === "—" || value === "-") return empty;
+  const s = String(value).trim();
+  let m = s.match(/^(\d{2})-(\d{2})-(\d{4})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const t = Date.parse(s);
+  if (!Number.isNaN(t)) {
+    const d = new Date(t);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    return `${dd}-${mm}-${d.getFullYear()}`;
+  }
+  return s || empty;
+}
+
+/** Display datetimes as DD-MM-YYYY HH:MM */
+function formatDateTimeDisplay(value, empty = "—") {
+  if (value == null || value === "") return empty;
+  const s = String(value).trim();
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return formatDateDisplay(s, empty);
+  const d = new Date(t);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}-${mm}-${d.getFullYear()} ${hh}:${mi}`;
+}
+
+/** Rewrite ISO dates inside free text to DD-MM-YYYY. */
+function formatDatesInText(text) {
+  return String(text || "")
+    .replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_, y, m, d) => `${d}-${m}-${y}`)
+    .replace(/\b(\d{2})\.(\d{2})\.(\d{4})\b/g, (_, d, m, y) => `${d}-${m}-${y}`);
+}
+
+// Back-compat alias used in company-analysis
+function formatDateCH(value) {
+  return formatDateDisplay(value);
+}
+
+window.formatDateDisplay = formatDateDisplay;
+window.formatDateTimeDisplay = formatDateTimeDisplay;
+window.formatDatesInText = formatDatesInText;
+window.formatDateCH = formatDateCH;
 
 /**
  * Display-only anonymization. Raw data in memory stays intact for API calls.
@@ -276,14 +331,18 @@ function renderSiteNav() {
     "User";
   const isAdminRole = window.__lynxUser?.role === "admin";
 
+  const adminActive = isNavActive("/admin", path);
   const accountBit = window.__lynxUser
     ? `<span class="nav-dropdown nav-account">
-        <button type="button" class="nav-link nav-dropdown-trigger nav-account-trigger${isAdminRole ? " nav-role-admin" : ""}"
+        <button type="button" class="nav-link nav-dropdown-trigger nav-account-trigger${isAdminRole ? " nav-role-admin" : ""}${adminActive ? " nav-link-active" : ""}"
           aria-expanded="false" aria-haspopup="true" aria-controls="navAccountPanel">
           ${escHtml(roleLabel)} ▾
         </button>
         <span id="navAccountPanel" class="nav-dropdown-panel nav-account-panel hidden" role="menu">
           <span class="nav-account-meta">${escHtml(displayName)} · <span class="${isAdminRole ? "nav-role-admin" : ""}">${escHtml(roleLabel)}</span></span>
+          ${isAdminRole ? `<a href="/admin" class="nav-link nav-dropdown-item${adminActive ? " nav-link-active" : ""}" role="menuitem">Admin</a>` : ""}
+          <a href="/changelog" class="nav-link nav-dropdown-item${isNavActive("/changelog", path) ? " nav-link-active" : ""}" role="menuitem">Changelog</a>
+          <a href="/feedback" class="nav-link nav-dropdown-item${isNavActive("/feedback", path) ? " nav-link-active" : ""}" role="menuitem">Feedback</a>
           <a href="/logout" class="nav-link nav-dropdown-item" role="menuitem">Logout</a>
         </span>
       </span>`
@@ -302,5 +361,104 @@ function renderSiteNav() {
 initExpertModeToggle();
 loadCurrentUser().then((u) => {
   renderSiteNav();
+  initFeedbackWidget(u);
   if (typeof window.onLynxUserReady === "function") window.onLynxUserReady(u);
 });
+
+/* ── Floating feedback widget (all authenticated pages except login) ── */
+
+function initFeedbackWidget(user) {
+  if (!user) return;
+  if (currentNavPath() === "/login") return;
+  if (document.getElementById("lynxFbRoot")) return;
+
+  const root = document.createElement("div");
+  root.id = "lynxFbRoot";
+  root.className = "lynx-fb-root";
+  root.innerHTML = `
+    <button type="button" class="lynx-fb-fab" id="lynxFbFab" aria-expanded="false" aria-controls="lynxFbPanel" title="Feedback">
+      Feedback
+    </button>
+    <div id="lynxFbPanel" class="lynx-fb-panel hidden" role="dialog" aria-label="Feedback senden">
+      <div class="lynx-fb-panel-head">
+        <strong>Problem oder Wunsch</strong>
+        <button type="button" class="lynx-fb-close" id="lynxFbClose" aria-label="Schliessen">×</button>
+      </div>
+      <form id="lynxFbForm" class="lynx-fb-form">
+        <label>Typ
+          <select name="type" required>
+            <option value="bug">Bug</option>
+            <option value="feature" selected>Feature-Wunsch</option>
+          </select>
+        </label>
+        <label>Titel
+          <input type="text" name="title" required maxlength="200" placeholder="Kurzbeschreibung" autocomplete="off">
+        </label>
+        <label>Beschreibung
+          <textarea name="description" rows="4" maxlength="4000" placeholder="Was fehlt oder geht schief?"></textarea>
+        </label>
+        <p class="lynx-fb-msg" id="lynxFbMsg" role="status"></p>
+        <div class="lynx-fb-actions">
+          <a class="btn-nav" href="/feedback">Wishlist ansehen</a>
+          <button type="submit" class="btn-primary">Senden</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(root);
+
+  const fab = document.getElementById("lynxFbFab");
+  const panel = document.getElementById("lynxFbPanel");
+  const form = document.getElementById("lynxFbForm");
+  const msg = document.getElementById("lynxFbMsg");
+
+  function setOpen(open) {
+    panel.classList.toggle("hidden", !open);
+    fab.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  fab.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setOpen(panel.classList.contains("hidden"));
+  });
+  document.getElementById("lynxFbClose")?.addEventListener("click", () => setOpen(false));
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") setOpen(false);
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    msg.textContent = "";
+    const fd = new FormData(form);
+    const payload = {
+      type: fd.get("type"),
+      title: String(fd.get("title") || "").trim(),
+      description: String(fd.get("description") || "").trim(),
+    };
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+    try {
+      const resp = await fetch("/api/feedback", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const d = data.detail;
+        throw new Error(typeof d === "string" ? d : `HTTP ${resp.status}`);
+      }
+      msg.textContent = "Gespeichert — danke!";
+      form.reset();
+      form.querySelector('select[name="type"]').value = "feature";
+      setTimeout(() => setOpen(false), 900);
+    } catch (err) {
+      msg.textContent = err.message || "Senden fehlgeschlagen";
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+}

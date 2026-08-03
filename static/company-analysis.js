@@ -62,6 +62,11 @@ wireSearch();
 wireGraphControls();
 wireHeavyWarnModal();
 document.getElementById("deepBtn")?.addEventListener("click", () => deepAnalyze());
+document.getElementById("deepForceRefreshBtn")?.addEventListener("click", () => {
+  if (!currentCompany) return;
+  const level = Number(document.getElementById("deepLevelRange")?.value || selectedDeepLevel);
+  runDeepAnalyze(level, FULL_PERSON_SEARCHES, { forceRefresh: true });
+});
 wireRecentSearches();
 renderRecentSearches();
 setIdleHome(true);
@@ -99,10 +104,52 @@ async function loadBranchSignal() {
   } catch (_) { /* optional */ }
 }
 
+function normalizePurposeCore(purpose) {
+  let t = String(purpose || "")
+    .toLowerCase()
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[«»""„]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Strip Swiss Handelsregister boilerplate so "Montage" ≠ "Marketing"
+  for (let i = 0; i < 4; i++) {
+    const next = t
+      .replace(/^die\s+gesellschaft\s+bezweckt\s+(die\s+)?/i, "")
+      .replace(/^zweck\s+(der\s+gesellschaft\s+)?(ist|sind)\s+(die\s+)?/i, "")
+      .replace(/^erbringung\s+von\s+/i, "")
+      .replace(/^leistungen?\s+im\s+bereich\s+(der|des|von)\s+/i, "")
+      .replace(/^leistungen?\s+aller\s+art,?\s*(insbesondere\s+)?/i, "")
+      .replace(/^im\s+bereich\s+(der|des|von)\s+/i, "")
+      .trim();
+    if (next === t) break;
+    t = next;
+  }
+  return t;
+}
+
+function purposeTokens(purpose) {
+  const stop = new Set([
+    "und", "oder", "von", "der", "die", "das", "dem", "den", "des", "im", "in", "zu", "zur", "zum",
+    "mit", "für", "sowie", "insbesondere", "aller", "art", "bereich", "zweck", "gesellschaft",
+    "erbringung", "leistungen", "leistung", "bezweckt", "inklusive", "bzw",
+  ]);
+  return normalizePurposeCore(purpose)
+    .split(/[^a-zäöüß0-9]+/i)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 4 && !stop.has(w));
+}
+
 function purposeMatchesBranch(purpose, branchKey) {
   if (!purpose || !branchKey) return false;
-  const p = String(purpose).toLowerCase().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  return p.includes(branchKey.slice(0, 40)) || branchKey.includes(p.slice(0, 40));
+  const a = purposeTokens(purpose);
+  const b = purposeTokens(branchKey);
+  if (a.length < 2 || b.length < 2) return false;
+  const setB = new Set(b);
+  const overlap = a.filter((t) => setB.has(t));
+  if (overlap.length >= 2) return true;
+  const union = new Set([...a, ...b]);
+  const jaccard = overlap.length / union.size;
+  return overlap.length >= 1 && jaccard >= 0.4;
 }
 
 function showBranchHintForCompany(company) {
@@ -117,9 +164,20 @@ function showBranchHintForCompany(company) {
     el.classList.add("hidden");
     return;
   }
+  const total = Number(branchSignal.total_confirmed) || hit.count || 1;
   el.textContent =
-    `Branche «${hit.label.slice(0, 80)}» — ${hit.share}% der bestätigten Fälle der letzten ${branchSignal.months} Monate`;
+    `Ähnlicher Firmenzweck wie ${hit.count} von ${total} bestätigten Fällen ` +
+    `(letzte ${branchSignal.months} Monate): «${hit.label.slice(0, 72)}»`;
   el.classList.remove("hidden");
+}
+
+function syncForceRefreshBtn() {
+  const btn = document.getElementById("deepForceRefreshBtn");
+  if (!btn) return;
+  // Sichtbar sobald eine Firma geladen ist (bei E4/E5: Force-Refresh ohne Disk-Cache)
+  const show = !!currentCompany;
+  btn.classList.toggle("hidden", !show);
+  btn.disabled = !show;
 }
 
 async function loadOpenTeamCases() {
@@ -146,7 +204,7 @@ async function loadOpenTeamCases() {
         : "";
       return `<li><a href="/cases/${c.id}">
         <strong>${escHtml(c.company_name)}</strong>
-        <span class="fraud-entry-meta">in Prüfung · ${escHtml(c.opened_by)} · ${(c.opened_at || "").slice(0, 10)}${stale}</span>
+        <span class="fraud-entry-meta">in Prüfung · ${escHtml(c.opened_by)} · ${escHtml(formatDateDisplay(c.opened_at))}${stale}</span>
       </a></li>`;
     }).join("")}</ul>`;
   } catch (_) {
@@ -167,6 +225,7 @@ function fillLevelSlider(initial) {
     if (valueEl) valueEl.textContent = String(level);
     if (titleEl) titleEl.textContent = LEVEL_META[level]?.title || "";
     updateHeavyCompanyHint();
+    syncForceRefreshBtn();
   };
 
   range.value = String(initial);
@@ -493,7 +552,7 @@ function formatRecentWhen(iso) {
   if (hrs < 24) return `vor ${hrs} Std.`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `vor ${days} Tag${days === 1 ? "" : "en"}`;
-  return iso.slice(0, 10);
+  return formatDateDisplay(iso);
 }
 
 function setIdleHome(on) {
@@ -664,11 +723,28 @@ async function fetchSuggestions(q) {
       hideSuggestions();
       return;
     }
-    suggestBox.innerHTML = results.map((r) => `
-      <li><button type="button" data-name="${escHtml(r.name || "")}" data-uid="${escHtml(r.uid || "")}">
-        <strong>${escHtml(r.name || "")}</strong>
+    suggestBox.innerHTML = results.map((r) => {
+      const cancelled = !!r.is_cancelled;
+      const being = !!r.is_being_cancelled;
+      let badge = "";
+      if (cancelled) {
+        const when = r.deletion_date ? ` · gelöscht ${escHtml(formatDateDisplay(r.deletion_date))}` : "";
+        badge = `<span class="ca-suggest-badge is-cancelled">Gelöscht${when}</span>`;
+      } else if (being) {
+        badge = `<span class="ca-suggest-badge is-liquidating">In Auflösung</span>`;
+      }
+      const cls = [
+        cancelled ? "is-cancelled" : "",
+        being ? "is-liquidating" : "",
+      ].filter(Boolean).join(" ");
+      return `<li><button type="button" class="${cls}" data-name="${escHtml(r.name || "")}" data-uid="${escHtml(r.uid || "")}">
+        <span class="ca-suggest-main">
+          <strong>${escHtml(r.name || "")}</strong>
+          ${badge}
+        </span>
         <span>${escHtml(r.uid || "")} · ${escHtml(r.legal_seat || r.canton || "")}</span>
-      </button></li>`).join("");
+      </button></li>`;
+    }).join("");
     suggestBox.classList.remove("hidden");
     setSuggestOpen(true);
     suggestBox.querySelectorAll("button").forEach((btn) => {
@@ -737,7 +813,9 @@ async function quickAnalyze() {
     // Erste Analyse = Ebene 2 (Firma + aktuelle/ehemalige) — Regler daran ausrichten.
     setDeepLevel(Number(data.level) || 2);
     rememberSearch(currentCompany);
+    syncForceRefreshBtn();
     await transitionToResults();
+    refreshCompanyCacheOffer();
   } catch (err) {
     showError(err.message);
     await transitionToIdle();
@@ -856,7 +934,7 @@ function closeHeavyWarnModal(choice) {
   }
 }
 
-async function runDeepAnalyze(level, maxPersonSearches) {
+async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false } = {}) {
   selectedDeepLevel = level;
   hideNotify();
   const before = graphFingerprint(lastGraph);
@@ -873,11 +951,11 @@ async function runDeepAnalyze(level, maxPersonSearches) {
           uid: currentCompany.uid || pendingUid || "",
         },
         max_person_searches: maxPersonSearches,
+        force_refresh: !!forceRefresh,
       }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(formatDetail(data.detail) || `HTTP ${resp.status}`);
-    await finishDeepProgress();
     lastGraph = data;
     setDeepLevel(Number(data.level) || level);
     renderGraph(data.nodes || [], data.edges || [], "caGraph", (n) => { networkInstance = n; });
@@ -890,28 +968,128 @@ async function runDeepAnalyze(level, maxPersonSearches) {
     };
     const ps = data.stats?.person_search || {};
     const shabBit = ps.searched ? ` · SHAB ${ps.matches || 0} in ${ps.elapsed_seconds || "?"}s` : "";
-    if (added.nodes === 0 && added.edges === 0 && added.persons === 0) {
+    if (data.cached) {
+      stopDeepProgress();
       hideStatus();
+      const when = formatDateTimeDisplay(data.cached_at);
       showNotify(
-        `Keine neuen Treffer auf Ebene ${level} — Netzwerk unverändert${shabBit}.`,
-        { ok: false, sound: true }
+        `Aus Cache${when ? ` (${when})` : ""} — «Neu laden» für frische Registerdaten.`,
+        { ok: true, sound: false }
       );
+      showDeepCacheBar(level, maxPersonSearches, { fromCache: true, cachedAt: data.cached_at });
     } else {
-      const bits = [];
-      if (added.nodes) bits.push(`+${added.nodes} Knoten`);
-      if (added.persons) bits.push(`+${added.persons} Personen`);
-      if (added.edges) bits.push(`+${added.edges} Verbindungen`);
-      hideStatus();
-      showNotify(
-        `Ergebnisse bereit · Ebene ${level}: ${bits.join(" · ")}${shabBit}`,
-        { ok: true, sound: true }
-      );
+      await finishDeepProgress();
+      if (level >= 4) {
+        showDeepCacheBar(level, maxPersonSearches, { fromCache: false });
+      } else {
+        hideDeepCacheBar();
+      }
+      if (added.nodes === 0 && added.edges === 0 && added.persons === 0) {
+        hideStatus();
+        showNotify(
+          `Keine neuen Treffer auf Ebene ${level} — Netzwerk unverändert${shabBit}.`,
+          { ok: false, sound: true }
+        );
+      } else {
+        const bits = [];
+        if (added.nodes) bits.push(`+${added.nodes} Knoten`);
+        if (added.persons) bits.push(`+${added.persons} Personen`);
+        if (added.edges) bits.push(`+${added.edges} Verbindungen`);
+        hideStatus();
+        showNotify(
+          `Ergebnisse bereit · Ebene ${level}: ${bits.join(" · ")}${shabBit}`,
+          { ok: true, sound: true }
+        );
+      }
     }
   } catch (err) {
     stopDeepProgress();
+    hideDeepCacheBar();
     showError(err.message);
   } finally {
     document.getElementById("deepBtn").disabled = false;
+  }
+}
+
+function showDeepCacheBar(level, maxPersonSearches, { fromCache = true, cachedAt = null } = {}) {
+  const bar = document.getElementById("caDeepCacheBar");
+  if (!bar) return;
+  bar.classList.remove("hidden");
+  bar.dataset.keep = fromCache || level >= 4 ? "1" : "";
+  const when = formatDateTimeDisplay(cachedAt);
+  const label = fromCache
+    ? `Ebene ${level} aus Server-Cache (7 Tage)${when && when !== "—" ? ` · ${when}` : ""}.`
+    : `Ebene ${level} für 7 Tage im Server-Cache gespeichert.`;
+  bar.innerHTML = `
+    <span>${label}</span>
+    <button type="button" class="btn-nav" id="caDeepForceRefresh">Neu laden</button>
+  `;
+  document.getElementById("caDeepForceRefresh")?.addEventListener("click", () => {
+    runDeepAnalyze(level, maxPersonSearches, { forceRefresh: true });
+  });
+}
+
+function hideDeepCacheBar() {
+  const bar = document.getElementById("caDeepCacheBar");
+  if (!bar) return;
+  bar.classList.add("hidden");
+  bar.innerHTML = "";
+  delete bar.dataset.keep;
+}
+
+async function refreshCompanyCacheOffer() {
+  const bar = document.getElementById("caDeepCacheBar");
+  if (!bar || !currentCompany) return;
+  const name = currentCompany.name || "";
+  const uid = currentCompany.uid || pendingUid || "";
+  if (!name && !uid) return;
+  try {
+    const qs = new URLSearchParams();
+    if (name) qs.set("name", name);
+    if (uid) qs.set("uid", uid);
+    const resp = await fetch(`/api/fraud-network/cache-status?${qs}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const levels = data.levels || {};
+    const bits = [];
+    for (const lvl of [5, 4]) {
+      const info = levels[String(lvl)];
+      if (info?.cached) {
+        const when = formatDateTimeDisplay(info.cached_at);
+        bits.push({
+          level: lvl,
+          when,
+          nodes: info.nodes || 0,
+        });
+      }
+    }
+    if (!bits.length) {
+      // Don't clear a "just stored" bar from a deep scan in this session
+      if (!bar.dataset.keep) hideDeepCacheBar();
+      return;
+    }
+    const best = bits[0];
+    bar.classList.remove("hidden");
+    bar.innerHTML = `
+      <span>Cached Ebene ${best.level} verfügbar${best.when ? ` (${best.when})` : ""} — ${best.nodes} Knoten.</span>
+      <span class="ca-deep-cache-actions">
+        ${bits
+          .map(
+            (b) =>
+              `<button type="button" class="btn-nav ca-cache-load" data-level="${b.level}">E${b.level} laden</button>`
+          )
+          .join("")}
+      </span>
+    `;
+    bar.querySelectorAll(".ca-cache-load").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const lvl = Number(btn.dataset.level) || 4;
+        setDeepLevel(lvl);
+        runDeepAnalyze(lvl, FULL_PERSON_SEARCHES, { forceRefresh: false });
+      });
+    });
+  } catch (_) {
+    /* ignore */
   }
 }
 
@@ -1073,7 +1251,10 @@ function renderFirmBar(company, data) {
   const canton = company.canton || "";
   const status = String(company.status || "").toUpperCase();
   const statusClass = statusTone(status);
-  const statusText = statusDisplayLabel(status);
+  let statusText = statusDisplayLabel(status);
+  if (statusClass === "bad" && company.deletion_date) {
+    statusText = `Gelöscht · ${formatDateDisplay(company.deletion_date)}`;
+  }
   const seat = [cantonDisplayName(canton) || canton, company.legal_seat].filter(Boolean).join(" · ");
   const formShort = shortenLegalForm(company.legal_form);
   const onCase = !!currentCaseHit;
@@ -1191,7 +1372,7 @@ function renderWarnings(warnings) {
   }
   wbox.innerHTML = warnings.map((w) => {
     const fraud = /fraud|prüfung|akte/i.test(String(w));
-    return `<span class="ca-warn-pill${fraud ? " is-fraudlist" : ""}">${escHtml(w)}</span>`;
+    return `<span class="ca-warn-pill${fraud ? " is-fraudlist" : ""}">${escHtml(formatDatesInText(w))}</span>`;
   }).join("");
   wbox.classList.remove("hidden");
 }
@@ -1241,26 +1422,6 @@ function personSilhouetteIcon(gender, isFormer, caseInvolved) {
     ${badge}
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-function formatDateCH(value) {
-  if (value == null || value === "" || value === "—") return "—";
-  const s = String(value).trim();
-  if (/^\d{2}\.\d{2}\.\d{4}/.test(s)) return s.slice(0, 10);
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[3]}.${iso[2]}.${iso[1]}`;
-  const t = Date.parse(s);
-  if (!Number.isNaN(t)) {
-    const d = new Date(t);
-    const dd = String(d.getDate()).padStart(2, "0");
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    return `${dd}.${mm}.${d.getFullYear()}`;
-  }
-  return s;
-}
-
-function formatDatesInText(text) {
-  return String(text || "").replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_, y, m, d) => `${d}.${m}.${y}`);
 }
 
 function watchButtonHtml({ watched = false, name = "", residence = "" } = {}) {
@@ -1359,7 +1520,7 @@ function renderPersonsTable(persons) {
     </div>`;
   }
   if (former.length) {
-    html += `<details class="ca-person-group ca-person-group-former" open>
+    html += `<details class="ca-person-group ca-person-group-former">
       <summary class="ca-former-summary">
         <span class="fraud-group-label">Ehemalig (${former.length})</span>
       </summary>
@@ -1739,10 +1900,10 @@ function renderGraph(nodes, edges, containerId, setInstance) {
         vadjust: isPerson ? 2 : 0,
       },
       borderWidth: caseInvolved ? 3 : (n.is_seed ? 3 : (isFormer ? 1.2 : 2)),
-      opacity: caseInvolved ? 1 : (isFormer ? 0.38 : 1),
+      opacity: caseInvolved ? 1 : (isFormer ? 0.58 : 1),
     };
     if (!isPerson) {
-      return { ...base, shape: "box", margin: 10 };
+      return { ...base, shape: "box", margin: 10, cursor: "pointer" };
     }
     const icon = personSilhouetteIcon(gender, isFormer, caseInvolved);
     return {
@@ -1773,7 +1934,7 @@ function renderGraph(nodes, edges, containerId, setInstance) {
         color: touchesFormer ? "#4b5563" : "#94a3b8",
         highlight: touchesFormer ? "#6b7280" : "#f87171",
         hover: touchesFormer ? "#6b7280" : "#67e8f9",
-        opacity: touchesFormer ? 0.28 : 0.9,
+        opacity: touchesFormer ? 0.45 : 0.9,
       },
       width: touchesFormer ? 1.15 : 2.4,
       selectionWidth: touchesFormer ? 1.6 : 3.2,
@@ -1816,6 +1977,20 @@ function renderGraph(nodes, edges, containerId, setInstance) {
   if (seedId != null) {
     try { visNodes.update({ id: seedId, isSeed: true }); } catch (_) { /* ignore */ }
   }
+  // Company nodes → open firm analysis in a new Lynx tab
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  net.on("click", (params) => {
+    const nid = params?.nodes?.[0];
+    if (nid == null) return;
+    const n = nodeById.get(nid);
+    if (!n || n.type === "person") return;
+    const name = String(n.name || n.label || "").split("\n")[0].trim();
+    if (!name) return;
+    const qs = new URLSearchParams();
+    qs.set("company", name);
+    if (n.uid) qs.set("uid", String(n.uid));
+    window.open(`/?${qs.toString()}`, "_blank", "noopener,noreferrer");
+  });
   scheduleNetworkFit(net, nodes);
 }
 

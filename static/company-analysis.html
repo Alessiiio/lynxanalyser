@@ -106,8 +106,13 @@
               <input type="search" id="caGraphFindInput" class="ca-graph-find-input" placeholder="Knoten suchen…" autocomplete="off" aria-label="Knoten im Netzwerk suchen">
               <span id="caGraphFindMeta" class="ca-graph-find-meta" aria-live="polite"></span>
             </div>
-            <button type="button" class="btn-nav ca-search-start-btn" id="deepBtn">Suche starten</button>
+            <div class="ca-deep-actions">
+              <button type="button" class="btn-nav ca-search-start-btn" id="deepBtn">Suche starten</button>
+              <button type="button" class="btn-nav ca-force-refresh-btn hidden" id="deepForceRefreshBtn"
+                title="Aktuelle Ebene ohne Cache neu vom Register laden">Neu laden</button>
+            </div>
           </div>
+          <div id="caDeepCacheBar" class="ca-deep-cache-bar hidden" role="status"></div>
           <div class="ca-level-slider-wrap">
             <label class="ca-level-slider-label" for="deepLevelRange">
               Ebene <strong id="deepLevelValue">2</strong>

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 
+from app.date_format import now_display
 from app.models import FullReport
 
 
@@ -23,7 +23,7 @@ def build_pdf_report(report: FullReport) -> bytes:
     y -= 0.8 * cm
 
     c.setFont("Helvetica", 10)
-    c.drawString(2 * cm, y, f"Erstellt: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    c.drawString(2 * cm, y, f"Erstellt: {now_display(with_tz=True)}")
     y -= 0.6 * cm
     c.drawString(2 * cm, y, f"URL: {report.url}")
     y -= 0.5 * cm

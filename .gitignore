@@ -11,5 +11,6 @@ fraud_checks.db
 compliance_reports/
 case_reports/
 data/shab_month_cache/
+data/fraud_network_cache/
 LAUNCH_ACCESS.txt
 

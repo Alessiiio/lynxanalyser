@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
+
+from app.date_format import now_display
 
 
 def build_profiler_screening_pdf(
@@ -28,7 +29,7 @@ def build_profiler_screening_pdf(
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
     y = height - 2 * cm
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated = now_display(with_tz=True)
 
     def ensure_space(need: float = 1.2 * cm) -> None:
         nonlocal y

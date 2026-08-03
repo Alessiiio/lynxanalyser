@@ -272,7 +272,7 @@ function renderDocsWizard(c) {
         <div class="docs-wiz-done-box">
           <span class="docs-wiz-done-badge">Erledigt</span>
           <p>${esc(item.status === "relationship_found" ? "Kundenbeziehung vorhanden" : "Kein Kunde")}</p>
-          <p class="fraud-help">${esc(item.checked_by || "")} · ${esc(item.checked_at || "")}${item.note ? ` — ${esc(item.note)}` : ""}</p>
+          <p class="fraud-help">${esc(item.checked_by || "")} · ${esc(formatDateTimeDisplay(item.checked_at))}${item.note ? ` — ${esc(item.note)}` : ""}</p>
         </div>
         <div class="docs-wiz-actions">
           <button type="button" class="btn-nav docs-wiz-btn" data-wiz-prev>Zurück</button>
@@ -291,7 +291,7 @@ function renderDocsWizard(c) {
       ${journal.length ? `
         <ul class="docs-wiz-journal">${journal.map((e) => `
           <li>
-            <div class="docs-wiz-journal-meta">${esc(e.author)} · ${esc((e.created_at || "").slice(0, 16))}</div>
+            <div class="docs-wiz-journal-meta">${esc(e.author)} · ${esc(formatDateTimeDisplay(e.created_at))}</div>
             <div>${esc(e.text)}</div>
           </li>`).join("")}</ul>
       ` : `<p class="fraud-help">Noch keine Journal-Einträge.</p>`}

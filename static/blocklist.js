@@ -29,7 +29,7 @@ function renderBlocklist(entries) {
     const category = BLOCKLIST_CATEGORY_LABELS[entry.fraud_category] || entry.fraud_category || "—";
     const note = (entry.note || "").trim();
     const when = entry.confirmed_at
-      ? new Date(entry.confirmed_at).toLocaleString()
+      ? formatDateTimeDisplay(entry.confirmed_at)
       : "";
 
     const li = document.createElement("li");

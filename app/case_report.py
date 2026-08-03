@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
 from typing import Any
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
+
+from app.date_format import format_datetime_display, now_display
 
 
 def _draw_wrapped(c: canvas.Canvas, text: str, x: float, y: float, *, max_chars: int = 100) -> float:
@@ -35,7 +36,7 @@ def build_company_case_report(
     c = canvas.Canvas(buffer, pagesize=A4)
     height = A4[1]
     y = height - 2 * cm
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated = now_display(with_tz=True)
 
     c.setFont("Helvetica-Bold", 16)
     c.drawString(2 * cm, y, "Fallbericht — Company Case")
@@ -98,7 +99,7 @@ def build_company_case_report(
         for e in journal:
             y = _draw_wrapped(
                 c,
-                f"{e.get('created_at')} · {e.get('author')}: {e.get('text')}",
+                f"{format_datetime_display(e.get('created_at'))} · {e.get('author')}: {e.get('text')}",
                 2 * cm,
                 y,
                 max_chars=105,
@@ -168,7 +169,7 @@ def build_bank_lookup_sheet(case: dict[str, Any]) -> bytes:
     c = canvas.Canvas(buffer, pagesize=A4)
     height = A4[1]
     y = height - 2 * cm
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated = now_display(with_tz=True)
 
     c.setFont("Helvetica-Bold", 15)
     c.drawString(2 * cm, y, "Abgleichsliste — Kernbanksysteme")

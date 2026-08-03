@@ -10,6 +10,7 @@ import calendar
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -20,13 +21,22 @@ from app.checks.zefix_check import _format_uid
 from app.hr_network.shab_parser import iter_named_persons_in_message
 from app.hr_network.zefix_rest import zefix_rest_post
 
-# Canton → default registryOfCommerceId (ZefixREST registryOffices filter).
+logger = logging.getLogger(__name__)
+
+# Canton → registryOfCommerceId (ZefixREST registryOffices).
+# Source: ZefixREST /community.json (registryOfficeId per Gemeinde), Jul 2026.
+# Old IDs (AG=1, GE=6600, …) now 404 and silently produced empty person searches.
 _CANTON_REGISTRY: dict[str, int] = {
-    "AG": 1, "AR": 15, "AI": 16, "BL": 13, "BS": 12, "BE": 36,
-    "FR": 46, "GE": 6600, "GL": 17, "GR": 18, "JU": 26, "LU": 30,
-    "NE": 27, "NW": 28, "OW": 140, "SH": 50, "SZ": 55, "SO": 40,
-    "SG": 44, "TI": 58, "TG": 57, "UR": 60, "VS": 62, "VD": 70,
-    "ZG": 75, "ZH": 20,
+    "AG": 400, "AI": 310, "AR": 300, "BE": 36, "BL": 280, "BS": 270,
+    "FR": 217, "GE": 660, "GL": 160, "GR": 350, "JU": 670, "LU": 100,
+    "NE": 645, "NW": 150, "OW": 140, "SG": 320, "SH": 290, "SO": 241,
+    "SZ": 130, "TG": 440, "TI": 501, "UR": 120, "VD": 550, "VS": 600,
+    "ZG": 170, "ZH": 20,
+}
+
+# Extra registry offices in the same canton (VS has multiple offices).
+_CANTON_REGISTRY_EXTRA: dict[str, list[int]] = {
+    "VS": [621, 626],
 }
 
 _SHAB_CACHE_TTL_SEC = 24 * 3600
@@ -275,17 +285,41 @@ def _scan_shab_month_for_queries(
     return hits
 
 
+def _all_registry_office_ids() -> list[int]:
+    ids: set[int] = set(_CANTON_REGISTRY.values())
+    for extras in _CANTON_REGISTRY_EXTRA.values():
+        ids.update(extras)
+    return sorted(ids)
+
+
 def _resolve_registry(
     registry_office_id: int | None,
     canton: str | None,
 ) -> list[int] | None:
     if registry_office_id:
-        return [registry_office_id]
+        return [int(registry_office_id)]
     if canton:
-        reg = _CANTON_REGISTRY.get(canton.strip().upper())
-        if reg:
-            return [reg]
+        code = canton.strip().upper()
+        primary = _CANTON_REGISTRY.get(code)
+        if not primary:
+            return None
+        extras = _CANTON_REGISTRY_EXTRA.get(code) or []
+        return [primary, *extras]
     return None
+
+
+def _merge_month_hits(
+    hits_by_person: dict[str, dict[str, dict[str, Any]]],
+    month_hits: dict[str, list[dict[str, Any]]],
+) -> None:
+    for qid, items in month_hits.items():
+        bucket = hits_by_person.setdefault(qid, {})
+        for hit in items:
+            uid_key = re.sub(r"\D", "", str(hit.get("uid") or ""))
+            key = uid_key or str(hit.get("ehraid") or hit.get("name"))
+            prev = bucket.get(key)
+            if not prev or (hit.get("sogc_date") or "") > (prev.get("sogc_date") or ""):
+                bucket[key] = hit
 
 
 async def search_persons_batch(
@@ -294,6 +328,7 @@ async def search_persons_batch(
     exclude_uids: dict[str, str] | None = None,
     registry_office_id: int | None = None,
     canton: str | None = None,
+    all_cantons: bool = False,
     years_back: int = 12,
     max_seconds: float = 75.0,
     deep: bool = False,
@@ -301,8 +336,9 @@ async def search_persons_batch(
     """
     Find companies mentioning any of the given persons in SHAB text.
 
-    One cantonal month-scan serves all persons (much faster than N separate searches).
-    Default history is 12 years so takeovers of older shell companies still surface.
+    Prefer a cantonal registry filter (fast). For cross-canton coverage set
+    ``all_cantons=True`` (scans every valid registry office — not one huge
+    unfiltered nationwide dump, which overruns timeouts).
     """
     exclude_uids = exclude_uids or {}
     queries: list[dict[str, Any]] = []
@@ -335,7 +371,29 @@ async def search_persons_batch(
         years_back = max(years_back, 20)
         max_seconds = max(max_seconds, 120.0)
 
-    registry_offices = _resolve_registry(registry_office_id, canton)
+    if all_cantons:
+        registry_offices = _all_registry_office_ids()
+        scope = "ganze Schweiz (alle Kantone)"
+        # One month at a time; within the month registries are chunked.
+        month_batch_size = 1
+        registry_chunk = 8
+    else:
+        registry_offices = _resolve_registry(registry_office_id, canton)
+        if registry_offices:
+            scope = (
+                f"Handelsregister {registry_offices[0]}"
+                if len(registry_offices) == 1
+                else f"Handelsregister {', '.join(str(x) for x in registry_offices)}"
+            )
+            # Small batches so max_seconds is honored (large gather overruns badly).
+            month_batch_size = 2
+            registry_chunk = 0
+        else:
+            # Unfiltered nationwide dump — slow; keep batches tiny so max_seconds holds.
+            scope = "ganze Schweiz"
+            month_batch_size = 1
+            registry_chunk = 0
+
     exclude_digits_by_qid = {
         str(q["raw"]): re.sub(r"\D", "", exclude_uids.get(str(q["raw"]), "") or "")
         for q in queries
@@ -349,14 +407,56 @@ async def search_persons_batch(
     scanned_months = 0
     complete = True
 
-    # Parallel month batches — one pass covers every person query.
-    batch_size = 10
-    for batch_start in range(0, len(months), batch_size):
+    for batch_start in range(0, len(months), month_batch_size):
         if time.monotonic() - started >= max_seconds:
             complete = False
             break
 
-        batch = months[batch_start : batch_start + batch_size]
+        batch = months[batch_start : batch_start + month_batch_size]
+
+        if all_cantons and registry_offices:
+            for year, month in batch:
+                if time.monotonic() - started >= max_seconds:
+                    complete = False
+                    break
+                month_ok = True
+                for chunk_start in range(0, len(registry_offices), registry_chunk):
+                    if time.monotonic() - started >= max_seconds:
+                        complete = False
+                        month_ok = False
+                        break
+                    chunk = registry_offices[chunk_start : chunk_start + registry_chunk]
+                    results = await asyncio.gather(
+                        *[
+                            asyncio.to_thread(
+                                _scan_shab_month_for_queries,
+                                year,
+                                month,
+                                queries,
+                                registry_offices=[office_id],
+                                exclude_digits_by_qid=exclude_digits_by_qid,
+                            )
+                            for office_id in chunk
+                        ],
+                        return_exceptions=True,
+                    )
+                    for result in results:
+                        if isinstance(result, Exception):
+                            logger.warning(
+                                "SHAB month %04d-%02d registry scan failed: %s",
+                                year,
+                                month,
+                                result,
+                            )
+                            continue
+                        _merge_month_hits(hits_by_person, result)
+                scanned_months += 1
+                if not month_ok:
+                    break
+            if not complete:
+                break
+            continue
+
         results = await asyncio.gather(
             *[
                 asyncio.to_thread(
@@ -375,15 +475,13 @@ async def search_persons_batch(
         for result in results:
             scanned_months += 1
             if isinstance(result, Exception):
+                logger.warning("SHAB month scan failed: %s", result)
                 continue
-            for qid, month_hits in result.items():
-                bucket = hits_by_person.setdefault(qid, {})
-                for hit in month_hits:
-                    uid_key = re.sub(r"\D", "", str(hit.get("uid") or ""))
-                    key = uid_key or str(hit.get("ehraid") or hit.get("name"))
-                    prev = bucket.get(key)
-                    if not prev or (hit.get("sogc_date") or "") > (prev.get("sogc_date") or ""):
-                        bucket[key] = hit
+            _merge_month_hits(hits_by_person, result)
+
+        if time.monotonic() - started >= max_seconds and batch_start + month_batch_size < len(months):
+            complete = False
+            break
 
     elapsed = round(time.monotonic() - started, 2)
     by_person: dict[str, Any] = {}
@@ -402,7 +500,6 @@ async def search_persons_batch(
             "match_count": len(hits),
         }
 
-    scope = f"Handelsregister {registry_offices[0]}" if registry_offices else "ganze Schweiz"
     return {
         "by_person": by_person,
         "match_count": total_matches,
@@ -412,6 +509,7 @@ async def search_persons_batch(
         "deep": deep,
         "years_back": years_back,
         "registry_scope": scope,
+        "all_cantons": all_cantons,
         "elapsed_seconds": elapsed,
         "method": "zefix_rest_shab_search_batch",
         "note": (
@@ -431,6 +529,7 @@ async def search_person_in_sogc(
     exclude_uid: str | None = None,
     registry_office_id: int | None = None,
     canton: str | None = None,
+    all_cantons: bool = False,
     years_back: int = 12,
     max_seconds: float = 75.0,
     deep: bool = False,
@@ -442,6 +541,7 @@ async def search_person_in_sogc(
         exclude_uids={str(query["raw"]): exclude_uid or ""},
         registry_office_id=registry_office_id,
         canton=canton,
+        all_cantons=all_cantons,
         years_back=years_back,
         max_seconds=max_seconds,
         deep=deep,
@@ -457,6 +557,7 @@ async def search_person_in_sogc(
         "deep": deep,
         "years_back": batch.get("years_back"),
         "registry_scope": batch.get("registry_scope"),
+        "all_cantons": batch.get("all_cantons"),
         "elapsed_seconds": batch.get("elapsed_seconds"),
         "method": batch.get("method"),
         "note": batch.get("note"),

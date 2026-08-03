@@ -94,7 +94,7 @@
     list.innerHTML = snips
       .map((s) => {
         const status = s.status === "closed" ? "closed" : "open";
-        const when = (s.updated_at || s.created_at || "").slice(0, 16).replace("T", " ");
+        const when = formatDateTimeDisplay(s.updated_at || s.created_at);
         const aml = s.workflow?.aml_since
           ? ` · AML seit ${esc(s.workflow.aml_since)}`
           : "";

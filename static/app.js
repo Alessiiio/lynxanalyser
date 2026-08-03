@@ -841,7 +841,7 @@ function renderPreviousScan(previous) {
     return;
   }
 
-  const date = new Date(previous.previous_checked_at).toLocaleString();
+  const dateLabel = formatDateTimeDisplay(previous.previous_checked_at);
   const diff = previous.score_diff;
   let boxClass = "previous-scan-neutral";
   let diffHtml = "<span>Score im Wesentlichen unverändert</span>";
@@ -857,7 +857,7 @@ function renderPreviousScan(previous) {
   box.className = `previous-scan-box ${boxClass}`;
   box.innerHTML = `
     <div class="previous-scan-main">
-      Zuletzt geprüft am <strong>${escHtml(date)}</strong> —
+      Zuletzt geprüft am <strong>${escHtml(dateLabel)}</strong> —
       Score war damals <strong>${previous.previous_score}/100</strong>
       (<strong>${escHtml(translateVerdict(previous.previous_verdict))}</strong>)
     </div>
@@ -1392,6 +1392,13 @@ function buildDetailsHtml(result) {
 
     const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     let display = Array.isArray(value) ? value.join(", ") : String(value);
+    if (/_date$|_at$|^date$/i.test(key) || /^\d{4}-\d{2}-\d{2}/.test(display)) {
+      display = key.endsWith("_at") || /T\d{2}:/.test(display)
+        ? formatDateTimeDisplay(display)
+        : formatDateDisplay(display);
+    } else if (typeof value === "string") {
+      display = formatDatesInText(display);
+    }
     if (display.length > 160) display = display.slice(0, 157) + "…";
     html += `<dt>${escHtml(label)}</dt><dd>${escHtml(display)}</dd>`;
   }
@@ -1410,7 +1417,7 @@ function buildZefixSignalsHtml(d) {
   if (deductWarnings.length) {
     html += `<div class="tp-hit-signals"><div class="tp-hit-signals-title">Register-Warnsignale (${deductWarnings.length})</div><ul class="tp-hit-signals-list">`;
     for (const w of deductWarnings) {
-      html += `<li class="tp-hit-signal-item"><span class="tp-hit-icon">⚠</span><span>${escHtml(w)}</span></li>`;
+      html += `<li class="tp-hit-signal-item"><span class="tp-hit-icon">⚠</span><span>${escHtml(formatDatesInText(w))}</span></li>`;
     }
     html += `</ul></div>`;
   }
@@ -1421,14 +1428,14 @@ function buildZefixSignalsHtml(d) {
       const types = Array.isArray(pub.types_de) && pub.types_de.length
         ? pub.types_de.join(", ")
         : (Array.isArray(pub.types) ? pub.types.join(", ") : "Meldung");
-      html += `<li class="zefix-mutation-item"><span class="zefix-mutation-date">${escHtml(pub.date || "n/a")}</span> — <span>${escHtml(types)}</span></li>`;
+      html += `<li class="zefix-mutation-item"><span class="zefix-mutation-date">${escHtml(formatDateDisplay(pub.date) || "n/a")}</span> — <span>${escHtml(types)}</span></li>`;
     }
     if ((d.publication_count ?? pubs.length) > 3) {
       html += `<li class="zefix-mutation-more">… und ${(d.publication_count ?? pubs.length) - 3} weitere Meldungen</li>`;
     }
     html += `</ul></div>`;
   } else if (d.mutation_analysis) {
-    html += `<div class="zefix-mutations-clear">${escHtml(d.mutation_analysis)}</div>`;
+    html += `<div class="zefix-mutations-clear">${escHtml(formatDatesInText(d.mutation_analysis))}</div>`;
   }
 
   return html;
@@ -1451,7 +1458,10 @@ function buildZefixDetailsHtml(d) {
   for (const [key, label] of fields) {
     const value = d[key];
     if (value === null || value === undefined || value === "") continue;
-    html += `<dt>${escHtml(label)}</dt><dd>${escHtml(String(value))}</dd>`;
+    const shown = key.endsWith("_date") || key === "latest_mutation_date"
+      ? formatDateDisplay(value)
+      : (typeof value === "string" ? formatDatesInText(value) : String(value));
+    html += `<dt>${escHtml(label)}</dt><dd>${escHtml(shown)}</dd>`;
   }
   if (d.zefix_url) {
     html += `<dt>Zefix</dt><dd><a href="${escHtml(d.zefix_url)}" target="_blank" rel="noopener">Im Handelsregister öffnen ↗</a>`;
@@ -1472,7 +1482,7 @@ function buildZefixDetailsHtml(d) {
         ? pub.types_de.join(", ")
         : (Array.isArray(pub.types) ? pub.types.join(", ") : "Meldung");
       const msg = pub.message_short ? `<div class="zefix-mutation-msg">${escHtml(pub.message_short)}</div>` : "";
-      html += `<li class="zefix-mutation-item"><strong>${escHtml(pub.date || "n/a")}</strong> — ${escHtml(types)}${msg}</li>`;
+      html += `<li class="zefix-mutation-item"><strong>${escHtml(formatDateDisplay(pub.date) || "n/a")}</strong> — ${escHtml(types)}${msg}</li>`;
     }
     html += `</ul></div>`;
   }
@@ -1532,6 +1542,13 @@ function buildContactDetailsHtml(d) {
   for (const [key, value] of entries) {
     const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     let display = Array.isArray(value) ? value.join(", ") : String(value);
+    if (/_date$|_at$|^date$/i.test(key) || /^\d{4}-\d{2}-\d{2}/.test(display)) {
+      display = key.endsWith("_at") || /T\d{2}:/.test(display)
+        ? formatDateTimeDisplay(display)
+        : formatDateDisplay(display);
+    } else if (typeof value === "string") {
+      display = formatDatesInText(display);
+    }
     if (display.length > 160) display = display.slice(0, 157) + "…";
     html += `<dt>${escHtml(label)}</dt><dd>${escHtml(display)}</dd>`;
   }
@@ -1651,7 +1668,7 @@ function buildReputationDetailsHtml(d) {
       const verified = rev.verified ? "✓ verifiziert" : "○ nicht verifiziert";
       const authorReviews = rev.author_total_reviews === 1 ? "1 Review gesamt"
         : rev.author_total_reviews != null ? `${rev.author_total_reviews} Reviews gesamt` : "";
-      const date = rev.published ? String(rev.published).slice(0, 10) : "";
+      const date = rev.published ? formatDateDisplay(rev.published) : "";
       html += `<li class="tp-review-row">
         <span class="tp-review-stars">${"★".repeat(rev.rating || 0)}</span>
         <span class="tp-review-meta">${escHtml(rev.author || "?")}${authorReviews ? ` — ${escHtml(authorReviews)}` : ""} — ${escHtml(verified)}</span>
@@ -1667,7 +1684,7 @@ function buildReputationDetailsHtml(d) {
   if (Array.isArray(negative) && negative.length) {
     html += `<div class="tp-review-sample tp-negative-reviews"><strong>Negative Reviews (1–2★)</strong><ul>`;
     for (const rev of negative) {
-      const date = rev.published ? String(rev.published).slice(0, 10) : "";
+      const date = rev.published ? formatDateDisplay(rev.published) : "";
       html += `<li class="tp-review-row tp-review-negative">
         <span class="tp-review-stars tp-stars-bad">${"★".repeat(rev.rating || 0)}</span>
         <span class="tp-review-meta">${escHtml(rev.author || "?")}${date ? ` — ${escHtml(date)}` : ""}</span>

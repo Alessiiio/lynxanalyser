@@ -118,7 +118,14 @@
         <button type="button" class="btn-nav" data-close-modal aria-label="Schliessen">Schliessen</button>
       </div>
       <p id="caseModalMeta" class="fraud-entry-meta"></p>
-      <p id="caseModalStatus" class="fraud-help"></p>
+      <div id="caseModalScanFeedback" class="watch-scan-feedback hidden" role="status" aria-live="polite">
+        <div class="watch-scan-feedback-row">
+          <span id="caseModalStatus" class="fraud-help"></span>
+        </div>
+        <div id="caseScanProgressWrap" class="ca-progress-wrap hidden" aria-hidden="true">
+          <div id="caseScanProgressBar" class="ca-progress-bar" style="width:0%"></div>
+        </div>
+      </div>
       <div id="caseModalBody" class="watch-case-modal-body"></div>
     </div>
   </div>

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
 from typing import Any
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
+
+from app.date_format import format_datetime_display, now_display
 
 
 def _draw_wrapped(c: canvas.Canvas, text: str, x: float, y: float, *, max_chars: int = 100) -> float:
@@ -35,7 +36,7 @@ def build_investigation_dossier_pdf(
     c = canvas.Canvas(buffer, pagesize=A4)
     height = A4[1]
     y = height - 2 * cm
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated = now_display(with_tz=True)
 
     c.setFont("Helvetica-Bold", 16)
     c.drawString(2 * cm, y, "Ermittlungsdossier — Personenakte")
@@ -107,7 +108,7 @@ def build_investigation_dossier_pdf(
     else:
         for a in alerts:
             line = (
-                f"{a.get('created_at') or '—'} · {a.get('severity') or '—'} · "
+                f"{format_datetime_display(a.get('created_at'))} · {a.get('severity') or '—'} · "
                 f"{a.get('alert_type') or '—'} · {a.get('message') or '—'}"
             )
             y = _draw_wrapped(c, line, 2 * cm, y, max_chars=105)

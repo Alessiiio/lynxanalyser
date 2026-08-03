@@ -1,0 +1,44 @@
+[
+  {
+    "date": "2026-07-31",
+    "title": "Changelog & Firmen-Cache behoben",
+    "body": "Changelog unter Account-Menü und Mehr. L4/L5-Cache greift über UID und Name; nach Firmensuche erscheint «E4/E5 laden» wenn ein Cache existiert. Session-Cookies lokal ohne DOMAIN wieder ohne Secure-Flag.",
+    "by": "Lynx"
+  },
+  {
+    "date": "2026-07-31",
+    "title": "Admin im Account-Menü",
+    "body": "Die Admin-Seite ist über den User-Reiter (Account-Dropdown) erreichbar, nicht mehr nur über «Mehr».",
+    "by": "Lynx"
+  },
+  {
+    "date": "2026-07-31",
+    "title": "Changelog",
+    "body": "Neue In-App-Seite unter Mehr → Changelog. Einträge werden in data/changelog.json gepflegt.",
+    "by": "Lynx"
+  },
+  {
+    "date": "2026-07-31",
+    "title": "Beziehungsnetzwerk: Ehemalige besser sichtbar",
+    "body": "Ehemalige Personen im Graph sind kontrastreicher. In der Personenliste bleiben ehemalige Mitglieder standardmässig eingeklappt.",
+    "by": "Lynx"
+  },
+  {
+    "date": "2026-07-31",
+    "title": "Firmen im Graph klickbar",
+    "body": "Firmenknoten (z. B. nach L4/L5) öffnen die Firmenanalyse in einem neuen Lynx-Tab.",
+    "by": "Lynx"
+  },
+  {
+    "date": "2026-07-31",
+    "title": "L4/L5-Cache (7 Tage)",
+    "body": "Deep-Scans werden serverseitig 7 Tage gecacht. «Neu laden» erzwingt eine frische Abfrage.",
+    "by": "Lynx"
+  },
+  {
+    "date": "2026-07-31",
+    "title": "Watchlist-Flags",
+    "body": "Neue Optionen auf Watchlist-Personen: «Unerwünschter Kunde» und «AML».",
+    "by": "Lynx"
+  }
+]

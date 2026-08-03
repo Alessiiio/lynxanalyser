@@ -58,6 +58,19 @@ def _purpose_key(purpose: str | None) -> str:
         return ""
     text = re.sub(r"<[^>]+>", " ", purpose)
     text = re.sub(r"\s+", " ", text).strip().lower()
+    # Strip common Swiss registry boilerplate so keys reflect the real activity
+    for _ in range(4):
+        nxt = text
+        nxt = re.sub(r"^die\s+gesellschaft\s+bezweckt\s+(die\s+)?", "", nxt)
+        nxt = re.sub(r"^zweck\s+(der\s+gesellschaft\s+)?(ist|sind)\s+(die\s+)?", "", nxt)
+        nxt = re.sub(r"^erbringung\s+von\s+", "", nxt)
+        nxt = re.sub(r"^leistungen?\s+im\s+bereich\s+(der|des|von)\s+", "", nxt)
+        nxt = re.sub(r"^leistungen?\s+aller\s+art,?\s*(insbesondere\s+)?", "", nxt)
+        nxt = re.sub(r"^im\s+bereich\s+(der|des|von)\s+", "", nxt)
+        nxt = nxt.strip()
+        if nxt == text:
+            break
+        text = nxt
     return text[:120]
 
 
