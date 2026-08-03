@@ -58,3 +58,19 @@ docker compose cp app:/app/data/fraud_checks.backup.db ./fraud_checks.backup.db
 - The app container is not published on the host; only Caddy exposes 80/443.
 - `FORWARDED_ALLOW_IPS=*` is safe in this layout because nothing else can reach the app.
 - Set `ALLOWED_HOSTS` to your real domain (compose already injects `$DOMAIN`).
+
+## Auto-Deploy via GitHub Actions
+
+Bei jedem Push auf `main` deployt GitHub Actions automatisch (`.github/workflows/deploy.yml`).
+
+Einmalige Einrichtung:
+
+1. **Deploy Key** (read-only, damit der Server das Repo pullen kann): Settings → Deploy keys → Add deploy key. Public Key liegt lokal bereit; privaten Key in `~/.ssh/github_deploy_key` auf dem Server ablegen (siehe `deploy/bootstrap.sh`).
+2. **Actions Secrets** unter Settings → Secrets and variables → Actions:
+   - `VPS_HOST` — Server-IP
+   - `VPS_USER` — `root`
+   - `VPS_SSH_KEY` — privater Key, mit dem GitHub Actions sich per SSH einloggt (separat vom GitHub-Deploy-Key)
+3. Auf dem Server einmalig `deploy/bootstrap.sh` ausführen (Docker installieren, Repo nach `/opt/lynx` klonen).
+4. `.env` in `/opt/lynx` anlegen und befüllen, danach `docker compose up -d --build`.
+
+Ab dann reicht `git push` auf `main` — GitHub Actions verbindet sich per SSH und macht `git pull && docker compose up -d --build`.
