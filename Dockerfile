@@ -24,7 +24,7 @@ COPY --chown=lynx:lynx app ./app
 COPY --chown=lynx:lynx static ./static
 COPY --chown=lynx:lynx scripts ./scripts
 COPY --chown=lynx:lynx data ./data
-COPY --chown=lynx:lynx config.py run.py ./
+COPY --chown=lynx:lynx config.py run.py CHANGELOG.md ./
 
 RUN mkdir -p /app/data /app/case_reports /app/compliance_reports \
     && chown -R lynx:lynx /app
