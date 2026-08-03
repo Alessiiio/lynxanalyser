@@ -59,18 +59,15 @@ docker compose cp app:/app/data/fraud_checks.backup.db ./fraud_checks.backup.db
 - `FORWARDED_ALLOW_IPS=*` is safe in this layout because nothing else can reach the app.
 - Set `ALLOWED_HOSTS` to your real domain (compose already injects `$DOMAIN`).
 
-## Auto-Deploy via GitHub Actions
 
-Bei jedem Push auf `main` deployt GitHub Actions automatisch (`.github/workflows/deploy.yml`).
+## Update (manuell)
 
-Einmalige Einrichtung:
+Kein Auto-Deploy. Nach einem Push auf `main` einfach auf dem Server einloggen und aktualisieren:
 
-1. **Deploy Key** (read-only, damit der Server das Repo pullen kann): Settings → Deploy keys → Add deploy key. Public Key liegt lokal bereit; privaten Key in `~/.ssh/github_deploy_key` auf dem Server ablegen (siehe `deploy/bootstrap.sh`).
-2. **Actions Secrets** unter Settings → Secrets and variables → Actions:
-   - `VPS_HOST` — Server-IP
-   - `VPS_USER` — `root`
-   - `VPS_SSH_KEY` — privater Key, mit dem GitHub Actions sich per SSH einloggt (separat vom GitHub-Deploy-Key)
-3. Auf dem Server einmalig `deploy/bootstrap.sh` ausführen (Docker installieren, Repo nach `/root/lynxanalyser` klonen).
-4. `.env` in `/root/lynxanalyser` anlegen und befüllen, danach `docker compose up -d --build`.
+```bash
+ssh -i ~/.ssh/lynx_deploy root@<VPS_IP>
+cd /root/lynxanalyser
+./deploy/update.sh
+```
 
-Ab dann reicht `git push` auf `main` — GitHub Actions verbindet sich per SSH und macht `git pull && docker compose up -d --build`.
+Das Script macht `git pull --ff-only`, baut die Container neu und räumt alte Images auf.
