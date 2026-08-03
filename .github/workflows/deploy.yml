@@ -17,7 +17,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
-            cd /opt/lynx
+            cd /root/lynxanalyser
             git pull --ff-only
             docker compose up -d --build --remove-orphans
             docker image prune -f

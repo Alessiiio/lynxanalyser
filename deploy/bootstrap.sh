@@ -29,8 +29,8 @@ ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 
 echo "== Cloning repo =="
 mkdir -p /opt
-git clone git@github.com:Alessiiio/lynxanalyser.git /opt/lynx
-cd /opt/lynx
+git clone git@github.com:Alessiiio/lynxanalyser.git /root/lynxanalyser
+cd /root/lynxanalyser
 
 echo "== Now: cp .env.example .env and fill in secrets, then run =="
 echo "   export DOMAIN=your.domain.tld   (or leave unset to use 'localhost' for now)"

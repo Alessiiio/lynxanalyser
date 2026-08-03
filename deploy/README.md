@@ -70,7 +70,7 @@ Einmalige Einrichtung:
    - `VPS_HOST` — Server-IP
    - `VPS_USER` — `root`
    - `VPS_SSH_KEY` — privater Key, mit dem GitHub Actions sich per SSH einloggt (separat vom GitHub-Deploy-Key)
-3. Auf dem Server einmalig `deploy/bootstrap.sh` ausführen (Docker installieren, Repo nach `/opt/lynx` klonen).
-4. `.env` in `/opt/lynx` anlegen und befüllen, danach `docker compose up -d --build`.
+3. Auf dem Server einmalig `deploy/bootstrap.sh` ausführen (Docker installieren, Repo nach `/root/lynxanalyser` klonen).
+4. `.env` in `/root/lynxanalyser` anlegen und befüllen, danach `docker compose up -d --build`.
 
 Ab dann reicht `git push` auf `main` — GitHub Actions verbindet sich per SSH und macht `git pull && docker compose up -d --build`.
