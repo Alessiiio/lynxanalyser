@@ -3,22 +3,21 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
+# System-installed Chromium (via apt) instead of Playwright's own download:
+# the Playwright CDN (cdn.playwright.dev) geo-blocks some hosting regions
+# (e.g. certain Hetzner ranges), so we skip "playwright install" entirely.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl chromium \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin lynx
 
 COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt \
-    && playwright install-deps chromium \
-    && playwright install chromium \
-    && mkdir -p /ms-playwright \
-    && chown -R lynx:lynx /ms-playwright
+    && pip install -r requirements.txt
 
 COPY --chown=lynx:lynx app ./app
 COPY --chown=lynx:lynx static ./static

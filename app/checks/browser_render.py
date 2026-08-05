@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import os
+
 from app.checks.utils import USER_AGENT
+
+# Optional: point at a system-installed Chromium (e.g. apt package) instead of
+# Playwright's bundled download. Useful on hosts where the Playwright CDN is
+# geo-blocked. Set CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium in the environment.
+_CHROMIUM_EXECUTABLE_PATH = os.environ.get("CHROMIUM_EXECUTABLE_PATH") or None
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -61,7 +68,10 @@ async def fetch_rendered_html(url: str, timeout_ms: int = 15000) -> dict:
     try:
         async with async_playwright() as playwright:
             try:
-                browser = await playwright.chromium.launch(headless=True)
+                browser = await playwright.chromium.launch(
+                    headless=True,
+                    executable_path=_CHROMIUM_EXECUTABLE_PATH,
+                )
             except Exception as exc:
                 hint = _chromium_missing_message(exc)
                 return _error_result(url, hint or f"Failed to launch browser: {str(exc)[:160]}")
