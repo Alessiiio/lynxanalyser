@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -315,17 +316,149 @@ def build_person_timeline(sogc_pub: list[dict] | None) -> list[dict[str, Any]]:
     return result
 
 
+def compact_person_ref(person: dict[str, Any]) -> dict[str, Any]:
+    """Lean person payload for timeline UI chips."""
+    return {
+        "name": person.get("name") or "",
+        "roles": list(person.get("roles") or [])[:4],
+    }
+
+
+def person_changes_from_message(message: str, *, sogc_date: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Structured enter/exit lists for one SHAB publication."""
+    return {
+        "entered": [
+            compact_person_ref(p)
+            for p in parse_persons_from_message(message, sogc_date=sogc_date)
+            if p.get("name")
+        ],
+        "exited": [
+            compact_person_ref(p)
+            for p in parse_exited_person_entries(message, sogc_date=sogc_date)
+            if p.get("name")
+        ],
+    }
+
+
+_SHAB_SECTION_MARKERS = re.compile(
+    r"(\S)\s+(?=("
+    r"Statutenänderung|"
+    r"Zweckänderung|"
+    r"Kapitaländerung|"
+    r"Kapitalerhöhung|"
+    r"Kapitalherabsetzung|"
+    r"Namensänderung|"
+    r"Firmenname|"
+    r"Sitz\s+neu|"
+    r"Zweck\s+neu|"
+    r"Domizil\s+neu|"
+    r"Neue\s+Adresse|"
+    r"Adresse\s+neu|"
+    r"Firma\s+neu|"
+    r"Publizierte\s+Statuten|"
+    r"Ausgeschiedene\s+Personen|"
+    r"Eingetragene\s+Personen"
+    r")\b)",
+    re.IGNORECASE,
+)
+
+
+def _soft_trunc(text: str, max_len: int) -> str:
+    """Truncate at a word boundary when possible (never the sole full view)."""
+    if max_len <= 0 or len(text) <= max_len:
+        return text
+    cut = text[: max_len - 1]
+    sp = cut.rfind(" ")
+    if sp > max_len // 2:
+        cut = cut[:sp]
+    return cut.rstrip(" ,.;") + "…"
+
+
+def soft_format_shab_prose(text: str) -> str:
+    """Insert soft paragraph breaks before known SHAB section markers."""
+    if not text:
+        return ""
+    out = _SHAB_SECTION_MARKERS.sub(r"\1\n\n", text)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+def clean_shab_message_for_display(
+    message: str,
+    *,
+    max_len: int | None = None,
+) -> str:
+    """
+    Timeline expand text: prefer person sections only; drop purpose/boilerplate noise.
+
+    Full message is returned by default (no mid-sentence hard cut). Pass max_len only
+    for compact previews — truncation then prefers word boundaries.
+    """
+    text = _strip_ft_tags(message or "")
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+
+    chunks: list[str] = []
+    exited = _EXITED_PERSONS_HEADER.search(text)
+    if exited:
+        body = _section_body_after_header(exited)
+        if body:
+            chunks.append(f"Ausgeschieden: {body}")
+    entered = _PERSONS_HEADER.search(text)
+    if entered:
+        body = _section_body_after_header(entered)
+        if body:
+            chunks.append(f"Eingetragen: {body}")
+
+    if chunks:
+        out = " · ".join(chunks)
+    else:
+        # Keep full cleaned SHAB prose (Zweck neu / Statuten etc. are the content)
+        out = re.sub(r"\s+", " ", text).strip(" .;")
+        out = soft_format_shab_prose(out)
+
+    if max_len is not None and len(out) > max_len:
+        return _soft_trunc(out, max_len)
+    return out
+
+
+def enrich_publication_for_timeline(pub: dict[str, Any]) -> dict[str, Any]:
+    """Add persons_in / persons_out + full cleaned SHAB text for UI timeline."""
+    raw = pub.get("message") or ""
+    date = pub.get("sogcDate") or pub.get("shabDate")
+    changes = person_changes_from_message(raw, sogc_date=date)
+    cleaned = clean_shab_message_for_display(raw)
+    # Full stripped message as fallback when clean dropped everything useful
+    fallback = soft_format_shab_prose(
+        re.sub(r"\s+", " ", html.unescape(_strip_ft_tags(raw or ""))).strip()
+    )
+    full = cleaned or fallback
+    return {
+        "entered": changes["entered"],
+        "exited": changes["exited"],
+        "message_clean": full,
+        "message_preview": _soft_trunc(full, 220) if full else "",
+    }
+
+
 def detect_shab_warnings(sogc_pub: list[dict] | None) -> list[str]:
     """Heuristic warnings from full SHAB text corpus."""
     warnings: list[str] = []
+    pubs = [p for p in (sogc_pub or []) if isinstance(p, dict)]
+    if not pubs:
+        warnings.append(
+            "Zefix: keine SHAB-/SOGC-Publikationen (auch zentral «No entry») — "
+            "Organpersonen nicht auslesbar, kantonalen Auszug prüfen"
+        )
+        return warnings
     corpus = " ".join(
         _strip_ft_tags(p.get("message", ""))
-        for p in (sogc_pub or [])
-        if isinstance(p, dict)
+        for p in pubs
     ).lower()
 
     if "verzicht" in corpus and "revision" in corpus:
         warnings.append("Revisionsverzicht im SHAB erwähnt")
-    if "eingetragene personen" not in corpus and sogc_pub:
+    if "eingetragene personen" not in corpus:
         warnings.append("Keine eingetragenen Personen im verfügbaren SHAB-Text gefunden")
     return warnings

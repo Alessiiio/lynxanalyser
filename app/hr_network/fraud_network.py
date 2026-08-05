@@ -16,9 +16,10 @@ from app.hr_network.person_search import search_persons_batch
 from app.hr_network.shab_parser import (
     build_person_timeline,
     collect_persons_from_publications,
+    enrich_publication_for_timeline,
     infer_person_gender,
 )
-from app.hr_network.service import _format_address, _legal_form_label
+from app.hr_network.service import _format_address, _legal_form_label, care_of_display_name
 from app.hr_network.zefix_resolve import resolve_company_detail, uid_digits
 
 logger = logging.getLogger(__name__)
@@ -244,23 +245,34 @@ async def build_fraud_network(
             key=lambda p: p.get("sogcDate") or "",
             reverse=True,
         )
-        summary["recent_publications"] = [
-            {
-                "date": pub.get("sogcDate"),
-                "types": [
-                    t.get("key", "")
-                    for t in (pub.get("mutationTypes") or [])
-                    if isinstance(t, dict)
-                ],
-                "types_de": [
-                    _label_for_key(t.get("key", ""))
-                    for t in (pub.get("mutationTypes") or [])
-                    if isinstance(t, dict) and t.get("key")
-                ],
-                "message_short": _strip(pub.get("message", ""))[:280],
-            }
-            for pub in pubs[:60]
-        ]
+        summary["recent_publications"] = []
+        for pub in pubs[:60]:
+            keys = [
+                t.get("key", "")
+                for t in (pub.get("mutationTypes") or [])
+                if isinstance(t, dict)
+            ]
+            types_de = [
+                _label_for_key(t.get("key", ""))
+                for t in (pub.get("mutationTypes") or [])
+                if isinstance(t, dict) and t.get("key")
+            ]
+            enrich = enrich_publication_for_timeline(pub)
+            msg_full = enrich["message_clean"] or _strip(pub.get("message", ""))
+            summary["recent_publications"].append(
+                {
+                    "date": pub.get("sogcDate"),
+                    "types": keys,
+                    "types_de": types_de,
+                    # Structured first — UI uses this instead of full SHAB wall of text
+                    "persons_in": enrich["entered"],
+                    "persons_out": enrich["exited"],
+                    # Full cleaned text for Details expand (no mid-sentence hard cut)
+                    "message_full": msg_full,
+                    "message_short": enrich.get("message_preview") or msg_full,
+                    "has_person_change": bool(enrich["entered"] or enrich["exited"]),
+                }
+            )
         summary["capital"] = (
             f"{detail.get('capitalNominal')} {detail.get('capitalCurrency')}"
             if detail.get("capitalNominal")
@@ -297,6 +309,29 @@ async def build_fraud_network(
         })
 
         timeline = build_person_timeline(detail.get("sogcPub"))
+        # Zefix occasionally has firms with sogcDate but empty sogcPub (no SHAB text).
+        if not timeline:
+            care_name = care_of_display_name(detail.get("address"))
+            if care_name:
+                warnings.append(
+                    f"Adress-c/o «{care_name}» — kein bestätigtes Organ, nur Zustellhinweis "
+                    "(keine SHAB-Personenmeldungen bei Zefix)."
+                )
+                timeline = [
+                    {
+                        "id": re.sub(r"[^a-z0-9]+", "-", care_name.lower()).strip("-") or "care-of",
+                        "name": care_name,
+                        "roles": ["c/o Adresse"],
+                        "residence": None,
+                        "nationality": None,
+                        "heimatort": None,
+                        "status": "current",
+                        "first_seen": None,
+                        "last_seen": None,
+                        "exited_date": None,
+                        "source": "address_care_of",
+                    }
+                ]
         for person in timeline:
             pid = person["id"]
             nid = _person_id(pid)
@@ -304,6 +339,7 @@ async def build_fraud_network(
             p_level = 1 if is_current else 2
             roles = person.get("roles") or []
             gender = infer_person_gender(roles)
+            is_care_of = person.get("source") == "address_care_of"
             graph.add_node({
                 "id": nid,
                 "type": "person",
@@ -317,6 +353,7 @@ async def build_fraud_network(
                 "first_seen": person.get("first_seen"),
                 "last_seen": person.get("last_seen"),
                 "exited_date": person.get("exited_date"),
+                "source": person.get("source") or "shab",
                 "min_level": p_level,
             })
             role_label = ", ".join(roles) or (
@@ -340,12 +377,14 @@ async def build_fraud_network(
                 "status": person.get("status"),
                 "seed_company": summary.get("name"),
                 "seed_uid": summary.get("uid"),
+                "source": person.get("source") or "shab",
             }
             if is_current:
                 current_persons[pid] = meta
             else:
                 former_persons[pid] = meta
-            if pid not in person_registry:
+            # care-of is shown in graph/table but never used for L3+ SHAB expansion
+            if not is_care_of and pid not in person_registry:
                 person_registry[pid] = detail.get("registryOfCommerceId")
 
         # Level 2: structural Zefix links
@@ -408,8 +447,13 @@ async def build_fraud_network(
     ) -> None:
         """One SHAB batch scan per registry — covers ~12y history for all owners."""
         nonlocal person_search_stats
-        items = list(persons.items())[:max_person_searches]
-        person_search_stats["skipped"] += max(0, len(persons) - len(items))
+        expandable = {
+            pid: meta
+            for pid, meta in persons.items()
+            if (meta or {}).get("source") != "address_care_of"
+        }
+        items = list(expandable.items())[:max_person_searches]
+        person_search_stats["skipped"] += max(0, len(expandable) - len(items))
         if not items:
             return
 

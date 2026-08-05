@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 import config
@@ -28,13 +29,26 @@ def _legal_form_label(legal_form: Any) -> str:
 def _format_address(address: Any) -> str | None:
     if not isinstance(address, dict):
         return None
+    care = (address.get("careOf") or "").strip()
     parts = [
+        care or None,
         address.get("organisation"),
         " ".join(filter(None, [address.get("street"), address.get("houseNumber")])),
         " ".join(filter(None, [address.get("swissZipCode"), address.get("town")])),
     ]
     text = ", ".join(p for p in parts if p)
     return text or None
+
+
+def care_of_display_name(address: Any) -> str | None:
+    """Person name from address careOf (c/o …), if present."""
+    if not isinstance(address, dict):
+        return None
+    raw = str(address.get("careOf") or "").strip()
+    if not raw:
+        return None
+    name = re.sub(r"^(c/?o\.?|c\.\s*o\.)\s+", "", raw, flags=re.IGNORECASE).strip(" ,;")
+    return name or None
 
 
 async def build_hr_network(company: str | None = None, uid: str | None = None) -> dict[str, Any]:

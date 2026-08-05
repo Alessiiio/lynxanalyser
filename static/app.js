@@ -1481,8 +1481,24 @@ function buildZefixDetailsHtml(d) {
       const types = Array.isArray(pub.types_de) && pub.types_de.length
         ? pub.types_de.join(", ")
         : (Array.isArray(pub.types) ? pub.types.join(", ") : "Meldung");
-      const msg = pub.message_short ? `<div class="zefix-mutation-msg">${escHtml(pub.message_short)}</div>` : "";
-      html += `<li class="zefix-mutation-item"><strong>${escHtml(formatDateDisplay(pub.date) || "n/a")}</strong> — ${escHtml(types)}${msg}</li>`;
+      const out = Array.isArray(pub.persons_out) ? pub.persons_out : [];
+      const inn = Array.isArray(pub.persons_in) ? pub.persons_in : [];
+      let people = "";
+      if (out.length) {
+        people += `<div class="zefix-mut-people zefix-mut-people--out"><span>Ausgeschieden:</span> ${escHtml(
+          out.map((p) => p.name || p).filter(Boolean).join("; ")
+        )}</div>`;
+      }
+      if (inn.length) {
+        people += `<div class="zefix-mut-people zefix-mut-people--in"><span>Eingetragen:</span> ${escHtml(
+          inn.map((p) => p.name || p).filter(Boolean).join("; ")
+        )}</div>`;
+      }
+      const msgSrc = pub.message_full || pub.message_short;
+      const msg = !people && msgSrc
+        ? `<div class="zefix-mutation-msg">${escHtml(msgSrc)}</div>`
+        : "";
+      html += `<li class="zefix-mutation-item"><strong>${escHtml(formatDateDisplay(pub.date) || "n/a")}</strong> — ${escHtml(types)}${people}${msg}</li>`;
     }
     html += `</ul></div>`;
   }

@@ -37,6 +37,7 @@ const SITE_NAV = [
   { href: "/feedback", label: "Feedback", group: "more", roles: ["case_manager", "admin", "compliance"] },
   { href: "/profiler", label: "Profiler", group: "more", roles: ["admin"] },
   { href: "/profiler-cases", label: "Profiler-Fälle", group: "more", roles: ["admin"] },
+  { href: "/admin/planning", label: "Planung", group: "more", roles: ["admin"] },
 ];
 
 const ROLE_LABEL = {
@@ -217,6 +218,55 @@ function escHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Safe JSON fetch — avoids "Unexpected token '<'" when proxy/login returns HTML.
+ * Returns { ok, status, data, resp }. Throws Error with .loginRequired on 401.
+ */
+async function fetchJson(url, options = {}) {
+  const resp = await fetch(url, { credentials: "same-origin", ...options });
+  const ct = (resp.headers.get("content-type") || "").toLowerCase();
+  const text = await resp.text();
+  const looksHtml = /^\s*</.test(text) || ct.includes("text/html");
+
+  let data = null;
+  if (!looksHtml && text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      const err = new Error(
+        `Unerwartete Server-Antwort (kein gültiges JSON, HTTP ${resp.status}). ` +
+        "Oft: abgelaufene Session, Proxy-Fehler oder Backend-Ausfall."
+      );
+      err.status = resp.status;
+      throw err;
+    }
+  } else if (!looksHtml && !text) {
+    data = null;
+  } else {
+    const err = new Error(
+      resp.status === 401 || /login/i.test(text.slice(0, 400))
+        ? "Sitzung abgelaufen — bitte neu anmelden."
+        : `Server lieferte HTML statt JSON (HTTP ${resp.status}). ` +
+          "Häufig: Proxy liefert Startseite/Fehlerseite statt API, oder Backend ist down."
+    );
+    err.status = resp.status;
+    err.loginRequired = resp.status === 401 || /login/i.test(text.slice(0, 400));
+    throw err;
+  }
+
+  if (resp.status === 401) {
+    const detail = data && (data.detail || data.message);
+    const err = new Error(
+      typeof detail === "string" ? detail : "Nicht angemeldet — bitte neu einloggen."
+    );
+    err.status = 401;
+    err.loginRequired = true;
+    throw err;
+  }
+
+  return { ok: resp.ok, status: resp.status, data, resp };
+}
+
 function currentNavPath() {
   const path = location.pathname.replace(/\/$/, "") || "/";
   return path;
@@ -341,6 +391,7 @@ function renderSiteNav() {
         <span id="navAccountPanel" class="nav-dropdown-panel nav-account-panel hidden" role="menu">
           <span class="nav-account-meta">${escHtml(displayName)} · <span class="${isAdminRole ? "nav-role-admin" : ""}">${escHtml(roleLabel)}</span></span>
           ${isAdminRole ? `<a href="/admin" class="nav-link nav-dropdown-item${adminActive ? " nav-link-active" : ""}" role="menuitem">Admin</a>` : ""}
+          ${isAdminRole ? `<a href="/admin/planning" class="nav-link nav-dropdown-item${isNavActive("/admin/planning", path) ? " nav-link-active" : ""}" role="menuitem">Planung</a>` : ""}
           <a href="/changelog" class="nav-link nav-dropdown-item${isNavActive("/changelog", path) ? " nav-link-active" : ""}" role="menuitem">Changelog</a>
           <a href="/feedback" class="nav-link nav-dropdown-item${isNavActive("/feedback", path) ? " nav-link-active" : ""}" role="menuitem">Feedback</a>
           <a href="/logout" class="nav-link nav-dropdown-item" role="menuitem">Logout</a>

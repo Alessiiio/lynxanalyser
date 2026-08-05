@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -67,7 +68,8 @@ def _parse_date(value: str | None) -> date | None:
 
 def _strip_ft_tags(message: str) -> str:
     text = re.sub(r"<[^>]+>", "", message or "")
-    return text.replace("&amp;", "&").replace("  ", " ").strip()
+    text = html.unescape(text)
+    return re.sub(r" {2,}", " ", text).strip()
 
 
 def _label_for_key(key: str) -> str:
@@ -254,14 +256,22 @@ def analyze_mutations(
 
     adjustment = max(adjustment, -4)
 
+    from app.hr_network.shab_parser import enrich_publication_for_timeline
+
     recent_publications = []
     for pub in pubs[:5]:
         keys = _collect_type_keys(pub)
+        enrich = enrich_publication_for_timeline(pub)
+        msg_full = enrich["message_clean"] or _strip_ft_tags(pub.get("message", ""))
         recent_publications.append({
             "date": pub.get("sogcDate"),
             "types": keys,
             "types_de": [_label_for_key(k) for k in keys],
-            "message_short": _strip_ft_tags(pub.get("message", ""))[:200],
+            "persons_in": enrich["entered"],
+            "persons_out": enrich["exited"],
+            "message_full": msg_full,
+            "message_short": enrich.get("message_preview") or msg_full,
+            "has_person_change": bool(enrich["entered"] or enrich["exited"]),
             "severity": _severity_for_keys(keys),
         })
 

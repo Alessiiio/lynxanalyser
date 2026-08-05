@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planung — Lynx Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx · Admin only</p>
+            <h1>Planung &amp; Ideen</h1>
+            <p class="header-sub">Ideensammlung mit Kurz-ID (P-12), Priorität und Tags — Plain text · <code>data/planning.json</code></p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <p id="planMsg" class="fraud-help" role="status"></p>
+
+    <section class="fraud-panel plan-panel">
+      <div class="fraud-panel-head">
+        <h2>Neue Idee</h2>
+      </div>
+      <form id="planCreateForm" class="plan-create-form">
+        <label class="profiler-field">
+          <span>Titel</span>
+          <input name="title" required minlength="2" maxlength="200" placeholder="z.B. Moneyhouse in L3/L4 Beziehungsnetz" autocomplete="off">
+        </label>
+        <label class="profiler-field">
+          <span>Notizen (Plain text)</span>
+          <textarea name="body" rows="5" maxlength="20000" placeholder="Was? Warum? Offene Fragen…"></textarea>
+        </label>
+        <div class="plan-create-row">
+          <label class="profiler-field plan-status-field" for="planCreateStatus">
+            <span>Status</span>
+            <select id="planCreateStatus" name="status" class="ca-select">
+              <option value="idea" selected>Idee</option>
+              <option value="planned">Geplant</option>
+              <option value="building">In Umsetzung</option>
+              <option value="done">Umgesetzt</option>
+              <option value="parked">Zurückgestellt</option>
+            </select>
+          </label>
+          <label class="profiler-field plan-status-field" for="planCreatePriority">
+            <span>Priorität</span>
+            <select id="planCreatePriority" name="priority" class="ca-select">
+              <option value="high">Hoch</option>
+              <option value="med" selected>Mittel</option>
+              <option value="low">Niedrig</option>
+            </select>
+          </label>
+          <label class="profiler-field plan-tags-field" for="planCreateTags">
+            <span>Tags</span>
+            <input id="planCreateTags" name="tags" maxlength="200" placeholder="shab, ux, bank, perf" autocomplete="off">
+          </label>
+        </div>
+        <button type="submit" class="btn-check">Speichern</button>
+      </form>
+    </section>
+
+    <section class="fraud-panel plan-panel">
+      <div class="fraud-panel-head">
+        <h2>Board</h2>
+        <span id="planCount" class="fraud-badge">0</span>
+      </div>
+      <div class="plan-toolbar">
+        <label class="plan-filter-label">Suche
+          <input type="search" id="planSearch" class="plan-search" placeholder="P-3, Titel, Tag…" maxlength="120" autocomplete="off">
+        </label>
+        <label class="plan-filter-label">Status
+          <select id="planFilterStatus" class="ca-select">
+            <option value="">Alle</option>
+            <option value="building">In Umsetzung</option>
+            <option value="planned">Geplant</option>
+            <option value="idea">Idee</option>
+            <option value="parked">Zurückgestellt</option>
+            <option value="done">Umgesetzt</option>
+          </select>
+        </label>
+        <label class="plan-filter-label">Priorität
+          <select id="planFilterPriority" class="ca-select">
+            <option value="">Alle</option>
+            <option value="high">Hoch</option>
+            <option value="med">Mittel</option>
+            <option value="low">Niedrig</option>
+          </select>
+        </label>
+        <label class="plan-filter-label">Tag
+          <input type="text" id="planFilterTag" class="plan-search plan-search-sm" placeholder="z.B. shab" maxlength="32" autocomplete="off">
+        </label>
+        <button type="button" class="btn-nav" id="planReloadBtn">Aktualisieren</button>
+      </div>
+      <ul id="planList" class="plan-list"></ul>
+      <p id="planEmpty" class="hr-empty hidden">Keine Treffer — Filter anpassen oder oben eine Idee anlegen.</p>
+    </section>
+
+    <p class="fraud-help plan-ext-hint">
+      Kurz-IDs (P-1, P-2 …) bleiben stabil und eignen sich für Chat/Commits.
+      Sortierung: In Umsetzung zuerst, dann Priorität, dann Datum.
+    </p>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script src="/static/planning.js?v=phase1b"></script>
+</body>
+</html>

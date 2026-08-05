@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=shab-msg-2">
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
@@ -32,8 +32,7 @@
       <div class="ca-idle-hero">
         <img class="ca-idle-mark" src="/static/img/lynx-mark-256.png?v=2" width="112" height="112" alt="" decoding="async">
         <p class="ca-idle-name">Lynx</p>
-        <h2 class="ca-idle-tagline">Tarnfirmen im Netz erkennen</h2>
-        <p class="ca-idle-lead">HR-Netzwerk prüfen — optional vor dem Anruf, Pflicht für die Akte danach.</p>
+        <h2 class="ca-idle-tagline">Firmennetzwerke analysieren</h2>
       </div>
     </section>
 
@@ -50,21 +49,6 @@
         </div>
       </form>
     </section>
-
-    <div id="caIdleExtras" class="ca-idle-extras">
-      <p id="caIdlePulse" class="ca-idle-pulse" aria-live="polite">
-        <a href="/cases" class="ca-idle-pulse-link"><strong id="caPulseCases">—</strong> offene Fälle</a>
-        <span class="ca-idle-pulse-sep" aria-hidden="true">·</span>
-        <a href="/watchlist" class="ca-idle-pulse-link"><strong id="caPulseWatch">—</strong> auf der Watchlist</a>
-      </p>
-
-      <nav class="ca-idle-shortcuts" aria-label="Schnellzugriff">
-        <a class="ca-idle-shortcut" href="/cases">Fälle</a>
-        <a class="ca-idle-shortcut" href="/watchlist">Watchlist</a>
-        <a class="ca-idle-shortcut" href="/website-check">Website-Check</a>
-        <a class="ca-idle-shortcut ca-idle-shortcut-admin hidden" href="/profiler" id="caIdleProfiler">Profiler</a>
-      </nav>
-    </div>
 
     <section id="caRecentSearches" class="ca-recent search-card hidden" aria-label="Zuletzt gesucht">
       <div class="ca-recent-head">
@@ -101,6 +85,10 @@
         <div class="ca-graph-col hr-graph-panel" id="caGraphPanel">
           <div class="fraud-graph-toolbar">
             <span class="fraud-graph-title">Netzwerk</span>
+            <div class="ca-view-toggle" role="group" aria-label="Netzwerk-Ansicht">
+              <button type="button" class="ca-view-toggle-btn is-active" id="caViewGraph" data-view="graph" title="Klassischer Beziehungsgraph (Standard)">Graph</button>
+              <button type="button" class="ca-view-toggle-btn" id="caViewBoard" data-view="board" title="Organigramm: Firma, Aktuell, Ehemalig">Organigramm</button>
+            </div>
             <span id="caHeavyBadge" class="ca-heavy-badge hidden" title="Viele SHAB-/Personen-Einträge — tiefe Suche kann belasten">Grossfirma</span>
             <div class="ca-graph-find-wrap" id="caGraphFindWrap">
               <input type="search" id="caGraphFindInput" class="ca-graph-find-input" placeholder="Knoten suchen…" autocomplete="off" aria-label="Knoten im Netzwerk suchen">
@@ -133,6 +121,7 @@
           </div>
           <div class="ca-graph-stage">
             <div id="caGraph" class="hr-graph-canvas ca-graph-canvas"></div>
+            <div id="caOrgBoard" class="ca-org-board hidden" aria-label="Organigramm-Ansicht"></div>
             <div class="ca-graph-controls" aria-label="Graph-Steuerung">
               <button type="button" class="ca-graph-ctrl" id="graphFullscreenBtn" title="Vollbild" aria-label="Netzwerk Vollbild" aria-pressed="false">
                 <svg class="ca-fs-icon-expand" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
@@ -142,9 +131,9 @@
                   <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>
                 </svg>
               </button>
-              <button type="button" class="ca-graph-ctrl" id="graphZoomInBtn" title="Vergrössern" aria-label="Vergrössern">+</button>
-              <button type="button" class="ca-graph-ctrl" id="graphZoomOutBtn" title="Verkleinern" aria-label="Verkleinern">−</button>
-              <button type="button" class="ca-graph-ctrl" id="fitGraphBtn" title="Zentrieren / Einpassen" aria-label="Zentrieren">
+              <button type="button" class="ca-graph-ctrl ca-graph-only-ctrl" id="graphZoomInBtn" title="Vergrössern" aria-label="Vergrössern">+</button>
+              <button type="button" class="ca-graph-ctrl ca-graph-only-ctrl" id="graphZoomOutBtn" title="Verkleinern" aria-label="Verkleinern">−</button>
+              <button type="button" class="ca-graph-ctrl ca-graph-only-ctrl" id="fitGraphBtn" title="Zentrieren / Einpassen" aria-label="Zentrieren">
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="12" cy="12" r="3"/>
                   <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
@@ -153,10 +142,16 @@
               </button>
             </div>
           </div>
-          <ul class="ca-graph-legend" aria-label="Legende">
+          <ul class="ca-graph-legend" id="caGraphLegend" aria-label="Legende">
             <li><span class="ca-leg-swatch ca-leg-seed"></span><span>Kernfirma</span></li>
             <li><span class="ca-leg-swatch ca-leg-company"></span><span>Verbunden</span></li>
             <li><span class="ca-leg-swatch ca-leg-person" aria-hidden="true"></span><span>Person</span></li>
+            <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig</span></li>
+            <li><span class="ca-leg-swatch ca-leg-case" aria-hidden="true">⚠</span><span>Fall / Watchlist</span></li>
+          </ul>
+          <ul class="ca-graph-legend ca-org-legend hidden" id="caOrgLegend" aria-label="Organigramm-Legende">
+            <li><span class="ca-leg-swatch ca-leg-seed"></span><span>Kernfirma</span></li>
+            <li><span class="ca-leg-swatch ca-leg-org-current"></span><span>Aktuell im Register</span></li>
             <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig</span></li>
             <li><span class="ca-leg-swatch ca-leg-case" aria-hidden="true">⚠</span><span>Fall / Watchlist</span></li>
           </ul>
@@ -200,7 +195,7 @@
 
   <script src="/static/ui-common.js"></script>
   <script src="/static/cantons.js"></script>
-  <script src="/static/company-analysis.js"></script>
+  <script src="/static/company-analysis.js?v=shab-msg-2"></script>
   <script src="/static/profiler-enter.js"></script>
 </body>
 </html>
