@@ -18,8 +18,8 @@
           <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
           <div>
             <p class="header-eyebrow">Lynx</p>
-            <h1>Personen-Watchlist</h1>
-            <p class="header-sub">Akte öffnen → Case aufbauen → an Ermittlung / Compliance weiterleiten.</p>
+            <h1>Watchlist</h1>
+            <p class="header-sub">Firmen und Personen getrennt — Bulk-Scan (Admin) → Auswahl → Export für DS.</p>
             <p class="fraud-help" id="watchUser"></p>
           </div>
         </div>
@@ -31,8 +31,10 @@
 
     <div class="ca-tabs watch-tabs" role="tablist">
       <button type="button" class="ca-tab is-active" data-tab="inbox" role="tab">Posteingang <span id="inboxBadge" class="fraud-badge">0</span></button>
+      <button type="button" class="ca-tab" data-tab="companies" role="tab">Firmen <span id="companyBadge" class="fraud-badge">0</span></button>
       <button type="button" class="ca-tab" data-tab="persons" role="tab">Personen</button>
       <button type="button" class="ca-tab" data-tab="cases" role="tab">Fälle</button>
+      <button type="button" class="ca-tab hidden" data-tab="bulk" role="tab" id="bulkTabBtn">Bulk-Scan</button>
     </div>
 
     <section id="tabInbox" class="ca-tab-panel is-active">
@@ -54,11 +56,36 @@
       </div>
     </section>
 
+    <section id="tabCompanies" class="ca-tab-panel">
+      <div class="fraud-panel">
+        <div class="fraud-panel-head">
+          <h2>Firmen <span id="companyCount" class="fraud-badge">0</span></h2>
+          <div class="fraud-inline-actions">
+            <a class="btn-nav" id="exportCompaniesBtn" href="/api/watched-companies/export.csv">CSV Export</a>
+            <button type="button" class="btn-nav" id="deleteCompaniesBtn">Löschen</button>
+            <button type="button" class="btn-nav" id="refreshCompaniesBtn">Aktualisieren</button>
+          </div>
+        </div>
+        <p class="fraud-help">Firmen-Watchlist (z. B. aus «In Abklärung» oder Bulk-Scan). Tag entfernen löscht hier nichts.</p>
+        <div class="watch-filters">
+          <input id="companySearch" class="watch-reason" placeholder="Firma / UID / Adresse…" />
+          <select id="companyStatusFilter" class="ca-select" aria-label="Status">
+            <option value="active">Aktiv</option>
+            <option value="cleared">Archiv (cleared)</option>
+            <option value="active,cleared">Alle</option>
+          </select>
+        </div>
+        <div id="companyList"></div>
+        <p id="companyMsg" class="fraud-help"></p>
+      </div>
+    </section>
+
     <section id="tabPersons" class="ca-tab-panel">
       <div class="fraud-panel">
         <div class="fraud-panel-head">
           <h2>Personen <span id="personCount" class="fraud-badge">0</span></h2>
           <div class="fraud-inline-actions">
+            <a class="btn-nav" id="exportPersonsBtn" href="/api/watched-persons/export.csv?status=active,confirmed_fraud">CSV Export</a>
             <button type="button" class="btn-nav" id="mergeBtn">Merge</button>
             <button type="button" class="btn-nav" id="deletePersonsBtn">Löschen</button>
             <button type="button" class="btn-nav" id="runMonitoringBtn">Monitoring</button>
@@ -103,6 +130,38 @@
         </div>
         <p class="fraud-help">Gruppiert nach Ursprungsfirma — Löschen entfernt alle Personen des Falls von der Watchlist.</p>
         <div id="caseList"></div>
+      </div>
+    </section>
+
+    <section id="tabBulk" class="ca-tab-panel">
+      <div class="fraud-panel">
+        <div class="fraud-panel-head">
+          <h2>Bulk-Scan</h2>
+        </div>
+        <p class="fraud-help">
+          Firmennamen einfügen (eine pro Zeile oder CSV-Spalte Name). Lynx scannt asynchron mit Suchweite&nbsp;3,
+          zeigt Fortschritt und lässt dich Treffer zur Watchlist übernehmen.
+        </p>
+        <label class="fraud-help" for="bulkNames">Firmennamen</label>
+        <textarea id="bulkNames" class="watch-bulk-textarea" rows="8" placeholder="Muster AG&#10;Beispiel GmbH&#10;CHE-123.456.789"></textarea>
+        <div class="watch-filters">
+          <label class="fraud-help">Suchweite
+            <select id="bulkLevel" class="ca-select" aria-label="Suchweite">
+              <option value="2">2 — Register</option>
+              <option value="3" selected>3 — + Mandate (Standard)</option>
+              <option value="4">4 — tiefer</option>
+            </select>
+          </label>
+          <button type="button" class="btn-check" id="bulkStartBtn">Scan starten</button>
+        </div>
+        <div id="bulkProgressWrap" class="ca-progress-wrap hidden" aria-hidden="true">
+          <div id="bulkProgressBar" class="ca-progress-bar" style="width:0%"></div>
+        </div>
+        <p id="bulkStatus" class="fraud-help"></p>
+        <div id="bulkResults" class="watch-bulk-results"></div>
+        <div class="fraud-inline-actions" style="margin-top:0.75rem">
+          <button type="button" class="btn-check hidden" id="bulkAddBtn">Auswahl zur Watchlist</button>
+        </div>
       </div>
     </section>
   </div>

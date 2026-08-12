@@ -22,7 +22,11 @@ let personTotal = 0;
 let alertSeverityFilter = "";
 let selectedPersonId = null;
 let mergeSelected = new Set();
+let companySelected = new Set();
 let currentDossier = null;
+let currentUserRole = "";
+let bulkPollTimer = null;
+let bulkJobId = null;
 
 async function loadMe() {
   const resp = await fetch("/api/me");
@@ -30,6 +34,9 @@ async function loadMe() {
   const data = await resp.json();
   const el = document.getElementById("watchUser");
   if (el && data.user) el.textContent = `${d(data.user.display_name, "user")} (${data.user.role})`;
+  currentUserRole = (data.user && data.user.role) || "";
+  const bulkBtn = document.getElementById("bulkTabBtn");
+  if (bulkBtn && currentUserRole === "admin") bulkBtn.classList.remove("hidden");
   if (data.settings && typeof applyAnonymizeMode === "function") {
     applyAnonymizeMode(!!data.settings.anonymize_mode, { silent: true });
   }
@@ -39,10 +46,13 @@ function switchTab(name) {
   document.querySelectorAll(".watch-tabs .ca-tab").forEach((t) => {
     t.classList.toggle("is-active", t.dataset.tab === name);
   });
-  document.getElementById("tabInbox").classList.toggle("is-active", name === "inbox");
-  document.getElementById("tabPersons").classList.toggle("is-active", name === "persons");
-  document.getElementById("tabCases").classList.toggle("is-active", name === "cases");
+  document.getElementById("tabInbox")?.classList.toggle("is-active", name === "inbox");
+  document.getElementById("tabCompanies")?.classList.toggle("is-active", name === "companies");
+  document.getElementById("tabPersons")?.classList.toggle("is-active", name === "persons");
+  document.getElementById("tabCases")?.classList.toggle("is-active", name === "cases");
+  document.getElementById("tabBulk")?.classList.toggle("is-active", name === "bulk");
   if (name === "persons") loadPersons();
+  if (name === "companies") loadCompanies();
   if (name === "cases") loadCases();
   if (name === "inbox") loadInbox();
 }
@@ -620,6 +630,233 @@ function setMsg(msg) {
   if (el) el.textContent = msg;
 }
 
+function setCompanyMsg(msg) {
+  const el = document.getElementById("companyMsg");
+  if (el) el.textContent = msg;
+}
+
+async function loadCompanies() {
+  const q = document.getElementById("companySearch")?.value.trim() || "";
+  const status = document.getElementById("companyStatusFilter")?.value || "active";
+  const qs = new URLSearchParams({ status, limit: "200" });
+  if (q) qs.set("q", q);
+  const resp = await fetch(`/api/watched-companies?${qs}`);
+  if (!resp.ok) {
+    setCompanyMsg("Firmen-Watchlist nicht ladbar");
+    return;
+  }
+  const data = await resp.json();
+  const items = data.items || [];
+  document.getElementById("companyCount").textContent = String(data.total || items.length);
+  document.getElementById("companyBadge").textContent = String(data.total || items.length);
+  const el = document.getElementById("companyList");
+  if (!items.length) {
+    el.innerHTML = `<p class="fraud-help">Noch keine Firmen auf der Watchlist.</p>`;
+    return;
+  }
+  el.innerHTML = items
+    .map((c) => {
+      const checked = companySelected.has(c.id) ? "checked" : "";
+      return `<div class="watch-person-row watch-company-row">
+        <label class="watch-merge-label"><input type="checkbox" data-company-id="${c.id}" ${checked} /></label>
+        <div class="watch-person-summary">
+          <strong>${esc(d(c.company_name, "company"))}</strong>
+          <span class="fraud-entry-meta">${esc(c.company_uid || "—")} · ${esc(c.address || c.legal_seat || "keine Adresse")} · ${esc(c.source_reason || "")}</span>
+        </div>
+        <button type="button" class="btn-nav" data-clear-company="${c.id}">Archivieren</button>
+      </div>`;
+    })
+    .join("");
+  el.querySelectorAll("input[data-company-id]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const id = Number(cb.dataset.companyId);
+      if (cb.checked) companySelected.add(id);
+      else companySelected.delete(id);
+    });
+  });
+  el.querySelectorAll("[data-clear-company]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.dataset.clearCompany);
+      const r = await fetch(`/api/watched-companies/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cleared" }),
+      });
+      if (!r.ok) {
+        setCompanyMsg("Archivieren fehlgeschlagen");
+        return;
+      }
+      loadCompanies();
+    });
+  });
+}
+
+function stopBulkPoll() {
+  if (bulkPollTimer) {
+    clearInterval(bulkPollTimer);
+    bulkPollTimer = null;
+  }
+}
+
+function setBulkStatus(msg) {
+  const el = document.getElementById("bulkStatus");
+  if (el) el.textContent = msg || "";
+}
+
+function renderBulkResults(job) {
+  const wrap = document.getElementById("bulkResults");
+  const addBtn = document.getElementById("bulkAddBtn");
+  const items = job.items || [];
+  if (!items.length) {
+    wrap.innerHTML = "";
+    addBtn?.classList.add("hidden");
+    return;
+  }
+  const rows = [];
+  items.forEach((it) => {
+    const company = (it.result && it.result.company) || {};
+    const name = company.name || it.resolved_name || it.input_name;
+    const uid = company.uid || it.resolved_uid || "";
+    const addr = company.address || it.address || "";
+    const ehraid = company.ehraid || it.ehraid || "";
+    const seat = company.legal_seat || it.legal_seat || "";
+    const ok = it.status === "matched";
+    rows.push(`<tr class="watch-bulk-row">
+      <td>${ok ? `<input type="checkbox" class="bulk-pick" data-kind="company"
+        data-name="${esc(name)}" data-uid="${esc(uid)}" data-address="${esc(addr)}"
+        data-seat="${esc(seat)}" data-ehraid="${esc(ehraid)}" />` : ""}</td>
+      <td><strong>Firma</strong> ${esc(d(name, "company"))}</td>
+      <td>${esc(uid || "—")}</td>
+      <td>${esc(addr || "—")}</td>
+      <td>${esc(it.status)}${it.error_message ? ` · ${esc(it.error_message)}` : ""}</td>
+    </tr>`);
+    const persons = (it.result && it.result.persons) || [];
+    persons
+      .filter((p) => (p.status || "current") === "current")
+      .forEach((p) => {
+        if (!ok || !p.name) return;
+        rows.push(`<tr class="watch-bulk-row watch-bulk-row--person">
+          <td><input type="checkbox" class="bulk-pick" data-kind="person"
+            data-name="${esc(p.name)}" data-residence="${esc(p.residence || "")}"
+            data-company-name="${esc(name)}" data-company-uid="${esc(uid)}"
+            data-ehraid="${esc(ehraid)}" data-role="${esc((p.roles || []).join(", "))}" /></td>
+          <td>↳ Person ${esc(d(p.name, "person"))}</td>
+          <td>—</td>
+          <td>${esc(p.residence || "—")}</td>
+          <td>Organ ${esc((p.roles || []).join(", ") || "")}</td>
+        </tr>`);
+      });
+  });
+  wrap.innerHTML = `<div class="watch-table-wrap"><table class="watch-table">
+    <thead><tr><th></th><th>Name</th><th>UID</th><th>Adresse</th><th>Status</th></tr></thead>
+    <tbody>${rows.join("")}</tbody>
+  </table></div>`;
+  if (job.status === "done") addBtn?.classList.remove("hidden");
+  else addBtn?.classList.add("hidden");
+}
+
+async function pollBulkJob() {
+  if (!bulkJobId) return;
+  const resp = await fetch(`/api/bulk-scan/${bulkJobId}`);
+  if (!resp.ok) {
+    setBulkStatus("Status nicht ladbar");
+    stopBulkPoll();
+    return;
+  }
+  const data = await resp.json();
+  const job = data.job || {};
+  const total = job.total_items || 0;
+  const done = job.completed_items || 0;
+  const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const wrap = document.getElementById("bulkProgressWrap");
+  const bar = document.getElementById("bulkProgressBar");
+  wrap?.classList.remove("hidden");
+  wrap?.setAttribute("aria-hidden", "false");
+  if (bar) bar.style.width = `${pct}%`;
+  setBulkStatus(
+    `Job #${job.id}: ${job.status} · ${done}/${total}` +
+      (job.error_count ? ` · ${job.error_count} ohne Treffer/Fehler` : "")
+  );
+  renderBulkResults(job);
+  if (job.status === "done" || job.status === "failed" || job.status === "cancelled") {
+    stopBulkPoll();
+  }
+}
+
+async function startBulkScan() {
+  if (currentUserRole !== "admin") {
+    setBulkStatus("Nur für Admins");
+    return;
+  }
+  const text = document.getElementById("bulkNames")?.value || "";
+  const level = Number(document.getElementById("bulkLevel")?.value || 3);
+  const btn = document.getElementById("bulkStartBtn");
+  if (btn) btn.disabled = true;
+  stopBulkPoll();
+  try {
+    const resp = await fetch("/api/bulk-scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, level, max_person_searches: 4 }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      setBulkStatus(formatDetail(data.detail) || "Start fehlgeschlagen");
+      return;
+    }
+    bulkJobId = data.job?.id;
+    setBulkStatus(`Job #${bulkJobId} gestartet…`);
+    await pollBulkJob();
+    bulkPollTimer = setInterval(pollBulkJob, 2000);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function addBulkSelection() {
+  const picks = [...document.querySelectorAll(".bulk-pick:checked")];
+  if (!picks.length) {
+    setBulkStatus("Bitte Zeilen auswählen");
+    return;
+  }
+  const entries = picks.map((el) => {
+    if (el.dataset.kind === "person") {
+      return {
+        type: "person",
+        display_name: el.dataset.name,
+        residence: el.dataset.residence || null,
+        source_company_name: el.dataset.companyName || null,
+        source_company_uid: el.dataset.companyUid || null,
+        company_ehraid: el.dataset.ehraid ? Number(el.dataset.ehraid) : null,
+        role: el.dataset.role || null,
+      };
+    }
+    return {
+      type: "company",
+      company_name: el.dataset.name,
+      company_uid: el.dataset.uid || null,
+      address: el.dataset.address || null,
+      legal_seat: el.dataset.seat || null,
+      company_ehraid: el.dataset.ehraid ? Number(el.dataset.ehraid) : null,
+    };
+  });
+  const resp = await fetch("/api/watchlist/bulk-add", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries, source_reason: "bulk_scan" }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) {
+    setBulkStatus(formatDetail(data.detail) || "Übernehmen fehlgeschlagen");
+    return;
+  }
+  setBulkStatus(
+    `Übernommen: ${data.companies_added || 0} Firmen, ${data.persons_added || 0} Personen`
+  );
+  loadCompanies();
+  loadPersons();
+}
+
 function formatDetail(detail) {
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) return detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
@@ -757,9 +994,46 @@ document.getElementById("deletePersonsBtn")?.addEventListener("click", async () 
   loadCases();
 });
 
+document.getElementById("refreshCompaniesBtn")?.addEventListener("click", loadCompanies);
+document.getElementById("companyStatusFilter")?.addEventListener("change", loadCompanies);
+let companySearchTimer = null;
+document.getElementById("companySearch")?.addEventListener("input", () => {
+  clearTimeout(companySearchTimer);
+  companySearchTimer = setTimeout(loadCompanies, 250);
+});
+document.getElementById("deleteCompaniesBtn")?.addEventListener("click", async () => {
+  const ids = [...companySelected];
+  if (!ids.length) {
+    setCompanyMsg("Mindestens eine Firma auswählen");
+    return;
+  }
+  if (!confirm(`${ids.length} Firma(en) von der Watchlist löschen?`)) return;
+  const r = await fetch("/api/watched-companies/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  const d = await r.json();
+  if (!r.ok) {
+    setCompanyMsg(formatDetail(d.detail) || "Löschen fehlgeschlagen");
+    return;
+  }
+  companySelected.clear();
+  setCompanyMsg(`${d.deleted_count || ids.length} Firma(en) gelöscht`);
+  loadCompanies();
+});
+document.getElementById("bulkStartBtn")?.addEventListener("click", startBulkScan);
+document.getElementById("bulkAddBtn")?.addEventListener("click", addBulkSelection);
+
 const params = new URLSearchParams(location.search);
 const personParam = params.get("person");
+const tabParam = params.get("tab");
 loadMe().then(async () => {
   await loadInbox();
+  await loadCompanies();
+  if (tabParam && ["inbox", "companies", "persons", "cases", "bulk"].includes(tabParam)) {
+    if (tabParam === "bulk" && currentUserRole !== "admin") switchTab("companies");
+    else switchTab(tabParam);
+  }
   if (personParam) openPersonFromInbox(personParam);
 });

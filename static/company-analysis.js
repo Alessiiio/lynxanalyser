@@ -1008,6 +1008,18 @@ async function toggleCompanyUnderInvestigation() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       currentCompanyTag = null;
     } else {
+      // Prefer organs from lastAnalysis (server has no session copy of the graph).
+      const analysis = lastAnalysis || lastGraph || {};
+      const seed = (analysis.seed_companies || [])[0] || currentCompany || {};
+      const persons = (analysis.persons_table || [])
+        .filter((p) => (p.status || "current") === "current")
+        .map((p) => ({
+          name: p.name || p.person_name || "",
+          residence: p.residence || "",
+          roles: p.roles || [],
+          status: "current",
+          person_id: p.person_id || p.id || "",
+        }));
       const resp = await fetch("/api/company-tags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1015,6 +1027,10 @@ async function toggleCompanyUnderInvestigation() {
           company_name: name,
           company_uid: uid || null,
           tag: "under_investigation",
+          address: seed.address || currentCompany.address || null,
+          legal_seat: seed.legal_seat || currentCompany.legal_seat || null,
+          company_ehraid: seed.ehraid || currentCompany.ehraid || null,
+          persons,
         }),
       });
       if (!resp.ok) {

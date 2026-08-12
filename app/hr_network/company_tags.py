@@ -171,7 +171,11 @@ async def clear_company_tag(
     name: str | None = None,
     tag: str = TAG_UNDER_INVESTIGATION,
 ) -> bool:
-    """Remove tag for a firm. Returns True if a row was deleted."""
+    """Remove tag for a firm. Returns True if a row was deleted.
+
+    Does **not** remove Watchlist entries (Firma/Personen). Tag-Lebenszyklus
+    ist absichtlich getrennt von der Watchlist (sicherer Default).
+    """
     tag_k = (tag or TAG_UNDER_INVESTIGATION).strip()
     if tag_k not in ALLOWED_TAGS:
         return False

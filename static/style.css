@@ -8329,6 +8329,27 @@ div.vis-tooltip {
   vertical-align: top;
 }
 .watch-table th { color: var(--c-muted); font-weight: 500; }
+.watch-bulk-textarea {
+  width: 100%;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: var(--c-surface, #12141a);
+  color: var(--c-text, #e8eaed);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 8rem;
+}
+.watch-bulk-textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--c-accent, #6ee7b7) 45%, transparent);
+  outline-offset: 1px;
+}
+.watch-bulk-results { margin-top: 0.75rem; }
+.watch-bulk-row--person td { color: var(--c-muted); }
+.watch-company-row { align-items: center; }
 .watch-flag-box {
   margin-top: 0.75rem;
   display: grid;

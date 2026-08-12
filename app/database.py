@@ -347,6 +347,76 @@ class CompanyTag(Base):
     )
 
 
+class WatchedCompany(Base):
+    """Firmen-Watchlist (getrennt von Tags und Fall-Akte)."""
+
+    __tablename__ = "watched_companies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_name: Mapped[str] = mapped_column(String(512), default="")
+    company_uid: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    company_ehraid: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    address: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    legal_seat: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # bulk_scan | under_investigation | manual
+    source_reason: Mapped[str] = mapped_column(String(64), default="manual")
+    # active | cleared
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    added_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
+
+    __table_args__ = (
+        Index("ix_watched_companies_uid_status", "company_uid", "status"),
+        Index("ix_watched_companies_name", "company_name"),
+    )
+
+
+class BulkScanJob(Base):
+    """Async bulk firm scan (Admin) — paste names → progress → Auswahl."""
+
+    __tablename__ = "bulk_scan_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_by: Mapped[str] = mapped_column(String(128), default="Admin")
+    created_by_username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    # pending | running | done | failed | cancelled
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    level: Mapped[int] = mapped_column(Integer, default=3)
+    options_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    total_items: Mapped[int] = mapped_column(Integer, default=0)
+    completed_items: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BulkScanItem(Base):
+    __tablename__ = "bulk_scan_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("bulk_scan_jobs.id"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    input_name: Mapped[str] = mapped_column(String(512), default="")
+    # pending | running | matched | ambiguous | not_found | error
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    resolved_uid: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    resolved_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    legal_seat: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    ehraid: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    result_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(_drop_legacy_bank_tables)

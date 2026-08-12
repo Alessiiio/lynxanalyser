@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 
 import config
 from app.database import User
+from app.hr_network.bulk_scan import (
+    DEFAULT_LEVEL as BULK_DEFAULT_LEVEL,
+    create_bulk_scan_job,
+    get_bulk_scan_job,
+)
 from app.hr_network.demo_fixture import (
     DemoFixtureError,
     build_demo_fraud_network,
@@ -58,6 +63,21 @@ from app.hr_network.company_tags import (
     list_company_tags,
     set_company_tag,
 )
+from app.hr_network.under_investigation_watchlist import (
+    enroll_under_investigation_watchlist,
+)
+from app.hr_network.watch_intake import ensure_seed_link, upsert_watched_person
+from app.hr_network.watched_companies import (
+    SOURCE_BULK_SCAN,
+    SOURCE_MANUAL,
+    delete_watched_companies,
+    export_companies_csv,
+    export_persons_csv,
+    list_watched_companies,
+    update_watched_company_status,
+    upsert_watched_company,
+)
+from app.hr_network.shab_parser import _normalize_person_id
 from app.hr_network.service import build_hr_network, search_companies_preview
 from app.routes.deps import enforce_rate_limit, get_current_user, require_role
 
@@ -409,6 +429,20 @@ async def api_list_watched_persons(
     return result
 
 
+@router.get("/api/watched-persons/export.csv")
+async def api_export_watched_persons_csv(
+    status: Optional[str] = Query("active,confirmed_fraud"),
+    _user: User = Depends(get_current_user),
+):
+    data = await list_watched_persons(status=status, limit=500, offset=0)
+    csv_text = export_persons_csv(data.get("items") or [])
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="watchlist-personen.csv"'},
+    )
+
+
 @router.get("/api/watched-persons/cases")
 async def api_watched_person_cases(
     status: Optional[str] = Query(None),
@@ -705,6 +739,45 @@ class SetCompanyTagBody(BaseModel):
     company_name: str = Field("", max_length=512)
     company_uid: Optional[str] = Field(None, max_length=32)
     tag: str = Field(TAG_UNDER_INVESTIGATION, max_length=64)
+    # Optional context from Firmenanalyse lastAnalysis (preferred over L2 re-fetch)
+    address: Optional[str] = Field(None, max_length=1024)
+    legal_seat: Optional[str] = Field(None, max_length=255)
+    company_ehraid: Optional[int] = None
+    persons: Optional[list[dict[str, Any]]] = None
+
+
+class BulkScanCreateBody(BaseModel):
+    names: list[str] = Field(default_factory=list, max_length=80)
+    text: str = Field("", max_length=50_000)
+    level: int = Field(BULK_DEFAULT_LEVEL, ge=1, le=5)
+    max_person_searches: int = Field(4, ge=0, le=12)
+
+
+class WatchlistBulkAddEntry(BaseModel):
+    type: str = Field(..., description="company | person")
+    company_name: Optional[str] = Field(None, max_length=512)
+    company_uid: Optional[str] = Field(None, max_length=32)
+    company_ehraid: Optional[int] = None
+    address: Optional[str] = Field(None, max_length=1024)
+    legal_seat: Optional[str] = Field(None, max_length=255)
+    display_name: Optional[str] = Field(None, max_length=255)
+    residence: Optional[str] = Field(None, max_length=255)
+    source_company_name: Optional[str] = Field(None, max_length=512)
+    source_company_uid: Optional[str] = Field(None, max_length=32)
+    role: Optional[str] = Field(None, max_length=255)
+
+
+class WatchlistBulkAddBody(BaseModel):
+    entries: list[WatchlistBulkAddEntry] = Field(..., min_length=1, max_length=200)
+    source_reason: str = Field(SOURCE_BULK_SCAN, max_length=64)
+
+
+class WatchedCompanyStatusBody(BaseModel):
+    status: str = Field(..., pattern="^(active|cleared)$")
+
+
+class WatchedCompanyDeleteBody(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=100)
 
 
 @router.get("/api/company-tags")
@@ -742,7 +815,24 @@ async def api_set_company_tag(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"tag": row}
+
+    watchlist_side: dict[str, Any] | None = None
+    tag_k = (body.tag or TAG_UNDER_INVESTIGATION).strip()
+    if tag_k == TAG_UNDER_INVESTIGATION:
+        try:
+            watchlist_side = await enroll_under_investigation_watchlist(
+                company_name=body.company_name,
+                company_uid=body.company_uid,
+                added_by=user.display_name or user.username or "Team",
+                address=body.address,
+                legal_seat=body.legal_seat,
+                company_ehraid=body.company_ehraid,
+                persons=body.persons,
+            )
+        except Exception:
+            logger.exception("Watchlist enroll after In Abklärung failed")
+            watchlist_side = {"error": "Watchlist-Aufnahme teilweise fehlgeschlagen"}
+    return {"tag": row, "watchlist": watchlist_side}
 
 
 @router.delete("/api/company-tags")
@@ -752,8 +842,169 @@ async def api_clear_company_tag(
     tag: str = Query(TAG_UNDER_INVESTIGATION),
     _user: User = Depends(get_current_user),
 ):
+    # Watchlist entries are intentionally kept when the tag is cleared.
     cleared = await clear_company_tag(uid=uid, name=name, tag=tag)
-    return {"cleared": cleared}
+    return {"cleared": cleared, "watchlist_unchanged": True}
+
+
+# ── Firmen-Watchlist ─────────────────────────────────────────────────────
+
+
+@router.get("/api/watched-companies")
+async def api_list_watched_companies(
+    status: Optional[str] = Query("active"),
+    q: Optional[str] = None,
+    source_reason: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    _user: User = Depends(get_current_user),
+):
+    return await list_watched_companies(
+        status=status,
+        q=q,
+        source_reason=source_reason,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/api/watched-companies/export.csv")
+async def api_export_watched_companies_csv(
+    status: Optional[str] = Query("active"),
+    _user: User = Depends(get_current_user),
+):
+    data = await list_watched_companies(status=status, limit=500, offset=0)
+    csv_text = export_companies_csv(data.get("items") or [])
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="watchlist-firmen.csv"'},
+    )
+
+
+@router.patch("/api/watched-companies/{company_id}/status")
+async def api_watched_company_status(
+    company_id: int,
+    body: WatchedCompanyStatusBody,
+    _user: User = Depends(require_role("case_manager", "admin", "compliance")),
+):
+    try:
+        return await update_watched_company_status(company_id, status=body.status)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/api/watched-companies/delete")
+async def api_delete_watched_companies(
+    body: WatchedCompanyDeleteBody,
+    _user: User = Depends(require_role("case_manager", "admin")),
+):
+    return await delete_watched_companies(body.ids)
+
+
+@router.post("/api/watchlist/bulk-add")
+async def api_watchlist_bulk_add(
+    body: WatchlistBulkAddBody,
+    user: User = Depends(require_role("admin")),
+):
+    """Auswahl aus Bulk-Scan → Firmen- und Personen-Watchlist."""
+    reason = (body.source_reason or SOURCE_BULK_SCAN).strip() or SOURCE_BULK_SCAN
+    by = user.display_name or user.username or "Admin"
+    companies: list[dict[str, Any]] = []
+    persons: list[dict[str, Any]] = []
+    for entry in body.entries:
+        kind = (entry.type or "").strip().lower()
+        if kind == "company":
+            try:
+                row = await upsert_watched_company(
+                    company_name=entry.company_name,
+                    company_uid=entry.company_uid,
+                    company_ehraid=entry.company_ehraid,
+                    address=entry.address,
+                    legal_seat=entry.legal_seat,
+                    source_reason=reason,
+                    added_by=by,
+                )
+                companies.append(row)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
+        elif kind == "person":
+            display = (entry.display_name or "").strip()
+            if not display:
+                raise HTTPException(status_code=400, detail="display_name für Person erforderlich")
+            slug = _normalize_person_id(display)
+            wp = await upsert_watched_person(
+                person_slug=slug,
+                display_name=display,
+                residence=entry.residence,
+                source_company_ehraid=entry.company_ehraid,
+                source_company_name=entry.source_company_name or entry.company_name,
+                source_reason=reason,
+                status="active",
+                notes="Bulk-Scan Auswahl",
+            )
+            seed_name = (entry.source_company_name or entry.company_name or "").strip()
+            if seed_name:
+                await ensure_seed_link(
+                    person_id=wp.id,
+                    company_ehraid=entry.company_ehraid,
+                    company_name=seed_name,
+                    company_uid=entry.source_company_uid or entry.company_uid,
+                    role=entry.role,
+                )
+            persons.append(
+                {
+                    "id": wp.id,
+                    "display_name": wp.display_name,
+                    "person_slug": wp.person_slug,
+                }
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unbekannter Typ: {entry.type}")
+    return {
+        "companies_added": len(companies),
+        "persons_added": len(persons),
+        "companies": companies,
+        "persons": persons,
+        "source_reason": reason or SOURCE_MANUAL,
+    }
+
+
+# ── Bulk-Scan (Admin) ────────────────────────────────────────────────────
+
+
+@router.post("/api/bulk-scan")
+async def api_create_bulk_scan(
+    body: BulkScanCreateBody,
+    user: User = Depends(require_role("admin")),
+):
+    names = list(body.names or [])
+    if body.text.strip():
+        names.extend(body.text.splitlines())
+    try:
+        job = await create_bulk_scan_job(
+            names=names,
+            level=body.level,
+            created_by=user.display_name or user.username or "Admin",
+            created_by_username=user.username,
+            max_person_searches=body.max_person_searches,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"job": job}
+
+
+@router.get("/api/bulk-scan/{job_id}")
+async def api_get_bulk_scan(
+    job_id: int,
+    _user: User = Depends(require_role("admin")),
+):
+    job = await get_bulk_scan_job(job_id, include_items=True)
+    if not job:
+        raise HTTPException(status_code=404, detail="Bulk-Scan-Job nicht gefunden")
+    return {"job": job}
 
 
 @router.get("/api/hr-network/person-search")

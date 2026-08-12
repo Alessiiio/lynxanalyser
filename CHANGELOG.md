@@ -9,12 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Firmen-Watchlist** (`watched_companies`) mit Dedup UID→Name, Tab «Firmen», CSV-Export (Firmenname;Adresse)
+- **Bulk-Scan** (Admin): Paste-Namen → async Job (Default Suchweite 3) → Progress → Auswahl → Watchlist
+- «In Abklärung» nimmt Firma **und aktuelle Organe** automatisch auf die Watchlist (Tag entfernen lässt Watchlist unverändert)
+- Personen-CSV-Export (Name;Adresse/Wohnort)
 - Admin-Benutzerverwaltung: Rolle ändern, Soft-Delete (`active=false`) / Reaktivieren, Guards für letzten Admin und Self-Demote
 - Pflicht-2FA (TOTP + Backup-Codes) für alle Rollen: Enrollment nach Passwort, Login-Challenge, Admin-Reset für andere User
 - Konto-Seite `/account` (2FA-Status, Passwort ändern); `TOTP_ENCRYPTION_KEY` in `.env`
 
 ### Changed
 
+- Watchlist-UI: Tabs Firmen | Personen | Posteingang | Fälle; Bulk-Scan-Tab nur für Admin
 - Login vergibt volle Session erst nach 2FA-Verify oder abgeschlossener Enrollment
 - Firmenanalyse UI: Status (unvollständig / Cache / Next-Step) unter Graph-Toolbar statt über dem Graph; Warn-Pills kompakt unter Firm-Leiste
 - Firm-Aktionen: «Suche ändern», **In Abklärung** und Akte sichtbar; HR / Profiler unter **Mehr**
