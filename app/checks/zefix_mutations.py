@@ -19,16 +19,20 @@ MUTATION_LABELS_DE: dict[str, str] = {
     "vermoegenstransfer": "Vermögenstransfer",
     "firmenname": "Firmennamensänderung",
     "adresse": "Adressänderung",
+    # Zefix REST uses "adressaenderung" (no trailing e before aenderung)
+    "adressaenderung": "Adressänderung",
     "sitzverlegung": "Sitzverlegung",
     "zweck": "Zweckänderung",
+    "zweckaenderung": "Zweckänderung",
     "statuten": "Statutenänderung",
     "rechtsform": "Rechtsformänderung",
     "umwandlung": "Umwandlung",
     "liquidation": "Liquidation",
 }
 
+# "adress" matches both "adresse" and Zefix key "adressaenderung"
 _HIGH_RISK_KEY_PARTS = (
-    "adresse",
+    "adress",
     "sitz",
     "firmenname",
     "namensaenderung",
@@ -224,6 +228,13 @@ def analyze_mutations(
                     f"Adress-/Namens-/Strukturänderung ({days_ago} Tage)",
                     "Kürzliche Adress- oder Namensänderung bei junger Firma",
                 )
+            elif days_ago <= 90:
+                # Established firms: still surface recent address/name moves (low noise window)
+                deduct(
+                    2 if days_ago <= 30 else 1,
+                    f"Adress-/Namens-/Strukturänderung ({days_ago} Tage)",
+                    "Kürzliche Adress- oder Namensänderung",
+                )
             elif days_ago <= 365 and any(
                 part in k for k in keys for part in ("fusion", "vermoegen", "uebernahme", "übernahme")
             ):
@@ -232,15 +243,28 @@ def analyze_mutations(
                     f"Fusion/Vermögenstransfer ({days_ago} Tage)",
                     "Eigentümer- oder Strukturwechsel im Handelsregister",
                 )
-        elif severity == "medium" and young and days_ago <= 90:
+        elif severity == "medium" and days_ago <= 90:
             if key_sig in applied:
                 continue
             applied.add(key_sig)
-            deduct(
-                1,
-                f"Organ-/Kapitaländerung ({days_ago} Tage)",
-                None,
+            is_organ = any(
+                any(part in k.lower() for part in ("aenderungorgane", "organe"))
+                for k in keys
             )
+            if is_organ:
+                # Organ changes: score + warn for any firm within 90d (was score-only + young-only)
+                deduct(
+                    1,
+                    f"Organ-/Kapitaländerung ({days_ago} Tage)",
+                    "Kürzliche Organänderung im Handelsregister",
+                )
+            elif young:
+                # Kapital/Zweck/Statuten bei junger Firma: score only, no pill noise
+                deduct(
+                    1,
+                    f"Organ-/Kapitaländerung ({days_ago} Tage)",
+                    None,
+                )
 
     mutation_count_90 = len([
         p for p in recent_90

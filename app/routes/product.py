@@ -37,15 +37,6 @@ class WishlistStatusPatch(BaseModel):
     status: Literal["open", "reviewing", "in_progress", "done", "rejected"]
 
 
-@router.get("/test")
-async def analysis_layout_test_page(_user: User = Depends(get_current_user)):
-    """Playground for firm-analysis layout variants (not production UI)."""
-    path = _STATIC / "analysis-layout-test.html"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Layout-Test-Seite fehlt")
-    return FileResponse(path)
-
-
 @router.get("/changelog")
 async def changelog_page(_user: User = Depends(get_current_user)):
     path = _STATIC / "changelog.html"

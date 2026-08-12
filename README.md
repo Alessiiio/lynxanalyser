@@ -13,6 +13,17 @@ python run.py          # http://localhost:8000
 
 Auth is required for all pages except login and `/api/health`. After password login, **2FA enrollment or TOTP/backup verification** is required before the session is fully usable.
 
+### Offline-Demo-Firma (ohne Zefix/Moneyhouse)
+
+Für UI-Demos und Tests ohne Live-APIs gibt es die fiktive Firma **DEMO-FRAUD GmbH** (`CHE-000.000.001`):
+
+- Firmenanalyse → Button **«Demo-Firma laden»**, oder Suche nach `DEMO-FRAUD`
+- Direktlink: `/?demo=fraud` bzw. `/?company=DEMO-FRAUD%20GmbH&uid=CHE-000.000.001`
+- Fixture: [`data/demo_fraud_firm.json`](data/demo_fraud_firm.json) (klar als Demo markiert)
+- Deep-Suchweiten L2–L5 liefern vorgefertigte Graph-Untermengen — **keine** externen API-Calls
+
+Die frühere Admin-Seite `/test` (Layout-Playground) wurde entfernt.
+
 ## Production (VPS)
 
 Docker Compose + Caddy (Let’s Encrypt): see [deploy/README.md](deploy/README.md).

@@ -161,8 +161,10 @@ const MUTATION_LABELS = {
   vermoegenstransfer: "Vermögenstransfer",
   firmenname: "Namensänderung",
   adresse: "Adressänderung",
+  adressaenderung: "Adressänderung",
   sitzverlegung: "Sitzverlegung",
   zweck: "Zweckänderung",
+  zweckaenderung: "Zweckänderung",
   statuten: "Statutenänderung",
   rechtsform: "Rechtsformänderung",
   umwandlung: "Umwandlung",
@@ -1432,6 +1434,8 @@ async function quickAnalyze() {
     const qs = new URLSearchParams();
     if (company) qs.set("company", company);
     if (uid) qs.set("uid", uid);
+    const demoParam = new URL(location.href).searchParams.get("demo");
+    if (demoParam) qs.set("demo", demoParam);
     let data;
     try {
       const parsed = await fetchJson(`/api/hr-network?${qs}`);
@@ -3178,10 +3182,16 @@ function mutationKindFromKeyOrLabel(key, label) {
   if (k === "aenderungorgane" || k.startsWith("aenderungorgane") || k.includes("organe")) {
     return MUTATION_KIND.organ;
   }
-  if (k === "adresse" || k.startsWith("adresse") || k === "sitzverlegung" || k.startsWith("sitz")) {
+  if (
+    k === "adresse" ||
+    k.startsWith("adresse") ||
+    k.includes("adress") ||
+    k === "sitzverlegung" ||
+    k.startsWith("sitz")
+  ) {
     return MUTATION_KIND.address;
   }
-  if (k === "zweck" || k.startsWith("zweck")) return MUTATION_KIND.purpose;
+  if (k === "zweck" || k.startsWith("zweck") || k.includes("zweck")) return MUTATION_KIND.purpose;
   if (k === "kapitalaenderung" || k.startsWith("kapital") || k.includes("kapital")) {
     return MUTATION_KIND.capital;
   }
@@ -4156,6 +4166,24 @@ wireIncompleteBannerActions(document.getElementById("caSearchIncompleteBanner"))
 loadRecentSearchesFromServer();
 loadCompanyTagsFromServer();
 
+const DEMO_FRAUD_NAME = "DEMO-FRAUD GmbH";
+const DEMO_FRAUD_UID = "CHE-000.000.001";
+
+function loadDemoFraudFirm() {
+  companyInput.value = DEMO_FRAUD_NAME;
+  pendingUid = DEMO_FRAUD_UID;
+  const url = new URL(location.href);
+  url.searchParams.set("company", DEMO_FRAUD_NAME);
+  url.searchParams.set("uid", DEMO_FRAUD_UID);
+  url.searchParams.set("demo", "fraud");
+  history.replaceState({}, "", url);
+  quickAnalyze();
+}
+
+document.getElementById("caDemoFraudBtn")?.addEventListener("click", () => {
+  loadDemoFraudFirm();
+});
+
 const params = new URLSearchParams(location.search);
 if (params.get("tab") === "cases" || params.get("tab") === "list") {
   location.replace("/cases");
@@ -4166,7 +4194,12 @@ if (params.get("profiler") === "1" && (params.get("company") || params.get("uid"
   if (params.get("uid")) qs.set("uid", params.get("uid"));
   location.replace(`/profiler?${qs}`);
 }
-if (params.get("company") || params.get("uid")) {
+const demoKey = (params.get("demo") || "").trim().toLowerCase();
+if (demoKey === "fraud" || demoKey === "demo-fraud" || demoKey === "demo_fraud") {
+  companyInput.value = params.get("company") || DEMO_FRAUD_NAME;
+  pendingUid = params.get("uid") || DEMO_FRAUD_UID;
+  quickAnalyze();
+} else if (params.get("company") || params.get("uid")) {
   if (params.get("company")) companyInput.value = params.get("company");
   pendingUid = params.get("uid") || "";
   quickAnalyze();

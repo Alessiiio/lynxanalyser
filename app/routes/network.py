@@ -11,6 +11,12 @@ from pydantic import BaseModel, Field
 
 import config
 from app.database import User
+from app.hr_network.demo_fixture import (
+    build_demo_fraud_network,
+    build_demo_hr_network,
+    demo_search_hits,
+    is_demo_request,
+)
 from app.hr_network.fraud_network import apply_identity_confirmation, build_fraud_network
 from app.hr_network.fraud_network_cache import (
     cache_status_for_company,
@@ -197,6 +203,9 @@ async def api_fraud_network_cache_status(
     u = uid.strip() or None
     if not n and not u:
         raise HTTPException(status_code=400, detail="name or uid required")
+    # Offline demo firm — no disk cache / no external APIs.
+    if is_demo_request(name=n, uid=u):
+        return {"levels": {}, "demo_only": True}
     return cache_status_for_company(company_name=n, company_uid=u)
 
 
@@ -206,6 +215,8 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
     ad_hoc = body.ad_hoc_company or {}
     name = (ad_hoc.get("name") or "").strip() or None
     uid = (ad_hoc.get("uid") or "").strip() or None
+    if is_demo_request(name=name, uid=uid):
+        return build_demo_fraud_network(level=body.level)
     overrides = None
     if body.identity_overrides:
         overrides = [o.model_dump(exclude_none=True) for o in body.identity_overrides]
@@ -601,11 +612,25 @@ async def api_hr_network(
     http_request: Request,
     company: str = Query(""),
     uid: str = Query(""),
+    demo: str = Query(""),
     user: User = Depends(get_current_user),
 ):
     enforce_rate_limit(http_request)
-    if not company.strip() and not uid.strip():
+    if not company.strip() and not uid.strip() and not demo.strip():
         raise HTTPException(status_code=400, detail="company or uid required")
+    if is_demo_request(name=company.strip() or None, uid=uid.strip() or None, demo=demo.strip() or None):
+        result = build_demo_hr_network(
+            company=company.strip() or None,
+            uid=uid.strip() or None,
+        )
+        firm = (result or {}).get("company") if isinstance(result, dict) else None
+        await log_company_search(
+            company_name=(firm or {}).get("name") or company or "DEMO-FRAUD GmbH",
+            company_uid=(firm or {}).get("uid") or uid or "CHE-000.000.001",
+            searched_by=user.display_name or user.username or "Team",
+            searched_by_username=user.username,
+        )
+        return result
     try:
         result = await build_hr_network(
             company=company.strip() or None,
@@ -763,9 +788,31 @@ async def api_hr_network_search(
     limit: int = Query(12, ge=1, le=25),
 ):
     enforce_rate_limit(http_request)
+    demo_hits = demo_search_hits(q, limit=limit)
     try:
-        return {"results": await search_companies_preview(q, limit=limit)}
+        live = await search_companies_preview(q, limit=limit)
     except PermissionError as e:
+        # Offline / missing Zefix — still serve demo fixture if it matches.
+        if demo_hits:
+            return {"results": demo_hits}
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
+        if demo_hits:
+            return {"results": demo_hits}
         raise HTTPException(status_code=502, detail=str(e)[:120]) from e
+    # Prefer demo hit first when query matches (clearly marked offline).
+    if demo_hits:
+        seen = {
+            (r.get("uid") or "", (r.get("name") or "").lower())
+            for r in demo_hits
+        }
+        merged = list(demo_hits)
+        for r in live or []:
+            key = (r.get("uid") or "", (r.get("name") or "").lower())
+            if key in seen:
+                continue
+            merged.append(r)
+            if len(merged) >= limit:
+                break
+        return {"results": merged[:limit]}
+    return {"results": live}

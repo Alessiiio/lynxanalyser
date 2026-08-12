@@ -5653,7 +5653,8 @@ body.profiler-open { overflow: hidden; }
 }
 .ca-idle-mark,
 .ca-idle-name,
-.ca-idle-tagline {
+.ca-idle-tagline,
+.ca-idle-demo {
   position: relative;
   z-index: 1;
 }
@@ -5688,6 +5689,14 @@ body.profiler-open { overflow: hidden; }
   letter-spacing: 0.02em;
   line-height: 1.15;
   color: var(--c-text);
+}
+.ca-idle-demo {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+.ca-idle-demo .ca-tool-link {
+  font-size: 0.85rem;
+  opacity: 0.85;
 }
 
 @keyframes caIdleIn {

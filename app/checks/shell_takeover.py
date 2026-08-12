@@ -15,7 +15,8 @@ from app.hr_network.shab_parser import build_person_timeline, parse_exited_perso
 
 
 _ORGAN_KEY_PARTS = ("aenderungorgane", "organe")
-_STRUCTURAL_KEY_PARTS = ("sitz", "adresse", "zweck", "firmenname", "name")
+# "adress" matches both "adresse" and Zefix key "adressaenderung"
+_STRUCTURAL_KEY_PARTS = ("sitz", "adress", "zweck", "firmenname", "name")
 
 
 def _keys_match(keys: list[str], parts: tuple[str, ...]) -> bool:
