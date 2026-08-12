@@ -243,11 +243,14 @@ async function fetchJson(url, options = {}) {
   } else if (!looksHtml && !text) {
     data = null;
   } else {
+    const gatewayHint =
+      resp.status === 502 || resp.status === 504
+        ? " Oft bei langen Suchweite-5-Scans: Proxy/Upstream-Timeout oder App-Neustart — Caddy-Timeouts prüfen, docker logs app/caddy."
+        : " Häufig: Proxy liefert Startseite/Fehlerseite statt API, oder Backend ist down.";
     const err = new Error(
       resp.status === 401 || /login/i.test(text.slice(0, 400))
         ? "Sitzung abgelaufen — bitte neu anmelden."
-        : `Server lieferte HTML statt JSON (HTTP ${resp.status}). ` +
-          "Häufig: Proxy liefert Startseite/Fehlerseite statt API, oder Backend ist down."
+        : `Server lieferte HTML statt JSON (HTTP ${resp.status}).` + gatewayHint
     );
     err.status = resp.status;
     err.loginRequired = resp.status === 401 || /login/i.test(text.slice(0, 400));

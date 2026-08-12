@@ -75,8 +75,40 @@ Then in the browser: hard-refresh (Cmd/Ctrl+Shift+R) so `company-analysis.js` / 
 
 Quick checks: `/api/health`, login, Firmenanalyse SW2 on a known firm.
 
+## Long scans (Suchweite 5) and HTTP 502 HTML
+
+`POST /api/fraud-network/analyze` is a **synchronous** request. L5 (2. Ring / SHAB+Zefix) often runs **several minutes**. If the reverse proxy aborts early, the browser gets **HTML 502** from Caddy (not JSON from FastAPI) — UI: *Server lieferte HTML statt JSON (HTTP 502)*.
+
+The `Caddyfile` sets ~**20m** upstream `response_header_timeout` / read/write timeouts and long server `write`/`idle` timeouts. Compose uses a more tolerant app **healthcheck** so Docker does not restart mid-scan on brief health blips.
+
+After changing `Caddyfile` or compose healthcheck, redeploy (see **Update existing VPS** above). Caddy-only config reload:
+
+```bash
+cd /opt/lynx
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+# or: docker compose up -d --build
+```
+
+### Verify
+
+```bash
+# While a cold L5 runs in the browser, on the VPS:
+docker compose logs -f --tail=100 app caddy
+
+# Timed API call (needs session cookie from browser DevTools):
+curl -sS -o /tmp/l5.json -w "http=%{http_code} time=%{time_total}s type=%{content_type}\n" \
+  -X POST "https://$DOMAIN/api/fraud-network/analyze" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: lynx_session=…" \
+  -d '{"level":5,"ad_hoc_company":{"name":"…","uid":"…"},"max_person_searches":8}'
+# Expect: http=200, type=application/json, time often >60s on cold L5.
+```
+
+Demo workarounds if L5 still fails: use **SW3/SW4**, wait for cache (7 days), avoid cold L5 on the first firm in a session.
+
 ## Notes
 
 - The app container is not published on the host; only Caddy exposes 80/443.
 - `FORWARDED_ALLOW_IPS=*` is safe in this layout because nothing else can reach the app.
 - Set `ALLOWED_HOSTS` to your real domain (compose already injects `$DOMAIN`).
+- Keep **one** uvicorn worker (SQLite); do not scale `app` replicas without a different DB story.

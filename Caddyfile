@@ -1,3 +1,18 @@
+{
+	# Long-running sync APIs (esp. Suchweite 5 / fraud-network analyze) can take many minutes.
+	# Keep client↔Caddy and upstream waits open so the proxy does not abort mid-scan.
+	servers {
+		timeouts {
+			read_body   2m
+			read_header 60s
+			write       20m
+			idle        20m
+		}
+		keepalive_interval 30s
+		keepalive_idle     2m
+	}
+}
+
 {$DOMAIN:localhost} {
 	encode gzip
 
@@ -12,5 +27,14 @@
 
 	reverse_proxy app:8000 {
 		header_up X-Real-IP {remote_host}
+		# Wait for upstream response headers / body during deep SHAB+Zefix scans.
+		transport http {
+			dial_timeout             10s
+			response_header_timeout  20m
+			read_timeout             20m
+			write_timeout            20m
+			keepalive                30s
+			keepalive_idle_conns     32
+		}
 	}
 }

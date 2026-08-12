@@ -273,7 +273,8 @@ let _recentTeamItems = null;
 
 const NETWORK_VIEW_KEY = "lynx_ca_network_view";
 
-const LEVEL_ETA_MS = { 1: 6000, 2: 10000, 3: 22000, 4: 38000, 5: 55000 };
+/* Progress bar ETA only — real L5 cold scans often take several minutes. */
+const LEVEL_ETA_MS = { 1: 6000, 2: 10000, 3: 45000, 4: 90000, 5: 180000 };
 let deepProgressTimer = null;
 let deepProgressValue = 0;
 

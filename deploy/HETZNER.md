@@ -127,8 +127,20 @@ docker compose up -d
 |---------|--------|
 | Kein HTTPS / Caddy-Fehler | DNS zeigt noch nicht auf VPS; Ports 80/443 zu; Domain in `.env` falsch |
 | App startet nicht | `docker compose logs app` — oft fehlendes `SESSION_SECRET` / Seed-Passwort |
-| 502 | App noch am Bauen; `docker compose ps` |
+| 502 kurz nach Deploy | App noch am Bauen; `docker compose ps` |
+| 502 HTML bei Suchweite 5 (Minuten) | Proxy/Upstream bricht langen Sync-Request ab oder App startet neu — siehe `deploy/README.md` (Caddy 20m Timeouts, Healthcheck). Logs: `docker compose logs -f app caddy` |
 | Login geht, Cookie fehlt | `HTTPS_ONLY=1` und wirklich über HTTPS öffnen |
+
+### Caddy / Timeouts neu laden (nach `Caddyfile`-Update)
+
+```bash
+cd /opt/lynx
+# Code inkl. Caddyfile syncen, dann:
+export DOMAIN=deine-domain.ch
+docker compose up -d --build
+# nur Caddy-Config:
+# docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
 
 ## Kurz-Checkliste
 

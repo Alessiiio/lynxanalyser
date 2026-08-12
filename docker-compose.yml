@@ -21,6 +21,14 @@ services:
       - lynx_compliance_reports:/app/compliance_reports
     expose:
       - "8000"
+    # Deep L5 scans are sync HTTP and can run for many minutes. Avoid restarting
+    # the container on brief /api/health blips (Caddy would then return HTML 502).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 8s
+      retries: 10
+      start_period: 90s
     networks:
       - lynx
 
