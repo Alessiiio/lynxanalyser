@@ -393,6 +393,7 @@ function renderSiteNav() {
         </button>
         <span id="navAccountPanel" class="nav-dropdown-panel nav-account-panel hidden" role="menu">
           <span class="nav-account-meta">${escHtml(displayName)} · <span class="${isAdminRole ? "nav-role-admin" : ""}">${escHtml(roleLabel)}</span></span>
+          <a href="/account" class="nav-link nav-dropdown-item${isNavActive("/account", path) ? " nav-link-active" : ""}" role="menuitem">Konto</a>
           ${isAdminRole ? `<a href="/admin" class="nav-link nav-dropdown-item${adminActive ? " nav-link-active" : ""}" role="menuitem">Admin</a>` : ""}
           ${isAdminRole ? `<a href="/admin/planning" class="nav-link nav-dropdown-item${isNavActive("/admin/planning", path) ? " nav-link-active" : ""}" role="menuitem">Planung</a>` : ""}
           <a href="/changelog" class="nav-link nav-dropdown-item${isNavActive("/changelog", path) ? " nav-link-active" : ""}" role="menuitem">Changelog</a>

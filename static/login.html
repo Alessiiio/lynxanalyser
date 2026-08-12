@@ -18,6 +18,7 @@
       <h1>Team-Login</h1>
       <p class="login-lead">Firmennetz &amp; Legitimität — Zugang für freigeschaltete Case Manager, Compliance und Admins.</p>
       <p id="loginError" class="hr-network-error hidden">Anmeldung fehlgeschlagen.</p>
+
       <form id="loginForm" class="login-form">
         <div class="form-group">
           <label for="username">Benutzername</label>
@@ -29,19 +30,65 @@
         </div>
         <button type="submit" class="btn-check" id="loginBtn">Anmelden</button>
       </form>
-      <p class="fraud-help login-hint">Zugang nur für freigeschaltete Team-Accounts.</p>
+
+      <form id="twoFaForm" class="login-form hidden">
+        <p class="fraud-help" id="twoFaHint">Authenticator-Code oder Backup-Code eingeben.</p>
+        <div class="form-group">
+          <label for="totpCode">Authenticator-Code</label>
+          <input id="totpCode" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="16" placeholder="6 Ziffern">
+        </div>
+        <div class="form-group">
+          <label for="backupCode">Backup-Code (optional)</label>
+          <input id="backupCode" name="backup_code" autocomplete="off" maxlength="64" placeholder="z. B. ABCD-EFGH">
+        </div>
+        <button type="submit" class="btn-check" id="twoFaBtn">Bestätigen</button>
+        <button type="button" class="btn-nav" id="twoFaCancel">Abbrechen</button>
+      </form>
+
+      <p class="fraud-help login-hint">Zugang nur für freigeschaltete Team-Accounts. 2FA ist Pflicht.</p>
     </div>
   </div>
   <script>
-    if (new URLSearchParams(location.search).get("error")) {
-      const el = document.getElementById("loginError");
-      el.classList.remove("hidden");
+    const err = document.getElementById("loginError");
+    const loginForm = document.getElementById("loginForm");
+    const twoFaForm = document.getElementById("twoFaForm");
+
+    function showError(msg) {
+      err.textContent = msg || "Anmeldung fehlgeschlagen.";
+      err.classList.remove("hidden");
     }
-    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+    function hideError() {
+      err.classList.add("hidden");
+    }
+    function show2fa() {
+      loginForm.classList.add("hidden");
+      twoFaForm.classList.remove("hidden");
+      document.getElementById("totpCode").focus();
+    }
+    function showPassword() {
+      twoFaForm.classList.add("hidden");
+      loginForm.classList.remove("hidden");
+    }
+
+    if (new URLSearchParams(location.search).get("error")) {
+      showError("Anmeldung fehlgeschlagen.");
+    }
+    if (new URLSearchParams(location.search).get("step") === "2fa") {
+      show2fa();
+    }
+
+    fetch("/api/auth/pending")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.state === "needs_2fa") show2fa();
+        if (d.state === "needs_enroll") location.href = "/enroll-2fa";
+      })
+      .catch(() => {});
+
+    loginForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const btn = document.getElementById("loginBtn");
-      const err = document.getElementById("loginError");
-      err.classList.add("hidden");
+      hideError();
       btn.disabled = true;
       try {
         const resp = await fetch("/api/login", {
@@ -54,13 +101,50 @@
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || "Login fehlgeschlagen");
+        if (data.needs_enroll) {
+          location.href = data.redirect || "/enroll-2fa";
+          return;
+        }
+        if (data.needs_2fa) {
+          show2fa();
+          return;
+        }
         location.href = data.redirect || "/";
       } catch (ex) {
-        err.textContent = String(ex.message || ex);
-        err.classList.remove("hidden");
+        showError(String(ex.message || ex));
       } finally {
         btn.disabled = false;
       }
+    });
+
+    twoFaForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("twoFaBtn");
+      hideError();
+      btn.disabled = true;
+      const code = document.getElementById("totpCode").value.trim();
+      const backup = document.getElementById("backupCode").value.trim();
+      try {
+        const body = backup ? { backup_code: backup } : { code };
+        const resp = await fetch("/api/login/2fa", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "2FA fehlgeschlagen");
+        location.href = data.redirect || "/";
+      } catch (ex) {
+        showError(String(ex.message || ex));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("twoFaCancel").addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST" });
+      showPassword();
+      hideError();
     });
   </script>
 </body>

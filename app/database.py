@@ -191,6 +191,15 @@ class User(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+    totp_secret_encrypted: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_confirmed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    backup_codes_hash: Mapped[Optional[str]] = mapped_column(String(4096), nullable=True)
+    backup_codes_generated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class WatchedPersonStatusHistory(Base):
@@ -345,6 +354,7 @@ async def init_db() -> None:
         await conn.run_sync(_migrate_scan_history_columns)
         await conn.run_sync(_migrate_watched_person_columns)
         await conn.run_sync(_migrate_company_case_columns)
+        await conn.run_sync(_migrate_user_2fa_columns)
     await seed_default_users()
 
 
@@ -535,6 +545,24 @@ def _migrate_company_case_columns(conn) -> None:
         if column not in existing:
             conn.execute(text(f"ALTER TABLE company_cases ADD COLUMN {column} {sql_type}"))
             logger.info("Added company_cases.%s", column)
+
+
+def _migrate_user_2fa_columns(conn) -> None:
+    insp = inspect(conn)
+    if "users" not in insp.get_table_names():
+        return
+    existing = {col["name"] for col in insp.get_columns("users")}
+    additions = {
+        "totp_secret_encrypted": "VARCHAR(512)",
+        "totp_enabled": "BOOLEAN DEFAULT 0",
+        "totp_confirmed_at": "DATETIME",
+        "backup_codes_hash": "VARCHAR(4096)",
+        "backup_codes_generated_at": "DATETIME",
+    }
+    for column, sql_type in additions.items():
+        if column not in existing:
+            conn.execute(text(f"ALTER TABLE users ADD COLUMN {column} {sql_type}"))
+            logger.info("Added users.%s", column)
 
 
 def _scan_to_dict(scan: ScanHistory, checks: list[CheckDetail]) -> dict[str, Any]:

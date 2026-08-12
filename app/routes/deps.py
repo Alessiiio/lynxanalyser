@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Callable
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy import select
 
 from app.auth import ALL_ROLES, normalize_role, user_public_dict
-from app.database import User, async_session
-from app.rate_limit import is_login_rate_limited, is_rate_limited
-from sqlalchemy import select
+from app.database import User
+from app import database as db
+from app.rate_limit import is_login_2fa_rate_limited, is_login_rate_limited, is_rate_limited
 
 
 def client_ip(request: Request) -> str:
@@ -32,13 +33,25 @@ def enforce_login_rate_limit(request: Request) -> None:
         )
 
 
+def enforce_login_2fa_rate_limit(request: Request) -> None:
+    if is_login_2fa_rate_limited(client_ip(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Zu viele 2FA-Versuche — bitte eine Minute warten",
+        )
+
+
 async def load_user_from_session(request: Request) -> User | None:
     user_id = request.session.get("user_id")
     if not user_id:
         return None
-    async with async_session() as session:
+    async with db.async_session() as session:
         user = await session.get(User, int(user_id))
         if not user or not user.active:
+            return None
+        # Mandatory 2FA: full session invalid after admin reset / incomplete enroll
+        if not bool(getattr(user, "totp_enabled", False)):
+            request.session.clear()
             return None
         return user
 
@@ -79,3 +92,11 @@ def current_username(user: User) -> str:
 
 def current_user_payload(user: User) -> dict:
     return user_public_dict(user)
+
+
+async def count_active_admins(session, *, exclude_user_id: int | None = None) -> int:
+    q = select(User).where(User.role == "admin", User.active.is_(True))
+    rows = list((await session.execute(q)).scalars().all())
+    if exclude_user_id is not None:
+        rows = [u for u in rows if u.id != exclude_user_id]
+    return len(rows)

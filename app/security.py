@@ -32,7 +32,13 @@ class MutatingOriginMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         if request.method in self._METHODS and request.url.path.startswith("/api/"):
-            if request.url.path in {"/api/login"}:
+            if request.url.path in {
+                "/api/login",
+                "/api/login/2fa",
+                "/api/2fa/enroll/start",
+                "/api/2fa/enroll/confirm",
+                "/api/2fa/enroll/cancel",
+            }:
                 return await call_next(request)
             origin = request.headers.get("origin")
             referer = request.headers.get("referer")

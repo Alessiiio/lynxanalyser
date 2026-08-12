@@ -84,6 +84,26 @@ if not SESSION_SECRET:
         )
     SESSION_SECRET = "dev-only-insecure-session-secret"
 
+# Fernet key for TOTP secrets at rest (url-safe base64 32-byte). Separate from SESSION_SECRET.
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+TOTP_ENCRYPTION_KEY: str = os.getenv("TOTP_ENCRYPTION_KEY", "").strip()
+if not TOTP_ENCRYPTION_KEY:
+    if IS_PRODUCTION:
+        raise RuntimeError(
+            "TOTP_ENCRYPTION_KEY fehlt — setze einen Fernet-Key in .env "
+            '(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")'
+        )
+    # Local only: derived at runtime from SESSION_SECRET (see app/totp_crypto.py) — not for prod
+    import logging as _logging
+
+    _logging.getLogger(__name__).warning(
+        "TOTP_ENCRYPTION_KEY nicht gesetzt — leite lokal aus SESSION_SECRET ab "
+        "(nur Development; in Production muss der Key explizit gesetzt sein)"
+    )
+
+# Stricter limit for /api/login/2fa (brute-force on 6-digit codes)
+LOGIN_2FA_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("LOGIN_2FA_RATE_LIMIT_PER_MINUTE", "10"))
+
 # Bootstrap users (created when users table is empty; passwords reset when FORCE_RESET_SEED_PASSWORDS=1)
 SEED_ADMIN_PASSWORD: str = os.getenv("SEED_ADMIN_PASSWORD", "")
 SEED_CASE_MANAGER_PASSWORD: str = os.getenv(

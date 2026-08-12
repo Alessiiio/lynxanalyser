@@ -2125,13 +2125,32 @@ body.anonymize-mode {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.5rem;
-  align-items: center;
+  align-items: flex-start;
   padding: 0.55rem 0.7rem;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.45);
 }
 .admin-user-card .fraud-help { display: block; margin-top: 0.15rem; }
+.admin-user-inactive {
+  opacity: 0.72;
+  border-style: dashed;
+}
+.admin-user-main { display: grid; gap: 0.35rem; min-width: min(100%, 16rem); }
+.admin-user-role {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  justify-content: flex-end;
+}
 .admin-create-form {
   display: flex;
   flex-wrap: wrap;
@@ -7962,6 +7981,7 @@ div.vis-tooltip {
   place-items: center;
 }
 .login-shell { width: min(420px, 92vw); }
+.login-shell-wide { width: min(520px, 94vw); }
 .login-card {
   background: var(--c-card);
   border: 1px solid var(--c-border);
@@ -7992,6 +8012,48 @@ div.vis-tooltip {
 .login-lead { color: var(--c-muted); margin: 0.35rem 0 1rem; text-align: center; }
 .login-form { display: grid; gap: 0.75rem; text-align: left; }
 .login-hint { margin-top: 1rem; font-size: 0.78rem; text-align: center; }
+.enroll-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem 0;
+}
+.enroll-qr {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.5rem;
+}
+.enroll-secret {
+  display: block;
+  word-break: break-all;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  text-align: center;
+}
+.enroll-backup-list {
+  list-style: none;
+  margin: 0.75rem 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.9rem;
+}
+.enroll-backup-list li {
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.5);
+  text-align: center;
+}
+#enrollStepBackup .btn-check,
+#enrollStepBackup .btn-nav {
+  margin: 0.35rem 0.25rem 0 0;
+}
 .nav-user {
   font-size: 0.78rem;
   color: var(--c-muted);

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2FA einrichten — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <div class="login-shell login-shell-wide">
+    <div class="login-card">
+      <img class="login-mark" src="/static/img/lynx-mark-256.png?v=2" width="72" height="72" alt="Lynx" decoding="async">
+      <p class="header-eyebrow">Lynx · Sicherheit</p>
+      <h1>Zwei-Faktor-Auth</h1>
+      <p class="login-lead">2FA ist für alle Accounts Pflicht. Scanne den QR-Code mit Authy, Google Authenticator oder einer vergleichbaren App.</p>
+      <p id="enrollError" class="hr-network-error hidden"></p>
+
+      <div id="enrollStepScan">
+        <div class="enroll-qr-wrap">
+          <img id="enrollQr" class="enroll-qr" alt="QR-Code für Authenticator" width="200" height="200">
+        </div>
+        <p class="fraud-help">Manueller Schlüssel:</p>
+        <code id="enrollSecret" class="enroll-secret"></code>
+        <form id="enrollConfirmForm" class="login-form" style="margin-top:1rem">
+          <div class="form-group">
+            <label for="enrollCode">Bestätigungscode (6 Ziffern)</label>
+            <input id="enrollCode" inputmode="numeric" autocomplete="one-time-code" maxlength="16" required>
+          </div>
+          <button type="submit" class="btn-check" id="enrollConfirmBtn">Aktivieren</button>
+          <button type="button" class="btn-nav" id="enrollCancel">Abbrechen</button>
+        </form>
+      </div>
+
+      <div id="enrollStepBackup" class="hidden">
+        <p class="fraud-help"><strong>Backup-Codes — einmalig anzeigen.</strong> Speichere sie sicher. Jeder Code gilt nur einmal.</p>
+        <ul id="backupList" class="enroll-backup-list"></ul>
+        <button type="button" class="btn-nav" id="copyBackup">Codes kopieren</button>
+        <button type="button" class="btn-check" id="backupDone">Ich habe die Codes gespeichert</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    const err = document.getElementById("enrollError");
+    let redirectTo = "/";
+
+    function showError(msg) {
+      err.textContent = msg || "Fehler";
+      err.classList.remove("hidden");
+    }
+    function hideError() {
+      err.classList.add("hidden");
+    }
+
+    async function startEnroll() {
+      const pending = await fetch("/api/auth/pending").then((r) => r.json());
+      if (pending.state !== "needs_enroll") {
+        location.href = "/login";
+        return;
+      }
+      const resp = await fetch("/api/2fa/enroll/start", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "Start fehlgeschlagen");
+      document.getElementById("enrollQr").src = data.qr_data_url;
+      document.getElementById("enrollSecret").textContent = data.secret;
+    }
+
+    document.getElementById("enrollConfirmForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideError();
+      const btn = document.getElementById("enrollConfirmBtn");
+      btn.disabled = true;
+      try {
+        const resp = await fetch("/api/2fa/enroll/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: document.getElementById("enrollCode").value.trim() }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Bestätigung fehlgeschlagen");
+        redirectTo = data.redirect || "/";
+        const list = document.getElementById("backupList");
+        list.innerHTML = (data.backup_codes || [])
+          .map((c) => `<li><code>${c}</code></li>`)
+          .join("");
+        list.dataset.codes = (data.backup_codes || []).join("\n");
+        document.getElementById("enrollStepScan").classList.add("hidden");
+        document.getElementById("enrollStepBackup").classList.remove("hidden");
+      } catch (ex) {
+        showError(String(ex.message || ex));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("copyBackup").addEventListener("click", async () => {
+      const text = document.getElementById("backupList").dataset.codes || "";
+      try {
+        await navigator.clipboard.writeText(text);
+        document.getElementById("copyBackup").textContent = "Kopiert";
+      } catch (_) {
+        showError("Kopieren fehlgeschlagen — Codes manuell markieren.");
+      }
+    });
+
+    document.getElementById("backupDone").addEventListener("click", () => {
+      location.href = redirectTo;
+    });
+
+    document.getElementById("enrollCancel").addEventListener("click", async () => {
+      await fetch("/api/2fa/enroll/cancel", { method: "POST" });
+      location.href = "/login";
+    });
+
+    startEnroll().catch((ex) => {
+      showError(String(ex.message || ex));
+      setTimeout(() => { location.href = "/login"; }, 1500);
+    });
+  </script>
+</body>
+</html>

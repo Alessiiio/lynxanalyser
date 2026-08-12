@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Konto — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx · Konto</p>
+            <h1>Konto &amp; Sicherheit</h1>
+            <p class="header-sub">Passwort und Zwei-Faktor-Authentifizierung.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <p id="accountMsg" class="fraud-help" role="status"></p>
+
+    <section class="fraud-panel admin-panel">
+      <div class="fraud-panel-head">
+        <h2>Zwei-Faktor-Auth (2FA)</h2>
+      </div>
+      <p id="account2faStatus" class="fraud-help">Laden…</p>
+      <p class="fraud-help">2FA ist für alle Benutzer Pflicht. Bei Geräteverlust: Backup-Codes nutzen oder einen anderen Admin um Reset bitten.</p>
+    </section>
+
+    <section class="fraud-panel admin-panel">
+      <div class="fraud-panel-head">
+        <h2>Passwort ändern</h2>
+      </div>
+      <form id="accountPasswordForm" class="admin-create-form">
+        <label class="profiler-field">
+          <span>Aktuelles Passwort</span>
+          <input name="current_password" type="password" required autocomplete="current-password" minlength="1">
+        </label>
+        <label class="profiler-field">
+          <span>Neues Passwort (min. 12)</span>
+          <input name="new_password" type="password" required autocomplete="new-password" minlength="12" maxlength="128">
+        </label>
+        <button type="submit" class="btn-check">Speichern</button>
+      </form>
+    </section>
+  </div>
+  <script src="/static/ui-common.js"></script>
+  <script>
+    (function () {
+      const msg = document.getElementById("accountMsg");
+      function setMsg(t, isErr) {
+        msg.textContent = t || "";
+        msg.classList.toggle("admin-msg-err", !!isErr);
+      }
+
+      function render2fa(u) {
+        const el = document.getElementById("account2faStatus");
+        if (!el) return;
+        el.textContent = u?.totp_enabled
+          ? "2FA ist aktiv. Login erfordert Authenticator- oder Backup-Code."
+          : "2FA fehlt — nach dem nächsten Login wirst du zur Einrichtung geführt.";
+      }
+
+      document.getElementById("accountPasswordForm")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(e.target).entries());
+        try {
+          const resp = await fetch("/api/me/password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+          e.target.reset();
+          setMsg("Passwort aktualisiert.");
+        } catch (ex) {
+          setMsg(String(ex.message || ex), true);
+        }
+      });
+
+      const prev = window.onLynxUserReady;
+      window.onLynxUserReady = function (u) {
+        if (typeof prev === "function") prev(u);
+        render2fa(u);
+      };
+      if (window.__lynxUser) render2fa(window.__lynxUser);
+    })();
+  </script>
+</body>
+</html>

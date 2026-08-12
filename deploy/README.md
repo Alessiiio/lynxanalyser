@@ -17,11 +17,23 @@ cp .env.example .env
 # Set at least:
 #   DOMAIN=your.example.com
 #   SESSION_SECRET=<long random>
+#   TOTP_ENCRYPTION_KEY=<Fernet key — see below>
 #   SEED_ADMIN_PASSWORD / SEED_CASE_MANAGER_PASSWORD / SEED_COMPLIANCE_PASSWORD
 #   HTTPS_ONLY=1
 #   ENVIRONMENT=production
 #   API keys as needed (Zefix, Safe Browsing, …)
 ```
+
+Generate secrets:
+
+```bash
+# Session cookie signing
+python -c "import secrets; print(secrets.token_hex(32))"
+# TOTP secret encryption (Fernet) — required in production
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+**2FA:** All users must enroll TOTP (Authenticator) after password login before using the app. Admins can reset another user’s 2FA under `/admin` (not their own).
 
 3. Start:
 

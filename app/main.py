@@ -24,6 +24,12 @@ PUBLIC_PREFIXES = ("/static",)
 PUBLIC_PATHS = {
     "/login",
     "/api/login",
+    "/api/login/2fa",
+    "/api/auth/pending",
+    "/api/2fa/enroll/start",
+    "/api/2fa/enroll/confirm",
+    "/api/2fa/enroll/cancel",
+    "/enroll-2fa",
     "/api/health",
     "/logout",
     "/favicon.ico",

@@ -10,6 +10,7 @@ import config
 
 _requests: DefaultDict[str, list[float]] = defaultdict(list)
 _login_requests: DefaultDict[str, list[float]] = defaultdict(list)
+_login_2fa_requests: DefaultDict[str, list[float]] = defaultdict(list)
 
 
 def _limited(bucket: DefaultDict[str, list[float]], client_ip: str, limit: int) -> bool:
@@ -30,3 +31,7 @@ def is_rate_limited(client_ip: str) -> bool:
 
 def is_login_rate_limited(client_ip: str) -> bool:
     return _limited(_login_requests, client_ip, config.LOGIN_RATE_LIMIT_PER_MINUTE)
+
+
+def is_login_2fa_rate_limited(client_ip: str) -> bool:
+    return _limited(_login_2fa_requests, client_ip, config.LOGIN_2FA_RATE_LIMIT_PER_MINUTE)

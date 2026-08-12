@@ -88,6 +88,7 @@ ENVIRONMENT=production
 DOMAIN=deine-domain.ch
 HTTPS_ONLY=1
 SESSION_SECRET=HIER_LANGEN_ZUFALLSWERT
+TOTP_ENCRYPTION_KEY=HIER_FERNET_KEY
 SEED_ADMIN_PASSWORD=mindestens12zeichen
 SEED_CASE_MANAGER_PASSWORD=mindestens12zeichen
 SEED_COMPLIANCE_PASSWORD=mindestens12zeichen
@@ -95,13 +96,18 @@ SEED_ALESSIO_PASSWORD=mindestens12zeichen
 FORCE_RESET_SEED_PASSWORDS=1
 ```
 
-Zufalls-Secret erzeugen:
+Zufalls-Secrets erzeugen:
 
 ```bash
+# SESSION_SECRET
 openssl rand -hex 32
+# TOTP_ENCRYPTION_KEY (Fernet)
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 API-Keys (Zefix, Safe Browsing, …) nach Bedarf ergänzen. Speichern, nano beenden (`Ctrl+O`, Enter, `Ctrl+X`).
+
+Nach dem ersten Login: **2FA einrichten** (QR scannen). Ohne 2FA kein App-Zugang.
 
 ## 6. Starten
 
@@ -126,7 +132,7 @@ docker compose up -d
 | Symptom | Check |
 |---------|--------|
 | Kein HTTPS / Caddy-Fehler | DNS zeigt noch nicht auf VPS; Ports 80/443 zu; Domain in `.env` falsch |
-| App startet nicht | `docker compose logs app` — oft fehlendes `SESSION_SECRET` / Seed-Passwort |
+| App startet nicht | `docker compose logs app` — oft fehlendes `SESSION_SECRET` / `TOTP_ENCRYPTION_KEY` / Seed-Passwort |
 | 502 kurz nach Deploy | App noch am Bauen; `docker compose ps` |
 | 502 HTML bei Suchweite 5 (Minuten) | Proxy/Upstream bricht langen Sync-Request ab oder App startet neu — siehe `deploy/README.md` (Caddy 20m Timeouts, Healthcheck). Logs: `docker compose logs -f app caddy` |
 | Login geht, Cookie fehlt | `HTTPS_ONLY=1` und wirklich über HTTPS öffnen |

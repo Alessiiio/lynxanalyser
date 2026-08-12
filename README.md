@@ -11,7 +11,7 @@ cp .env.example .env   # fill API keys and secrets
 python run.py          # http://localhost:8000
 ```
 
-Auth is required for all pages except login and `/api/health`.
+Auth is required for all pages except login and `/api/health`. After password login, **2FA enrollment or TOTP/backup verification** is required before the session is fully usable.
 
 ## Production (VPS)
 
@@ -19,7 +19,7 @@ Docker Compose + Caddy (Let’s Encrypt): see [deploy/README.md](deploy/README.m
 
 **Hetzner (Ubuntu) step-by-step:** [deploy/HETZNER.md](deploy/HETZNER.md).
 
-Set at least `ENVIRONMENT=production`, `SESSION_SECRET`, seed passwords, `HTTPS_ONLY=1`, and `DOMAIN`.
+Set at least `ENVIRONMENT=production`, `SESSION_SECRET`, `TOTP_ENCRYPTION_KEY`, seed passwords, `HTTPS_ONLY=1`, and `DOMAIN`.
 
 ## Changelog & Feedback
 
