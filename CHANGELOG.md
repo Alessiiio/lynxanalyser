@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Login vergibt volle Session erst nach 2FA-Verify oder abgeschlossener Enrollment
+- Firmenanalyse UI: Status (unvollständig / Cache / Next-Step) unter Graph-Toolbar statt über dem Graph; Warn-Pills kompakt unter Firm-Leiste
+- Firm-Aktionen: «Suche ändern», **In Abklärung** und Akte sichtbar; HR / Profiler unter **Mehr**
+- Organigramm-Toggle entfernt (nur Netzwerk-Graph)
+- Personen-Sidebar: Gender-Markierung dezent (m/w + Icon), Fussnote Heimatort entfernt
+- Graph-Pan in Chromium Edge: `touch-action: none` + explizites `dragView`
 
 ## [1.2.0] - 2026-08-12
 

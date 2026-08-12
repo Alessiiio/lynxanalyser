@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/style.css?v=id-dismiss-20260810">
+  <link rel="stylesheet" href="/static/style.css?v=firm-ui-20260812b">
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
@@ -77,9 +77,6 @@
 
     <section id="caResults" class="ca-results hidden">
       <div class="ca-firm-bar" id="companyCard"></div>
-      <!-- No role=status / aria-live on interactive card (buttons must stay fully clickable) -->
-      <div id="caSearchIncompleteBanner" class="ca-search-incomplete hidden" aria-label="Status Personensuche"></div>
-      <div id="caNextStepHint" class="ca-next-step hidden" role="status"></div>
       <div id="warningsBox" class="ca-warnings hidden"></div>
       <section id="caOpenCases" class="fraud-panel ca-open-cases hidden" style="margin-bottom:0.55rem">
         <div class="fraud-panel-head">
@@ -93,10 +90,6 @@
         <div class="ca-graph-col hr-graph-panel" id="caGraphPanel">
           <div class="fraud-graph-toolbar">
             <span class="fraud-graph-title">Netzwerk</span>
-            <div class="ca-view-toggle" role="group" aria-label="Netzwerk-Ansicht">
-              <button type="button" class="ca-view-toggle-btn is-active" id="caViewGraph" data-view="graph" title="Klassischer Beziehungsgraph (Standard)">Graph</button>
-              <button type="button" class="ca-view-toggle-btn" id="caViewBoard" data-view="board" title="Organigramm: Firma, Aktuell, Ehemalig">Organigramm</button>
-            </div>
             <span id="caHeavyBadge" class="ca-heavy-badge hidden" title="Viele SHAB-/Personen-Einträge — tiefe Suche kann belasten">Grossfirma</span>
             <div class="ca-graph-find-wrap" id="caGraphFindWrap">
               <input type="search" id="caGraphFindInput" class="ca-graph-find-input" placeholder="Knoten suchen…" autocomplete="off" aria-label="Knoten im Netzwerk suchen">
@@ -107,7 +100,12 @@
                 title="Aktuelle Suchweite ohne Cache neu vom Register laden">Neu laden</button>
             </div>
           </div>
-          <div id="caDeepCacheBar" class="ca-deep-cache-bar hidden" role="status"></div>
+          <div class="ca-graph-status" id="caGraphStatus">
+            <!-- Incomplete / next-step / cache stay under toolbar so the graph stays visible -->
+            <div id="caSearchIncompleteBanner" class="ca-search-incomplete ca-search-incomplete--compact hidden" aria-label="Status Personensuche"></div>
+            <div id="caNextStepHint" class="ca-next-step ca-next-step--compact hidden" role="status"></div>
+            <div id="caDeepCacheBar" class="ca-deep-cache-bar hidden" role="status"></div>
+          </div>
           <div class="ca-suchweite is-collapsed" id="caSuchweite" aria-label="Suchweite">
             <div class="ca-suchweite-bar">
               <button type="button" class="ca-suchweite-toggle" id="caSuchweiteToggle"
@@ -134,7 +132,6 @@
           </div>
           <div class="ca-graph-stage">
             <div id="caGraph" class="hr-graph-canvas ca-graph-canvas"></div>
-            <div id="caOrgBoard" class="ca-org-board hidden" aria-label="Organigramm-Ansicht"></div>
             <div class="ca-graph-controls" aria-label="Graph-Steuerung">
               <button type="button" class="ca-graph-ctrl" id="graphFullscreenBtn" title="Vollbild" aria-label="Netzwerk Vollbild" aria-pressed="false">
                 <svg class="ca-fs-icon-expand" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
@@ -144,9 +141,9 @@
                   <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>
                 </svg>
               </button>
-              <button type="button" class="ca-graph-ctrl ca-graph-only-ctrl" id="graphZoomInBtn" title="Vergrössern" aria-label="Vergrössern">+</button>
-              <button type="button" class="ca-graph-ctrl ca-graph-only-ctrl" id="graphZoomOutBtn" title="Verkleinern" aria-label="Verkleinern">−</button>
-              <button type="button" class="ca-graph-ctrl ca-graph-only-ctrl" id="fitGraphBtn" title="Zentrieren / Einpassen" aria-label="Zentrieren">
+              <button type="button" class="ca-graph-ctrl" id="graphZoomInBtn" title="Vergrössern" aria-label="Vergrössern">+</button>
+              <button type="button" class="ca-graph-ctrl" id="graphZoomOutBtn" title="Verkleinern" aria-label="Verkleinern">−</button>
+              <button type="button" class="ca-graph-ctrl" id="fitGraphBtn" title="Zentrieren / Einpassen" aria-label="Zentrieren">
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="12" cy="12" r="3"/>
                   <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
@@ -160,12 +157,6 @@
             <li><span class="ca-leg-swatch ca-leg-company"></span><span>Verbunden</span></li>
             <li><span class="ca-leg-swatch ca-leg-person" aria-hidden="true"></span><span>Person</span></li>
             <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig (Person / Kante)</span></li>
-            <li><span class="ca-leg-swatch ca-leg-case" aria-hidden="true">⚠</span><span>Fall / Watchlist</span></li>
-          </ul>
-          <ul class="ca-graph-legend ca-org-legend hidden" id="caOrgLegend" aria-label="Organigramm-Legende">
-            <li><span class="ca-leg-swatch ca-leg-seed"></span><span>Kernfirma</span></li>
-            <li><span class="ca-leg-swatch ca-leg-org-current"></span><span>Aktuell im Register</span></li>
-            <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig</span></li>
             <li><span class="ca-leg-swatch ca-leg-case" aria-hidden="true">⚠</span><span>Fall / Watchlist</span></li>
           </ul>
         </div>
@@ -208,7 +199,7 @@
 
   <script src="/static/ui-common.js"></script>
   <script src="/static/cantons.js"></script>
-  <script src="/static/company-analysis.js?v=id-confirm-incr-20260810"></script>
+  <script src="/static/company-analysis.js?v=firm-ui-20260812b"></script>
   <script src="/static/profiler-enter.js"></script>
 </body>
 </html>

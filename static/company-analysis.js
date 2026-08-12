@@ -271,7 +271,8 @@ const CA_RECENT_MAX = 15;
 const CA_TZ = "Europe/Zurich";
 let _recentTeamItems = null;
 
-const NETWORK_VIEW_KEY = "lynx_ca_network_view";
+let graphFindHits = [];
+let graphFindIndex = 0;
 
 /* Progress bar ETA only — real L5 cold scans often take several minutes. */
 const LEVEL_ETA_MS = { 1: 6000, 2: 10000, 3: 45000, 4: 90000, 5: 180000 };
@@ -284,9 +285,6 @@ let notifyHideTimer = null;
 /** Incomplete-banner CTAs: one-time delegated listener (survives banner re-renders). */
 let _incompleteBannerDelegated = false;
 let _identityConfirmBusy = false;
-
-let graphFindHits = [];
-let graphFindIndex = 0;
 
 const COPY_ICON_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 const COPY_CHECK_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`;
@@ -797,37 +795,6 @@ function setGraphFullscreen(on) {
 function findGraphNodes(query, { cycle = false } = {}) {
   const meta = document.getElementById("caGraphFindMeta");
   const q = String(query || "").trim().toLowerCase();
-
-  // Organigramm: filter person/company cards
-  if (getNetworkViewMode() === "board") {
-    const board = document.getElementById("caOrgBoard");
-    const cards = [...(board?.querySelectorAll("[data-find-text]") || [])];
-    cards.forEach((c) => c.classList.remove("is-find-hit", "is-find-active"));
-    if (!q) {
-      if (meta) meta.textContent = "";
-      graphFindHits = [];
-      graphFindIndex = 0;
-      return;
-    }
-    const hits = cards.filter((c) => (c.dataset.findText || "").includes(q));
-    hits.forEach((c) => c.classList.add("is-find-hit"));
-    if (!hits.length) {
-      if (meta) meta.textContent = "0";
-      graphFindHits = [];
-      return;
-    }
-    if (cycle && graphFindHits.length === hits.length) {
-      graphFindIndex = (graphFindIndex + 1) % hits.length;
-    } else {
-      graphFindHits = hits;
-      graphFindIndex = 0;
-    }
-    const active = hits[graphFindIndex] || hits[0];
-    active.classList.add("is-find-active");
-    active.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    if (meta) meta.textContent = `${graphFindIndex + 1}/${hits.length}`;
-    return;
-  }
 
   if (!networkInstance || !q) {
     graphFindHits = [];
@@ -2016,7 +1983,7 @@ function renderSearchResults(data) {
   renderPersonsTable(data.persons_table || data.persons || [], company);
   renderTimeline(data.recent_publications || [], data.mutation_analysis);
   renderDetails(company, data);
-  // Network: Graph (default) or Organigramm — preference in localStorage
+  // Network graph only
   paintNetworkView();
   updateHeavyCompanyHint();
 }
@@ -2846,9 +2813,14 @@ function renderFirmBar(company, data) {
       <div class="ca-firm-actions">
         <div class="ca-firm-tools">
           <button type="button" class="ca-tool-link" id="caChangeSearchBtn" title="Andere Firma suchen">Suche ändern</button>
-          ${hr ? `<a class="ca-tool-link" href="${escHtml(hr)}" target="_blank" rel="noopener">HR-Auszug ↗</a>` : ""}
-          <button type="button" class="ca-tool-link ca-profiler-enter hidden" id="profilerEnterBtn" title="Fall-Cockpit: Netzwerk, Signale, Konten, Screening">Profiler</button>
           <button type="button" class="ca-tool-link ca-tag-toggle${onTag ? " is-active" : ""}" id="caTagToggleBtn" title="${escHtml(tagToggleTitle)}" aria-pressed="${onTag ? "true" : "false"}">${escHtml(tagToggleLabel)}</button>
+          <details class="ca-firm-more">
+            <summary class="ca-tool-link ca-firm-more-summary" title="Weitere Aktionen">Mehr</summary>
+            <div class="ca-firm-more-menu" role="menu">
+              ${hr ? `<a class="ca-tool-link" role="menuitem" href="${escHtml(hr)}" target="_blank" rel="noopener">HR-Auszug ↗</a>` : ""}
+              <button type="button" class="ca-tool-link ca-profiler-enter hidden" role="menuitem" id="profilerEnterBtn" title="Fall-Cockpit: Netzwerk, Signale, Konten, Screening">Profiler</button>
+            </div>
+          </details>
         </div>
         ${onCase && currentCaseHit.id
           ? `<a class="btn-nav ca-btn-fraud is-listed ca-firm-primary" href="/cases/${currentCaseHit.id}">Zur Akte</a>`
@@ -2881,6 +2853,12 @@ function renderFirmBar(company, data) {
   document.getElementById("caTagToggleBtn")?.addEventListener("click", () => toggleCompanyUnderInvestigation());
   document.getElementById("profilerEnterBtn")?.addEventListener("click", () => {
     if (typeof window.openProfiler === "function") window.openProfiler();
+  });
+  const more = card.querySelector(".ca-firm-more");
+  more?.querySelectorAll(".ca-firm-more-menu .ca-tool-link").forEach((el) => {
+    el.addEventListener("click", () => {
+      if (more) more.open = false;
+    });
   });
   if (typeof window.refreshProfilerAdminUi === "function") window.refreshProfilerAdminUi();
 }
@@ -2926,9 +2904,14 @@ function renderWarnings(warnings) {
 
 function genderMark(gender) {
   if (gender !== "f" && gender !== "m") return "";
-  const title = gender === "f" ? "weiblich (HR-Titel)" : "männlich (HR-Titel)";
-  const letter = gender === "f" ? "W" : "M";
-  return `<span class="ca-gender ca-gender-${gender}" title="${title}">${letter}</span>`;
+  const isF = gender === "f";
+  const label = isF ? "weiblich (HR-Titel)" : "männlich (HR-Titel)";
+  const short = isF ? "w" : "m";
+  // Subtle Venus/Mars mark + accessible text (not a crude letter box)
+  const icon = isF
+    ? `<svg class="ca-gender-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="6.5" r="3.2"/><path d="M7 9.7v4.2M5.2 12.2h3.6"/></svg>`
+    : `<svg class="ca-gender-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.8" cy="9.2" r="3.2"/><path d="M9.1 6.9L13 3M10.2 3H13v2.8"/></svg>`;
+  return `<span class="ca-gender ca-gender-${gender}" title="${label}" aria-label="${label}"><span class="ca-gender-text" aria-hidden="true">${short}</span>${icon}</span>`;
 }
 
 /** Person node icon: silhouette; case/watchlist = badge overlay (keeps figure visible). */
@@ -3132,9 +3115,6 @@ function renderPersonsTable(persons) {
       </summary>
       <ul class="ca-persons-list ca-persons-former">${former.map(renderPersonItem).join("")}</ul>
     </details>`;
-  }
-  if ([...current, ...former].some((p) => personNationalityInfo(p).inferred)) {
-    html += `<p class="ca-person-footnote">* Schweiz abgeleitet aus Heimatort (HR-Konvention)</p>`;
   }
   box.innerHTML = html || `<p class="hr-empty">Keine Personen erkannt.</p>`;
   wireCopyButtons(box);
@@ -3710,56 +3690,6 @@ function collectEdgeRolesByNode(edges) {
   return map;
 }
 
-/** localStorage: "graph" (default) | "board" Organigramm — key in foundation block. */
-function getNetworkViewMode() {
-  try {
-    const v = localStorage.getItem(NETWORK_VIEW_KEY);
-    if (v === "board" || v === "graph") return v;
-  } catch (_) { /* ignore */ }
-  return "graph";
-}
-
-function setNetworkViewMode(mode) {
-  const m = mode === "board" ? "board" : "graph";
-  try {
-    localStorage.setItem(NETWORK_VIEW_KEY, m);
-  } catch (_) { /* ignore */ }
-  return m;
-}
-
-function wireNetworkViewToggle() {
-  document.querySelectorAll(".ca-view-toggle-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const mode = setNetworkViewMode(btn.dataset.view || "graph");
-      syncNetworkViewToggleUi(mode);
-      paintNetworkView();
-    });
-  });
-  syncNetworkViewToggleUi(getNetworkViewMode());
-}
-
-function syncNetworkViewToggleUi(mode) {
-  document.querySelectorAll(".ca-view-toggle-btn").forEach((btn) => {
-    const on = btn.dataset.view === mode;
-    btn.classList.toggle("is-active", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-  });
-  const panel = document.getElementById("caGraphPanel");
-  panel?.classList.toggle("is-board-view", mode === "board");
-  panel?.classList.toggle("is-graph-view", mode !== "board");
-  document.getElementById("caGraph")?.classList.toggle("hidden", mode === "board");
-  document.getElementById("caOrgBoard")?.classList.toggle("hidden", mode !== "board");
-  document.getElementById("caGraphLegend")?.classList.toggle("hidden", mode === "board");
-  document.getElementById("caOrgLegend")?.classList.toggle("hidden", mode !== "board");
-  document.querySelectorAll(".ca-graph-only-ctrl").forEach((el) => {
-    el.classList.toggle("hidden", mode === "board");
-  });
-  const find = document.getElementById("caGraphFindInput");
-  if (find) {
-    find.placeholder = mode === "board" ? "Person / Firma finden…" : "Knoten suchen…";
-  }
-}
-
 function destroyVisNetwork() {
   if (networkInstance) {
     try {
@@ -3771,51 +3701,21 @@ function destroyVisNetwork() {
   if (canvas) canvas.innerHTML = "";
 }
 
-/** Paint Graph or Organigramm from lastGraph / lastAnalysis. */
+/** Paint network graph from lastGraph / lastAnalysis. */
 function paintNetworkView() {
   const nodes = lastGraph?.nodes || lastAnalysis?.nodes || [];
   const edges = lastGraph?.edges || lastAnalysis?.edges || [];
-  const mode = getNetworkViewMode();
-  syncNetworkViewToggleUi(mode);
+  const canvas = document.getElementById("caGraph");
   if (!nodes.length) {
     destroyVisNetwork();
-    const board = document.getElementById("caOrgBoard");
-    const canvas = document.getElementById("caGraph");
-    if (mode === "board" && board) {
-      board.innerHTML = `<p class="hr-empty">Keine Netzwerk-Daten.</p>`;
-    } else if (canvas) {
-      canvas.innerHTML = `<p class="hr-empty">Keine Graph-Daten.</p>`;
-    }
+    if (canvas) canvas.innerHTML = `<p class="hr-empty">Keine Graph-Daten.</p>`;
     return;
   }
-  if (mode === "board") {
-    destroyVisNetwork();
-    renderOrgBoard(nodes, edges, currentCompany || lastAnalysis?.company || {});
-  } else {
-    const board = document.getElementById("caOrgBoard");
-    if (board) board.innerHTML = "";
-    renderGraph(nodes, edges, "caGraph", (n) => {
-      networkInstance = n;
-    });
-  }
+  renderGraph(nodes, edges, "caGraph", (n) => {
+    networkInstance = n;
+  });
   const findVal = document.getElementById("caGraphFindInput")?.value;
   if (findVal) findGraphNodes(findVal);
-}
-
-function roleRank(roles) {
-  const j = (roles || []).join(" ").toLowerCase();
-  if (/präsident|vorsitz/.test(j)) return 1;
-  if (/geschäftsführer/.test(j)) return 2;
-  if (/verwaltungsrat/.test(j)) return 3;
-  if (/prokurist|zeichnungs/.test(j)) return 4;
-  if (/gesellschafter|inhaber/.test(j)) return 5;
-  if (/liquidator/.test(j)) return 6;
-  return 9;
-}
-
-function formatPersonBoardName(raw) {
-  const ordered = personNameVornameNachname(raw);
-  return typeof anon === "function" ? anon(ordered, "person") : ordered;
 }
 
 /**
@@ -3829,188 +3729,6 @@ function personNameVornameNachname(name) {
   const last = raw.slice(0, idx).trim();
   const first = raw.slice(idx + 1).trim();
   return [first, last].filter(Boolean).join(" ");
-}
-
-function personRolesForBoard(n, rolesByNode) {
-  // Prefer roles on edges to seed (board scopes to seed); node.roles can merge multi-firm L5 data
-  const fromEdges = rolesByNode?.get?.(n.id) ? [...rolesByNode.get(n.id)] : [];
-  if (fromEdges.length) return dedupeRoleLabels(fromEdges);
-  const raw = (n.roles && n.roles.length) ? n.roles : [];
-  return dedupeRoleLabels(raw);
-}
-
-function signingHintsFromRoles(roles) {
-  const j = (roles || []).join(" ").toLowerCase();
-  const out = [];
-  if (/einzelunterschrift|einzeln zeichn/.test(j)) out.push("Einzelunterschrift");
-  if (/kollektiv.*zwei|zu zweien|kollektivunterschrift/.test(j)) out.push("Kollektivunterschrift");
-  return out;
-}
-
-/**
- * Variante A: Organigramm nur für die Kernfirma.
- * Personen/Firmen mit Kante zur Seed — L3–5-Ring gehört in den Graph.
- */
-function renderOrgBoard(nodes, edges, company) {
-  const board = document.getElementById("caOrgBoard");
-  if (!board) return;
-  const list = nodes || [];
-  if (!list.length) {
-    board.innerHTML = `<p class="hr-empty">Keine Daten für Organigramm.</p>`;
-    return;
-  }
-
-  const seed =
-    list.find((n) => n.is_seed) ||
-    list.find((n) => n.type === "company" && n.is_center) ||
-    list.find((n) => n.type === "company");
-  const seedId = seed?.id;
-  if (!seedId) {
-    board.innerHTML = `<p class="hr-empty">Keine Kernfirma im Netzwerk.</p>`;
-    return;
-  }
-
-  // Nur direkte Nachbarn der Kernfirma (Kante berührt seed)
-  const linkedIds = new Set();
-  const rolesByNode = new Map(); // personId -> Set of role labels from edges to seed
-  for (const e of edges || []) {
-    const a = e.from;
-    const b = e.to;
-    if (a !== seedId && b !== seedId) continue;
-    const other = a === seedId ? b : a;
-    if (other == null) continue;
-    linkedIds.add(other);
-    const lab = String(e.label || "").trim();
-    if (!lab) continue;
-    if (!rolesByNode.has(other)) rolesByNode.set(other, new Set());
-    rolesByNode.get(other).add(lab);
-  }
-
-  const byId = new Map(list.map((n) => [n.id, n]));
-  const persons = [...linkedIds]
-    .map((id) => byId.get(id))
-    .filter((n) => n && n.type === "person");
-
-  const current = persons
-    .filter((n) => n.person_status !== "former")
-    .sort((a, b) => roleRank(a.roles) - roleRank(b.roles) || String(a.label || "").localeCompare(String(b.label || "")));
-  const former = persons
-    .filter((n) => n.person_status === "former")
-    .sort((a, b) => String(b.exited_date || b.last_seen || "").localeCompare(String(a.exited_date || a.last_seen || "")));
-
-  // Nur Firmen mit direkter Kante zur Seed (Zefix-Struktur), nicht L3+ Mandate-Netz
-  const relatedCos = [...linkedIds]
-    .map((id) => byId.get(id))
-    .filter((n) => n && n.type === "company" && n.id !== seedId);
-
-  const firmNameRaw = seed?.label || seed?.name || company?.name || "Firma";
-  const firmName =
-    typeof anon === "function" ? anon(String(firmNameRaw).split("\n")[0], "company") : String(firmNameRaw).split("\n")[0];
-  const firmUid = seed?.uid || company?.uid || "";
-  const firmStatus = seed?.status || company?.status || "";
-  const firmCanton = seed?.canton || company?.canton || "";
-  const firmMeta = [firmUid, firmCanton, firmStatus].filter(Boolean).join(" · ");
-
-  const personCard = (n, kind) => {
-    const roles = personRolesForBoard(n, rolesByNode);
-    const rawName = n.label || n.name || "";
-    const copyName = personNameVornameNachname(rawName);
-    const name = formatPersonBoardName(rawName);
-    const caseHit = !!(n.case_involved || n.on_watchlist);
-    const sign = signingHintsFromRoles(roles);
-    const period =
-      kind === "former"
-        ? [n.first_seen && `ab ${formatDateCH(n.first_seen)}`, n.exited_date && `bis ${formatDateCH(n.exited_date)}`]
-            .filter(Boolean)
-            .join(" · ") ||
-          (n.last_seen ? `bis ${formatDateCH(n.last_seen)}` : "")
-        : n.first_seen
-          ? `seit ${formatDateCH(n.first_seen)}`
-          : "";
-    const roleHtml = roles.length
-      ? `<ul class="ca-org-roles">${roles.map((r) => `<li>${escHtml(r)}</li>`).join("")}</ul>`
-      : `<p class="ca-org-roles-empty">Keine Rolle im SHAB-Text</p>`;
-    const findText = [name, roles.join(" "), kind, n.residence || ""].join(" ").toLowerCase();
-    return `<article class="ca-org-person ca-org-person--${kind}${caseHit ? " is-case" : ""}" data-find-text="${escHtml(findText)}" data-node-id="${escHtml(n.id || "")}">
-      <header class="ca-org-person-head">
-        <span class="ca-org-status-pill ca-org-status-pill--${kind}">${kind === "former" ? "Ehemalig" : "Aktuell"}</span>
-        ${caseHit ? `<span class="ca-org-case-pill" title="Fall / Watchlist">Fall</span>` : ""}
-      </header>
-      <h4 class="ca-org-person-name">${escHtml(name)}${copyBtnHtml(copyName, `Name kopieren (${copyName || "—"})`)}</h4>
-      ${roleHtml}
-      ${sign.length ? `<p class="ca-org-sign">${escHtml(sign.join(" · "))}</p>` : ""}
-      ${period ? `<p class="ca-org-period">${escHtml(period)}</p>` : ""}
-      ${n.residence ? `<p class="ca-org-meta">${escHtml(typeof anon === "function" ? anon(n.residence, "place") : n.residence)}</p>` : ""}
-    </article>`;
-  };
-
-  const companyChip = (n) => {
-    const nameRaw = String(n.label || n.name || "").split("\n")[0];
-    const name = typeof anon === "function" ? anon(nameRaw, "company") : nameRaw;
-    const findText = [name, n.uid || "", n.role_hint || ""].join(" ").toLowerCase();
-    const qs = new URLSearchParams();
-    if (nameRaw) qs.set("company", nameRaw);
-    if (n.uid) qs.set("uid", String(n.uid));
-    return `<a class="ca-org-related-card" data-find-text="${escHtml(findText)}" href="/?${qs.toString()}" target="_blank" rel="noopener">
-      <strong>${escHtml(name)}</strong>
-      <span>${escHtml([n.uid, n.role_hint || n.status].filter(Boolean).join(" · ") || "verbunden")}</span>
-    </a>`;
-  };
-
-  const networkPersonCount = list.filter((n) => n.type === "person").length;
-  const networkCompanyCount = list.filter((n) => n.type === "company" && n.id !== seedId).length;
-  const scopedOut =
-    networkPersonCount > persons.length || networkCompanyCount > relatedCos.length;
-  const levelNote = scopedOut
-    ? `<p class="ca-org-level-note">Organigramm zeigt nur direkte Bindungen zur Kernfirma
-        (${persons.length} Personen${relatedCos.length ? `, ${relatedCos.length} Struktur-Firmen` : ""}).
-        Graph-Suchweite ${escHtml(String(lastGraph?.level || lastAnalysis?.level || selectedDeepLevel || "—"))}:
-        ${networkPersonCount} Personen · ${networkCompanyCount + 1} Firmen im Netzwerk.</p>`
-    : "";
-
-  board.innerHTML = `
-    <div class="ca-org-layout">
-      <header class="ca-org-firm" data-find-text="${escHtml((firmName + " " + firmMeta).toLowerCase())}">
-        <span class="ca-org-firm-kicker">Kernfirma</span>
-        <h3 class="ca-org-firm-name">${escHtml(firmName)}${copyBtnHtml(String(firmNameRaw).split("\n")[0].trim(), "Firmenname kopieren")}</h3>
-        ${firmUid ? `<p class="ca-org-firm-meta"><button type="button" class="ca-copy-value ca-org-uid-copy" data-copy="${escHtml(firmUid)}" title="UID kopieren" aria-label="UID kopieren"><span>${escHtml(firmUid)}</span>${COPY_ICON_SVG}</button>${firmCanton || firmStatus ? ` · ${escHtml([firmCanton, firmStatus].filter(Boolean).join(" · "))}` : ""}</p>` : (firmMeta ? `<p class="ca-org-firm-meta">${escHtml(firmMeta)}</p>` : "")}
-      </header>
-      ${levelNote}
-      <div class="ca-org-split">
-        <section class="ca-org-col ca-org-col--current" aria-label="Aktuelle Personen">
-          <h4 class="ca-org-col-title">
-            Aktuell im Register
-            <span class="ca-org-count">${current.length}</span>
-          </h4>
-          ${
-            current.length
-              ? `<div class="ca-org-cards">${current.map((p) => personCard(p, "current")).join("")}</div>`
-              : `<p class="hr-empty ca-org-empty">Keine aktuellen Organe aus SHAB erkannt.</p>`
-          }
-        </section>
-        <section class="ca-org-col ca-org-col--former" aria-label="Ehemalige Personen">
-          <h4 class="ca-org-col-title">
-            Ehemalig
-            <span class="ca-org-count">${former.length}</span>
-          </h4>
-          ${
-            former.length
-              ? `<div class="ca-org-cards">${former.map((p) => personCard(p, "former")).join("")}</div>`
-              : `<p class="hr-empty ca-org-empty">Keine ehemaligen Organe in den verfügbaren Meldungen.</p>`
-          }
-        </section>
-      </div>
-      ${
-        relatedCos.length
-          ? `<section class="ca-org-related" aria-label="Struktur-Firmen der Kernfirma">
-              <h4 class="ca-org-col-title">Struktur (Zefix, direkt) <span class="ca-org-count">${relatedCos.length}</span></h4>
-              <div class="ca-org-related-grid">${relatedCos.map(companyChip).join("")}</div>
-            </section>`
-          : ""
-      }
-    </div>
-  `;
-  wireCopyButtons(board);
 }
 
 function renderGraph(nodes, edges, containerId, setInstance) {
@@ -4167,8 +3885,42 @@ function renderGraph(nodes, edges, containerId, setInstance) {
       hideEdgesOnZoom: heavy || hiDpi,
       zoomView: true,
       dragView: true,
+      dragNodes: true,
+      // Chromium Edge: keep pointer/touch pan on empty canvas (not only wheel zoom)
+      navigationButtons: false,
+      keyboard: { enabled: false },
+      multiselect: false,
     },
   });
+  // Edge / touchpads: prevent browser gesture steal on the vis canvas
+  try {
+    const root = container.querySelector(".vis-network") || container;
+    root.style.touchAction = "none";
+    root.style.msTouchAction = "none";
+    root.style.userSelect = "none";
+    container.querySelectorAll("canvas").forEach((cv) => {
+      cv.style.touchAction = "none";
+      cv.style.msTouchAction = "none";
+      cv.style.userSelect = "none";
+      cv.style.pointerEvents = "auto";
+    });
+  } catch (_) { /* ignore */ }
+  // Re-assert pan after physics settle (some Edge builds drop dragView when physics flips off)
+  const assertPan = () => {
+    try {
+      net.setOptions({
+        interaction: { dragView: true, zoomView: true, dragNodes: true },
+      });
+    } catch (_) { /* ignore */ }
+  };
+  try {
+    const onceStable = () => {
+      try { net.off("stabilizationIterationsDone", onceStable); } catch (_) { /* ignore */ }
+      assertPan();
+    };
+    net.on("stabilizationIterationsDone", onceStable);
+  } catch (_) { /* ignore */ }
+  setTimeout(assertPan, 600);
   // Re-apply per-node fonts after global font option (global is defaults only)
   if (hiDpi) {
     try {
@@ -4389,7 +4141,6 @@ wireSuchweiteCollapse();
 wireSideTabs();
 wireSearch();
 wireGraphControls();
-wireNetworkViewToggle();
 wireHeavyWarnModal();
 document.getElementById("deepBtn")?.addEventListener("click", () => deepAnalyze());
 document.getElementById("deepForceRefreshBtn")?.addEventListener("click", () => {
