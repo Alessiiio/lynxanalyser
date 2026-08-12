@@ -12,10 +12,12 @@ from pydantic import BaseModel, Field
 import config
 from app.database import User
 from app.hr_network.demo_fixture import (
+    DemoFixtureError,
     build_demo_fraud_network,
     build_demo_hr_network,
     demo_search_hits,
     is_demo_request,
+    usable_company_query,
 )
 from app.hr_network.fraud_network import apply_identity_confirmation, build_fraud_network
 from app.hr_network.fraud_network_cache import (
@@ -204,8 +206,11 @@ async def api_fraud_network_cache_status(
     if not n and not u:
         raise HTTPException(status_code=400, detail="name or uid required")
     # Offline demo firm — no disk cache / no external APIs.
-    if is_demo_request(name=n, uid=u):
-        return {"levels": {}, "demo_only": True}
+    try:
+        if is_demo_request(name=n, uid=u):
+            return {"levels": {}, "demo_only": True}
+    except DemoFixtureError as e:
+        logger.warning("Demo fixture unavailable for cache-status: %s", e)
     return cache_status_for_company(company_name=n, company_uid=u)
 
 
@@ -215,8 +220,12 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
     ad_hoc = body.ad_hoc_company or {}
     name = (ad_hoc.get("name") or "").strip() or None
     uid = (ad_hoc.get("uid") or "").strip() or None
-    if is_demo_request(name=name, uid=uid):
-        return build_demo_fraud_network(level=body.level)
+    try:
+        if is_demo_request(name=name, uid=uid):
+            return build_demo_fraud_network(level=body.level)
+    except DemoFixtureError as e:
+        logger.exception("Demo fraud-network fixture failed")
+        raise HTTPException(status_code=503, detail=str(e)) from e
     overrides = None
     if body.identity_overrides:
         overrides = [o.model_dump(exclude_none=True) for o in body.identity_overrides]
@@ -616,25 +625,37 @@ async def api_hr_network(
     user: User = Depends(get_current_user),
 ):
     enforce_rate_limit(http_request)
-    if not company.strip() and not uid.strip() and not demo.strip():
+    company_q = company.strip()
+    uid_q = uid.strip()
+    demo_q = demo.strip()
+    if not company_q and not uid_q and not demo_q:
         raise HTTPException(status_code=400, detail="company or uid required")
-    if is_demo_request(name=company.strip() or None, uid=uid.strip() or None, demo=demo.strip() or None):
-        result = build_demo_hr_network(
-            company=company.strip() or None,
-            uid=uid.strip() or None,
+    if not demo_q and not usable_company_query(company=company_q, uid=uid_q):
+        raise HTTPException(
+            status_code=400,
+            detail="Ungültiger Firmenname — mindestens zwei Buchstaben/Ziffern oder eine UID angeben",
         )
-        firm = (result or {}).get("company") if isinstance(result, dict) else None
-        await log_company_search(
-            company_name=(firm or {}).get("name") or company or "DEMO-FRAUD GmbH",
-            company_uid=(firm or {}).get("uid") or uid or "CHE-000.000.001",
-            searched_by=user.display_name or user.username or "Team",
-            searched_by_username=user.username,
-        )
-        return result
+    try:
+        if is_demo_request(name=company_q or None, uid=uid_q or None, demo=demo_q or None):
+            result = build_demo_hr_network(
+                company=company_q or None,
+                uid=uid_q or None,
+            )
+            firm = (result or {}).get("company") if isinstance(result, dict) else None
+            await log_company_search(
+                company_name=(firm or {}).get("name") or company_q or "DEMO-FRAUD GmbH",
+                company_uid=(firm or {}).get("uid") or uid_q or "CHE-000.000.001",
+                searched_by=user.display_name or user.username or "Team",
+                searched_by_username=user.username,
+            )
+            return result
+    except DemoFixtureError as e:
+        logger.exception("Demo HR-network fixture failed")
+        raise HTTPException(status_code=503, detail=str(e)) from e
     try:
         result = await build_hr_network(
-            company=company.strip() or None,
-            uid=uid.strip() or None,
+            company=company_q or None,
+            uid=uid_q or None,
         )
     except PermissionError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -649,15 +670,15 @@ async def api_hr_network(
     firm = (result or {}).get("company") if isinstance(result, dict) else None
     if isinstance(firm, dict):
         await log_company_search(
-            company_name=firm.get("name") or company,
-            company_uid=firm.get("uid") or uid,
+            company_name=firm.get("name") or company_q,
+            company_uid=firm.get("uid") or uid_q,
             searched_by=user.display_name or user.username or "Team",
             searched_by_username=user.username,
         )
     else:
         await log_company_search(
-            company_name=company,
-            company_uid=uid,
+            company_name=company_q,
+            company_uid=uid_q,
             searched_by=user.display_name or user.username or "Team",
             searched_by_username=user.username,
         )
@@ -788,7 +809,11 @@ async def api_hr_network_search(
     limit: int = Query(12, ge=1, le=25),
 ):
     enforce_rate_limit(http_request)
-    demo_hits = demo_search_hits(q, limit=limit)
+    try:
+        demo_hits = demo_search_hits(q, limit=limit)
+    except DemoFixtureError as e:
+        logger.warning("Demo search fixture unavailable: %s", e)
+        demo_hits = []
     try:
         live = await search_companies_preview(q, limit=limit)
     except PermissionError as e:

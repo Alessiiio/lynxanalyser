@@ -1,0 +1,542 @@
+{
+  "_comment": "DEMO ONLY — fictional Swiss-style firm for offline UI/API demos. No real persons. Open via Firmenanalyse: search «DEMO-FRAUD», UID CHE-000.000.001, ?demo=fraud, or button «Demo-Firma laden». Backend short-circuits Zefix/Moneyhouse. Packaged under app/hr_network/fixtures/ so Docker volume lynx_data:/app/data cannot hide it.",
+  "demo_only": true,
+  "match": {
+    "names": [
+      "DEMO-FRAUD GmbH",
+      "Demo-Fraud GmbH",
+      "DEMO FRAUD GmbH",
+      "Demo Fraud GmbH"
+    ],
+    "uids": [
+      "CHE-000.000.001",
+      "CHE000000001"
+    ],
+    "demo_keys": ["fraud", "demo-fraud", "demo_fraud"],
+    "search_needles": ["demo-fraud", "demo fraud", "che-000.000.001", "che000000001", "demo-firma"]
+  },
+  "search_preview": {
+    "name": "DEMO-FRAUD GmbH",
+    "ehraid": 9000001,
+    "uid": "CHE-000.000.001",
+    "status": "ACTIVE",
+    "status_key": "ACTIVE",
+    "is_cancelled": false,
+    "is_being_cancelled": false,
+    "deletion_date": null,
+    "canton": "ZH",
+    "legal_seat": "Zürich"
+  },
+  "company": {
+    "name": "DEMO-FRAUD GmbH",
+    "ehraid": 9000001,
+    "uid": "CHE-000.000.001",
+    "status": "ACTIVE",
+    "deletion_date": null,
+    "legal_form": "Gesellschaft mit beschränkter Haftung",
+    "canton": "ZH",
+    "registry_office_id": 20,
+    "legal_seat": "Zürich",
+    "address": "Musterstrasse 1, 8001 Zürich",
+    "capital": "20000 CHF",
+    "purpose_short": "Handel mit Waren aller Art, Vermittlung und Beratung (Demo-Zweck).",
+    "zefix_url": null,
+    "cantonal_excerpt_url": null
+  },
+  "warnings": [
+    "DEMO-ONLY: Fiktive Firma — keine Live-Abfrage an Zefix/Moneyhouse.",
+    "Neueintragung vor wenigen Monaten",
+    "Adresse kürzlich gewechselt",
+    "Organwechsel (Austritt + Eintritt) in kurzer Folge",
+    "Mehrere verbundene Firmen über Organpersonen"
+  ],
+  "mutation_analysis": "Neueintragung 2026-03-12 · Adressänderung 2026-06-02 · Organwechsel 2026-07-18 (Demo-Daten).",
+  "publication_count": 4,
+  "recent_publications": [
+    {
+      "date": "2026-07-18",
+      "types": ["aenderungorgane"],
+      "types_de": ["Änderung der Organe"],
+      "persons_in": [
+        {
+          "name": "Max Muster",
+          "roles": ["Geschäftsführer mit Einzelunterschrift"]
+        }
+      ],
+      "persons_out": [
+        {
+          "name": "Erika Demo",
+          "roles": ["Geschäftsführerin mit Einzelunterschrift"]
+        }
+      ],
+      "message_full": "DEMO-FRAUD GmbH, in Zürich, CHE-000.000.001.\n\nAustritt: Erika Demo (Geschäftsführerin).\n\nEintritt: Max Muster (Geschäftsführer mit Einzelunterschrift).",
+      "message_short": "Organwechsel: Erika Demo aus · Max Muster ein",
+      "has_person_change": true
+    },
+    {
+      "date": "2026-06-02",
+      "types": ["adressaenderung"],
+      "types_de": ["Adressänderung"],
+      "persons_in": [],
+      "persons_out": [],
+      "message_full": "DEMO-FRAUD GmbH, in Zürich, CHE-000.000.001.\n\nNeue Domiziladresse: Musterstrasse 1, 8001 Zürich (bisher: Demo-Weg 9, 8004 Zürich).",
+      "message_short": "Adresse neu: Musterstrasse 1, 8001 Zürich",
+      "has_person_change": false
+    },
+    {
+      "date": "2026-04-20",
+      "types": ["aenderungorgane"],
+      "types_de": ["Änderung der Organe"],
+      "persons_in": [
+        {
+          "name": "Erika Demo",
+          "roles": ["Geschäftsführerin mit Einzelunterschrift"]
+        }
+      ],
+      "persons_out": [
+        {
+          "name": "Alex Beispiel",
+          "roles": ["Geschäftsführer"]
+        }
+      ],
+      "message_full": "DEMO-FRAUD GmbH, in Zürich, CHE-000.000.001.\n\nAustritt: Alex Beispiel.\n\nEintritt: Erika Demo (Geschäftsführerin).",
+      "message_short": "Organwechsel: Alex Beispiel aus · Erika Demo ein",
+      "has_person_change": true
+    },
+    {
+      "date": "2026-03-12",
+      "types": ["status.neu"],
+      "types_de": ["Neueintragung"],
+      "persons_in": [
+        {
+          "name": "Alex Beispiel",
+          "roles": ["Geschäftsführer mit Einzelunterschrift"]
+        }
+      ],
+      "persons_out": [],
+      "message_full": "Neueintragung: DEMO-FRAUD GmbH, in Zürich, CHE-000.000.001, GmbH.\n\nGeschäftsführer: Alex Beispiel.\n\nDomizil: Demo-Weg 9, 8004 Zürich.",
+      "message_short": "Neueintragung DEMO-FRAUD GmbH",
+      "has_person_change": true
+    }
+  ],
+  "seed_companies": [
+    {
+      "name": "DEMO-FRAUD GmbH",
+      "ehraid": 9000001,
+      "uid": "CHE-000.000.001",
+      "status": "ACTIVE",
+      "deletion_date": null,
+      "legal_form": "Gesellschaft mit beschränkter Haftung",
+      "canton": "ZH",
+      "registry_office_id": 20,
+      "legal_seat": "Zürich",
+      "address": "Musterstrasse 1, 8001 Zürich",
+      "is_seed": true,
+      "cantonal_excerpt_url": null,
+      "purpose_short": "Handel mit Waren aller Art, Vermittlung und Beratung (Demo-Zweck).",
+      "capital": "20000 CHF",
+      "zefix_url": null,
+      "warnings": [
+        "DEMO-ONLY: Fiktive Firma — keine Live-Abfrage an Zefix/Moneyhouse.",
+        "Neueintragung vor wenigen Monaten",
+        "Adresse kürzlich gewechselt",
+        "Organwechsel (Austritt + Eintritt) in kurzer Folge",
+        "Mehrere verbundene Firmen über Organpersonen"
+      ],
+      "mutation_analysis": "Neueintragung 2026-03-12 · Adressänderung 2026-06-02 · Organwechsel 2026-07-18 (Demo-Daten).",
+      "publication_count": 4,
+      "list_entry_id": "demo-fraud",
+      "note": "Offline-Demo-Fixture",
+      "category": "demo"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "company:9000001",
+      "type": "company",
+      "label": "DEMO-FRAUD GmbH",
+      "ehraid": 9000001,
+      "uid": "CHE-000.000.001",
+      "status": "ACTIVE",
+      "canton": "ZH",
+      "is_seed": true,
+      "is_center": true,
+      "min_level": 1
+    },
+    {
+      "id": "person:max-muster",
+      "type": "person",
+      "label": "Max Muster",
+      "roles": ["Geschäftsführer mit Einzelunterschrift"],
+      "gender": "m",
+      "residence": "Zürich",
+      "nationality": "CH",
+      "heimatort": "Bern",
+      "person_status": "current",
+      "first_seen": "2026-07-18",
+      "last_seen": "2026-07-18",
+      "exited_date": null,
+      "source": "demo",
+      "min_level": 1,
+      "mandates": [
+        {
+          "company": "DEMO-FRAUD GmbH",
+          "uid": "CHE-000.000.001",
+          "ehraid": 9000001,
+          "status": "current"
+        },
+        {
+          "company": "DEMO-SHELL Holding AG",
+          "uid": "CHE-000.000.002",
+          "ehraid": 9000002,
+          "status": "current"
+        },
+        {
+          "company": "Muster Consulting Sagl",
+          "uid": "CHE-000.000.004",
+          "ehraid": 9000004,
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "person:erika-demo",
+      "type": "person",
+      "label": "Erika Demo",
+      "roles": ["Geschäftsführerin mit Einzelunterschrift"],
+      "gender": "f",
+      "residence": "Winterthur",
+      "nationality": "CH",
+      "heimatort": "Winterthur",
+      "person_status": "former",
+      "first_seen": "2026-04-20",
+      "last_seen": "2026-07-18",
+      "exited_date": "2026-07-18",
+      "source": "demo",
+      "min_level": 2,
+      "mandates": [
+        {
+          "company": "DEMO-FRAUD GmbH",
+          "uid": "CHE-000.000.001",
+          "ehraid": 9000001,
+          "status": "former"
+        },
+        {
+          "company": "DEMO-TRANSIT GmbH in Liquidation",
+          "uid": "CHE-000.000.003",
+          "ehraid": 9000003,
+          "status": "former"
+        }
+      ]
+    },
+    {
+      "id": "person:alex-beispiel",
+      "type": "person",
+      "label": "Alex Beispiel",
+      "roles": ["Geschäftsführer"],
+      "gender": "m",
+      "residence": "Dietikon",
+      "nationality": "CH",
+      "heimatort": "Aarau",
+      "person_status": "former",
+      "first_seen": "2026-03-12",
+      "last_seen": "2026-04-20",
+      "exited_date": "2026-04-20",
+      "source": "demo",
+      "min_level": 2,
+      "on_watchlist": true,
+      "case_involved": true,
+      "mandates": [
+        {
+          "company": "DEMO-FRAUD GmbH",
+          "uid": "CHE-000.000.001",
+          "ehraid": 9000001,
+          "status": "former"
+        },
+        {
+          "company": "DEMO-SHELL Holding AG",
+          "uid": "CHE-000.000.002",
+          "ehraid": 9000002,
+          "status": "former"
+        },
+        {
+          "company": "Beispiel Logistics GmbH",
+          "uid": "CHE-000.000.005",
+          "ehraid": 9000005,
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "company:9000002",
+      "type": "company",
+      "label": "DEMO-SHELL Holding AG",
+      "ehraid": 9000002,
+      "uid": "CHE-000.000.002",
+      "status": "ACTIVE",
+      "canton": "ZG",
+      "role_hint": "verbundene Gesellschaft",
+      "is_seed": false,
+      "likely_shell_takeover": true,
+      "min_level": 2
+    },
+    {
+      "id": "company:9000003",
+      "type": "company",
+      "label": "DEMO-TRANSIT GmbH in Liquidation",
+      "ehraid": 9000003,
+      "uid": "CHE-000.000.003",
+      "status": "BEING_CANCELLED",
+      "canton": "ZH",
+      "role_hint": "verbundene Gesellschaft",
+      "is_seed": false,
+      "likely_shell_takeover": true,
+      "min_level": 2
+    },
+    {
+      "id": "company:9000004",
+      "type": "company",
+      "label": "Muster Consulting Sagl",
+      "ehraid": 9000004,
+      "uid": "CHE-000.000.004",
+      "status": "ACTIVE",
+      "canton": "TI",
+      "is_seed": false,
+      "min_level": 3
+    },
+    {
+      "id": "company:9000005",
+      "type": "company",
+      "label": "Beispiel Logistics GmbH",
+      "ehraid": 9000005,
+      "uid": "CHE-000.000.005",
+      "status": "ACTIVE",
+      "canton": "AG",
+      "is_seed": false,
+      "min_level": 4
+    },
+    {
+      "id": "person:sofia-probe",
+      "type": "person",
+      "label": "Sofia Probe",
+      "roles": ["Verwaltungsrätin"],
+      "gender": "f",
+      "residence": "Lugano",
+      "nationality": "IT",
+      "heimatort": null,
+      "person_status": "current",
+      "source": "demo",
+      "min_level": 5
+    },
+    {
+      "id": "person:jonas-fiktiv",
+      "type": "person",
+      "label": "Jonas Fiktiv",
+      "roles": ["Geschäftsführer"],
+      "gender": "m",
+      "residence": "Zug",
+      "nationality": "CH",
+      "heimatort": "Zug",
+      "person_status": "current",
+      "source": "demo",
+      "min_level": 5,
+      "on_watchlist": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "person:max-muster",
+      "to": "company:9000001",
+      "label": "Geschäftsführer mit Einzelunterschrift",
+      "type": "person_role",
+      "min_level": 1,
+      "person_status": "current"
+    },
+    {
+      "from": "person:erika-demo",
+      "to": "company:9000001",
+      "label": "Geschäftsführerin mit Einzelunterschrift",
+      "type": "person_role",
+      "min_level": 2,
+      "person_status": "former"
+    },
+    {
+      "from": "person:alex-beispiel",
+      "to": "company:9000001",
+      "label": "Geschäftsführer",
+      "type": "person_role",
+      "min_level": 2,
+      "person_status": "former"
+    },
+    {
+      "from": "company:9000001",
+      "to": "company:9000002",
+      "label": "verbundene Gesellschaft",
+      "type": "company_link",
+      "min_level": 2
+    },
+    {
+      "from": "company:9000001",
+      "to": "company:9000003",
+      "label": "verbundene Gesellschaft",
+      "type": "company_link",
+      "min_level": 2
+    },
+    {
+      "from": "person:max-muster",
+      "to": "company:9000002",
+      "label": "Verwaltungsrat",
+      "type": "person_company",
+      "min_level": 3,
+      "person_status": "current"
+    },
+    {
+      "from": "person:max-muster",
+      "to": "company:9000004",
+      "label": "Geschäftsführer",
+      "type": "person_company",
+      "min_level": 3,
+      "person_status": "current"
+    },
+    {
+      "from": "person:erika-demo",
+      "to": "company:9000003",
+      "label": "Geschäftsführerin · ehemalig",
+      "type": "person_company",
+      "min_level": 4,
+      "person_status": "former"
+    },
+    {
+      "from": "person:alex-beispiel",
+      "to": "company:9000002",
+      "label": "Verwaltungsrat · ehemalig",
+      "type": "person_company",
+      "min_level": 4,
+      "person_status": "former"
+    },
+    {
+      "from": "person:alex-beispiel",
+      "to": "company:9000005",
+      "label": "Geschäftsführer",
+      "type": "person_company",
+      "min_level": 4,
+      "person_status": "current"
+    },
+    {
+      "from": "person:sofia-probe",
+      "to": "company:9000004",
+      "label": "Verwaltungsrätin",
+      "type": "person_role",
+      "min_level": 5,
+      "person_status": "current"
+    },
+    {
+      "from": "person:jonas-fiktiv",
+      "to": "company:9000002",
+      "label": "Geschäftsführer",
+      "type": "person_role",
+      "min_level": 5,
+      "person_status": "current"
+    }
+  ],
+  "persons_table": [
+    {
+      "person_id": "max-muster",
+      "id": "max-muster",
+      "name": "Max Muster",
+      "roles": ["Geschäftsführer mit Einzelunterschrift"],
+      "gender": "m",
+      "residence": "Zürich",
+      "nationality": "CH",
+      "heimatort": "Bern",
+      "status": "current",
+      "seed_company": "DEMO-FRAUD GmbH",
+      "seed_uid": "CHE-000.000.001",
+      "source": "demo",
+      "mandates": [
+        {
+          "company": "DEMO-FRAUD GmbH",
+          "uid": "CHE-000.000.001",
+          "ehraid": 9000001,
+          "status": "current"
+        },
+        {
+          "company": "DEMO-SHELL Holding AG",
+          "uid": "CHE-000.000.002",
+          "ehraid": 9000002,
+          "status": "current"
+        },
+        {
+          "company": "Muster Consulting Sagl",
+          "uid": "CHE-000.000.004",
+          "ehraid": 9000004,
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "person_id": "erika-demo",
+      "id": "erika-demo",
+      "name": "Erika Demo",
+      "roles": ["Geschäftsführerin mit Einzelunterschrift"],
+      "gender": "f",
+      "residence": "Winterthur",
+      "nationality": "CH",
+      "heimatort": "Winterthur",
+      "status": "former",
+      "seed_company": "DEMO-FRAUD GmbH",
+      "seed_uid": "CHE-000.000.001",
+      "source": "demo",
+      "mandates": [
+        {
+          "company": "DEMO-FRAUD GmbH",
+          "uid": "CHE-000.000.001",
+          "ehraid": 9000001,
+          "status": "former"
+        },
+        {
+          "company": "DEMO-TRANSIT GmbH in Liquidation",
+          "uid": "CHE-000.000.003",
+          "ehraid": 9000003,
+          "status": "former"
+        }
+      ]
+    },
+    {
+      "person_id": "alex-beispiel",
+      "id": "alex-beispiel",
+      "name": "Alex Beispiel",
+      "roles": ["Geschäftsführer"],
+      "gender": "m",
+      "residence": "Dietikon",
+      "nationality": "CH",
+      "heimatort": "Aarau",
+      "status": "former",
+      "seed_company": "DEMO-FRAUD GmbH",
+      "seed_uid": "CHE-000.000.001",
+      "source": "demo",
+      "on_watchlist": true,
+      "case_involved": true,
+      "mandates": [
+        {
+          "company": "DEMO-FRAUD GmbH",
+          "uid": "CHE-000.000.001",
+          "ehraid": 9000001,
+          "status": "former"
+        },
+        {
+          "company": "DEMO-SHELL Holding AG",
+          "uid": "CHE-000.000.002",
+          "ehraid": 9000002,
+          "status": "former"
+        },
+        {
+          "company": "Beispiel Logistics GmbH",
+          "uid": "CHE-000.000.005",
+          "ehraid": 9000005,
+          "status": "current"
+        }
+      ]
+    }
+  ]
+}

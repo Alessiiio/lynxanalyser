@@ -2,12 +2,43 @@
 
 from __future__ import annotations
 
+import pytest
+
+from app.hr_network import demo_fixture as df
 from app.hr_network.demo_fixture import (
+    DemoFixtureError,
     build_demo_fraud_network,
     build_demo_hr_network,
     demo_search_hits,
     is_demo_request,
+    resolve_fixture_path,
+    usable_company_query,
 )
+
+
+def test_fixture_lives_under_app_not_data_volume():
+    path = resolve_fixture_path()
+    assert path.is_file()
+    assert path.parts[-3:] == ("hr_network", "fixtures", "demo_fraud_firm.json")
+
+
+def test_usable_company_query_rejects_punctuation():
+    assert not usable_company_query(company="?")
+    assert not usable_company_query(company="??")
+    assert not usable_company_query(company="")
+    assert usable_company_query(company="AB")
+    assert usable_company_query(uid="CHE-1")
+    assert usable_company_query(company="foto fiest")
+
+
+def test_missing_fixture_raises_demo_error(tmp_path, monkeypatch):
+    df.reload_fixture()
+    monkeypatch.setattr(df, "_FIXTURE_PATH", tmp_path / "missing.json")
+    monkeypatch.setattr(df, "_PACKAGE_FIXTURE", tmp_path / "missing.json")
+    monkeypatch.setattr(df, "_DATA_FIXTURE", tmp_path / "also_missing.json")
+    with pytest.raises(DemoFixtureError):
+        df._raw_fixture()
+    df.reload_fixture()
 
 
 def test_is_demo_request_by_uid_and_name():

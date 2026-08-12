@@ -1,13 +1,14 @@
 """Offline demo firm fixture (no Zefix / Moneyhouse).
 
 Load DEMO-FRAUD GmbH / CHE-000.000.001 for UI demos and tests.
-See data/demo_fraud_firm.json (_comment) for how to open it.
+Fixture lives under app/hr_network/fixtures/ (not docker volume /app/data).
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -15,9 +16,35 @@ from typing import Any
 
 from app.hr_network.fraud_network import LEVEL_LABELS
 
-_FIXTURE_PATH = Path(__file__).resolve().parents[2] / "data" / "demo_fraud_firm.json"
+logger = logging.getLogger(__name__)
+
+# Packaged with the Python module so Docker's lynx_data:/app/data volume cannot hide it.
+_PACKAGE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "demo_fraud_firm.json"
+# Legacy/local fallback (repo checkout before move, or manual copy into data/).
+_DATA_FIXTURE = Path(__file__).resolve().parents[2] / "data" / "demo_fraud_firm.json"
 
 _UID_DIGITS = re.compile(r"\D+")
+_ALNUM = re.compile(r"[0-9A-Za-zÄÖÜäöüÀ-ÿ]")
+
+
+class DemoFixtureError(RuntimeError):
+    """Fixture missing or invalid — callers should map to HTTP 503 JSON."""
+
+
+def resolve_fixture_path() -> Path:
+    """Prefer packaged fixture; fall back to data/ for older checkouts."""
+    if _PACKAGE_FIXTURE.is_file():
+        return _PACKAGE_FIXTURE
+    if _DATA_FIXTURE.is_file():
+        return _DATA_FIXTURE
+    raise DemoFixtureError(
+        f"Demo-Fixture fehlt (erwartet {_PACKAGE_FIXTURE} oder {_DATA_FIXTURE}). "
+        "Bei Docker: Image neu bauen — die Datei liegt unter app/, nicht im Volume /app/data."
+    )
+
+
+# Tests may reassign this; resolve_fixture_path() is used when unset/missing.
+_FIXTURE_PATH: Path | None = None
 
 
 def _norm_uid(uid: str | None) -> str:
@@ -32,11 +59,29 @@ def _norm_name(name: str | None) -> str:
     return re.sub(r"\s+", " ", str(name).strip().lower())
 
 
+def usable_company_query(*, company: str | None = None, uid: str | None = None) -> bool:
+    """False for empty / punctuation-only names like «?» that must not hit Zefix."""
+    if (uid or "").strip():
+        return True
+    name = (company or "").strip()
+    if not name:
+        return False
+    return len(_ALNUM.findall(name)) >= 2
+
+
 @lru_cache(maxsize=1)
 def _raw_fixture() -> dict[str, Any]:
-    data = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
+    path = _FIXTURE_PATH if (_FIXTURE_PATH and Path(_FIXTURE_PATH).is_file()) else resolve_fixture_path()
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError as e:
+        raise DemoFixtureError(str(e)) from e
+    except OSError as e:
+        raise DemoFixtureError(f"Demo-Fixture nicht lesbar: {e}") from e
+    except json.JSONDecodeError as e:
+        raise DemoFixtureError(f"Demo-Fixture ist kein gültiges JSON: {e}") from e
     if not isinstance(data, dict) or not data.get("demo_only"):
-        raise RuntimeError(f"Invalid demo fixture at {_FIXTURE_PATH}")
+        raise DemoFixtureError(f"Ungültige Demo-Fixture bei {path}")
     return data
 
 

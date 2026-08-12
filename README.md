@@ -19,7 +19,7 @@ Für UI-Demos und Tests ohne Live-APIs gibt es die fiktive Firma **DEMO-FRAUD Gm
 
 - Firmenanalyse → Button **«Demo-Firma laden»**, oder Suche nach `DEMO-FRAUD`
 - Direktlink: `/?demo=fraud` bzw. `/?company=DEMO-FRAUD%20GmbH&uid=CHE-000.000.001`
-- Fixture: [`data/demo_fraud_firm.json`](data/demo_fraud_firm.json) (klar als Demo markiert)
+- Fixture: [`app/hr_network/fixtures/demo_fraud_firm.json`](app/hr_network/fixtures/demo_fraud_firm.json) (klar als Demo markiert; liegt im Image unter `app/`, nicht im Docker-Volume `/app/data`)
 - Deep-Suchweiten L2–L5 liefern vorgefertigte Graph-Untermengen — **keine** externen API-Calls
 
 Die frühere Admin-Seite `/test` (Layout-Playground) wurde entfernt.
