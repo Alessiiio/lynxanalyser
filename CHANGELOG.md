@@ -9,9 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Suchweite 1–5** in der Firmenanalyse (UI statt reiner «Ebenen»): Register (SW2), Mandate / Netzwerk erweitern (SW3+), Phasen-Karten + Mini-CTA «Netzwerk erweitern»
+- Firm-Leiste mit Name/UID-Klick zum Kopieren, Status und Aktionen; Tag **«In Abklärung»** (team-sichtbar, SQLite) — Badge in Autocomplete und Team-Suchen, unabhängig von der Fall-Akte
+- **Team-Suchhistorie** auf der Firmenanalyse-Startseite: eigene und Team-Suchen (API + SQLite), mit Benutzer und Zeit; «Eigene leeren» entfernt nur die eigenen Einträge
+- Statuskarte **unvollständige Personensuche / Identitätsbestätigung**: Moneyhouse-Treffer bestätigen oder ignorieren; `confirm-identity` baut das Netz **inkrementell** nach (ohne vollen Neu-Scan, wenn Graph/Cache vorliegt)
+- SHAB-Personenparser für **italienische und französische** SOGC-Meldungen (Rollen/Nationalität, z. B. TI / Romandie)
+- Moneyhouse-Personensuche als **Fill-in** für Mandate (Watchlist + Firmennetz SW3+), mit Seed-Firma als Soft-Gate (Boost / Soft-Accept, kein harter Reject); Firmenidentität immer über Zefix
+- Organigramm-Ansicht neben dem Graphen; Kopieren-Helfer für Netz-/Akte-Daten
+- Idle-Startseite Firmenanalyse (neutrale Tagline «Firmennetzwerke analysieren»)
+- Zeitleisten-Typen: Personen rein/raus, bereinigter SHAB-Volltext (ohne harte Mittelkürzung)
 - In-App Feedback / Wishlist (Floating-Formular, API, Pflege unter `/feedback`)
-- Keep-a-Changelog-Quelle `CHANGELOG.md` als kanonische Versionshistorie
+- Keep-a-Changelog-Quelle `CHANGELOG.md` als kanonische Versionshistorie; Seite `/changelog` speist sich daraus
 - Hilfsskripte: Conventional-Commits → Changelog-Vorschläge; erledigte Wishlist → Changelog-Vorschläge
+- Admin-Planung (`/planning`, `PLANNING.md` / `data/planning.json`)
+- Einheitliche Datumsformatierung (`app/date_format.py`)
+
+### Changed
+
+- Mandats-Entdeckung: **Zefix/SHAB primär**, Moneyhouse nur Ergänzung (`MONEYHOUSE_PERSON_SEARCH`, Default an); Cache-Key v6
+- Idle-Start: Pulse-Shortcuts (offene Fälle / Watchlist / Schnelllinks) entfernt zugunsten ruhiger Such-Startseite
+- Suchweite 3: Label «Weitere Firmen (Mandate)»
+- Personen-Identität im Graph: Merge über Namens-Fingerprint / Mittelname (kein Merge unterschiedlicher Vornamen); Case-Flags robuster indiziert
+- SHAB-Timeline und Meldungen lesbarer (volle bereinigte Meldung, kompakte Personen-Chips)
+- Docker-Image: System-Chromium via apt statt Playwright-CDN-Download (geo-block auf manchen VPS-Netzen)
+
+### Fixed
+
+- Moneyhouse-Identität bei gängigen Nachnamen: bevorzugte Seed-Bestätigung über `relatedCompanies`; Soft-Gate wenn MH der Zefix-Seed-Firma hinterherhinkt
+- Deep-Analyse-Status zeigt Moneyhouse- und SHAB-Treffer getrennt
 
 ## [1.1.0] - 2026-07-31
 

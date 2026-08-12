@@ -7,45 +7,102 @@ import re
 from typing import Any
 
 from app.checks.zefix_mutations import _strip_ft_tags
+from app.hr_network.person_names import (
+    merge_role_lists,
+    names_same_person,
+    prefer_display_name,
+)
 
-_ROLE_KEYWORDS = (
-    "geschäftsführer",
-    "geschäftsführerin",
-    "gesellschafter",
-    "gesellschafterin",
-    "verwaltungsrat",
-    "präsident",
-    "präsidentin",
-    "mitglied",
-    "inhaber",
-    "inhaberin",
-    "zeichnungsberechtigt",
-    "prokurist",
-    "liquidator",
-    "liquidatorin",
-    "vorsitzender",
-    "vorsitzende",
+# (keyword lowercase, UI label DE) — longer stems first when matching
+_ROLE_ENTRIES: tuple[tuple[str, str], ...] = (
+    # German
+    ("geschäftsführerin", "Geschäftsführerin"),
+    ("geschäftsführer", "Geschäftsführer"),
+    ("gesellschafterin", "Gesellschafterin"),
+    ("gesellschafter", "Gesellschafter"),
+    ("verwaltungsrätin", "Verwaltungsrätin"),
+    ("verwaltungsrat", "Verwaltungsrat"),
+    ("präsidentin", "Präsidentin"),
+    ("präsident", "Präsident"),
+    ("vorsitzender", "Vorsitzender"),
+    ("vorsitzende", "Vorsitzende"),
+    ("mitglied", "Mitglied"),
+    ("inhaberin", "Inhaberin"),
+    ("inhaber", "Inhaber"),
+    ("zeichnungsberechtigt", "Zeichnungsberechtigt"),
+    ("prokuristin", "Prokuristin"),
+    ("prokurist", "Prokurist"),
+    ("liquidatorin", "Liquidatorin"),
+    ("liquidator", "Liquidator"),
+    # Italian (TI / Italian SHAB)
+    ("amministratrice", "Verwaltungsrätin"),
+    ("amministratore", "Verwaltungsrat"),
+    ("presidentessa", "Präsidentin"),
+    ("presidente", "Präsident"),
+    ("liquidatrice", "Liquidatorin"),
+    ("liquidatore", "Liquidator"),
+    ("direttrice", "Geschäftsführerin"),
+    ("direttore", "Geschäftsführer"),
+    ("gerenta", "Geschäftsführerin"),
+    ("gerente", "Geschäftsführer"),
+    ("socia", "Gesellschafterin"),
+    ("socio", "Gesellschafter"),
+    # French (Romandie SHAB)
+    ("administratrice", "Verwaltungsrätin"),
+    ("administrateur", "Verwaltungsrat"),
+    ("présidente", "Präsidentin"),
+    ("président", "Präsident"),
+    ("president", "Präsident"),
+    ("liquidateur", "Liquidator"),
+    ("directrice", "Geschäftsführerin"),
+    ("directeur", "Geschäftsführer"),
+    ("gérante", "Geschäftsführerin"),
+    ("gérant", "Geschäftsführer"),
+    ("gerante", "Geschäftsführerin"),
+    ("gerant", "Geschäftsführer"),
+    ("associée", "Gesellschafterin"),
+    ("associé", "Gesellschafter"),
+    ("associee", "Gesellschafterin"),
+    ("associe", "Gesellschafter"),
+    ("membre", "Mitglied"),
 )
 
 _PERSONS_HEADER = re.compile(
-    r"Eingetragene Personen(?:\s+neu\s+oder\s+mutierend)?:\s*(.+)",
+    r"(?:"
+    r"Eingetragene Personen(?:\s+neu\s+oder\s+mutierend)?|"
+    r"Persone iscritte(?:\s+nuove\s+o\s+mutanti)?|"
+    r"Personnes inscrites(?:\s+nouvelles?\s+ou\s+mutantes?)?"
+    r"):\s*(.+)",
     re.IGNORECASE | re.DOTALL,
 )
 
 _EXITED_PERSONS_HEADER = re.compile(
-    r"Ausgeschiedene Personen(?:\s+und\s+erloschene\s+Unterschriften)?:\s*(.+)",
+    r"(?:"
+    r"Ausgeschiedene Personen(?:\s+und\s+erloschene\s+Unterschriften)?|"
+    r"Persone uscite(?:\s+e\s+firme\s+estinte)?|"
+    r"Personnes (?:sortantes|sorties)(?:\s+et\s+signatures?\s+(?:éteintes|eteintes)?)?"
+    r"):\s*(.+)",
     re.IGNORECASE | re.DOTALL,
 )
 
-# Truncate section bodies so «Ausgeschiedene…» does not swallow following «Eingetragene…»
+# Truncate section bodies so exit-block does not swallow following entered-block
 _NEXT_SHAB_SECTION = re.compile(
     r"(?i)\b(?:"
     r"Ausgeschiedene Personen|"
     r"Eingetragene Personen|"
+    r"Persone uscite|"
+    r"Persone iscritte|"
+    r"Personnes (?:sortantes|sorties)|"
+    r"Personnes inscrites|"
     r"Publizierte Statuten|"
     r"Statutenänderung|"
     r"Zweckänderung|"
-    r"Kapital(?:erhöhung|herabsetzung|änderung)"
+    r"Kapital(?:erhöhung|herabsetzung|änderung)|"
+    r"Statuti pubblicati|"
+    r"Capitale sociale|"
+    r"Organo di pubblicazione|"
+    r"Capital[- ]social|"
+    r"Statuts publiés"
     r")\b",
 )
 
@@ -67,22 +124,36 @@ def _normalize_person_id(name: str) -> str:
 def _extract_roles(segment: str) -> list[str]:
     """Extract HR roles; prefer longer matches so «Gesellschafterin» ≠ «Gesellschafter»."""
     lower = segment.lower()
+    # Keep insert order while skipping duplicate UI labels
     roles: list[str] = []
+    seen_labels: set[str] = set()
     covered: list[tuple[int, int]] = []
-    for kw in sorted(_ROLE_KEYWORDS, key=len, reverse=True):
+    for kw, label in sorted(_ROLE_ENTRIES, key=lambda x: len(x[0]), reverse=True):
         start = 0
         while True:
             idx = lower.find(kw, start)
             if idx < 0:
                 break
             end = idx + len(kw)
+            # Word boundary: avoid matching «socio» inside longer tokens
+            before = lower[idx - 1] if idx > 0 else " "
+            after = lower[end] if end < len(lower) else " "
+            if before.isalnum() or after.isalnum():
+                start = idx + 1
+                continue
             if any(idx < c_end and end > c_start for c_start, c_end in covered):
                 start = idx + 1
                 continue
             covered.append((idx, end))
-            roles.append(kw.capitalize())
+            if label not in seen_labels:
+                seen_labels.add(label)
+                roles.append(label)
             start = end
-    if not roles and "mit einzelunterschrift" in lower:
+    if not roles and re.search(
+        r"mit\s+einzelunterschrift|con\s+firma\s+individuale|"
+        r"avec\s+signature\s+individuelle",
+        lower,
+    ):
         roles.append("Zeichnungsberechtigt")
     return roles
 
@@ -147,24 +218,43 @@ def _parse_person_segment(segment: str) -> dict[str, Any] | None:
     if nat_match:
         nationality = re.sub(r"\s+", " ", nat_match.group(1)).strip(" ,.")
     else:
-        # HR rarity: «staatenlos» / «staatenlose» instead of nationality or Heimatort
-        stateless = re.search(
-            r",\s*(staatenlose?(?:r|n)?|apatride|ohne\s+Staatsangehörigkeit)\s*(?=,|$)",
+        # IT: «cittadino kosovaro» / FR: «ressortissant italien» / «citoyen français»
+        it_fr_nat = re.search(
+            r",\s*((?:cittadin[oa]|ressortissant(?:e)?|citoyen(?:ne)?)"
+            r"(?:\s+(?:di|de|d'|du|des))?\s+[^,]{2,60})\s*(?=,|$)",
             segment,
             re.IGNORECASE,
         )
-        if stateless:
-            raw = re.sub(r"\s+", " ", stateless.group(1)).strip(" ,.")
-            nationality = "staatenlos" if re.match(r"staatenlose?", raw, re.I) else raw
+        if it_fr_nat:
+            nationality = re.sub(r"\s+", " ", it_fr_nat.group(1)).strip(" ,.")
+        else:
+            # HR rarity: «staatenlos» / «staatenlose» / «apatride» / «apolide»
+            stateless = re.search(
+                r",\s*(staatenlose?(?:r|n)?|apatride|apolide|"
+                r"ohne\s+Staatsangehörigkeit)\s*(?=,|$)",
+                segment,
+                re.IGNORECASE,
+            )
+            if stateless:
+                raw = re.sub(r"\s+", " ", stateless.group(1)).strip(" ,.")
+                nationality = (
+                    "staatenlos"
+                    if re.match(r"staatenlose?|apatride|apolide", raw, re.I)
+                    else raw
+                )
 
-    # Swiss HR: «von X» = Heimatort, «in X» = Wohnort at publication time
+    # Swiss HR: «von X» / FR «originaire de X» = Heimatort; «in/à X» = Wohnort
     heimatort = None
-    von_match = re.search(r",\s*von\s+([^,]+)", segment, re.IGNORECASE)
+    von_match = re.search(
+        r",\s*(?:von|originaire\s+de|originari[oa]\s+di)\s+([^,]+)",
+        segment,
+        re.IGNORECASE,
+    )
     if von_match:
         heimatort = von_match.group(1).strip()
 
     residence = None
-    in_match = re.search(r",\s*in\s+([^,]+)", segment, re.IGNORECASE)
+    in_match = re.search(r",\s*(?:in|à|a)\s+([^,]+)", segment, re.IGNORECASE)
     if in_match:
         residence = in_match.group(1).strip()
     elif heimatort:
@@ -256,12 +346,48 @@ def collect_persons_from_publications(sogc_pub: list[dict] | None) -> list[dict[
     return [p for p in build_person_timeline(sogc_pub) if p.get("status") == "current"]
 
 
+def _find_same_person_entry(
+    store: dict[str, dict[str, Any]],
+    *,
+    pid: str | None = None,
+    name: str | None = None,
+) -> str | None:
+    """Return store key for the same person (exact id or middle-name subset match)."""
+    if pid and pid in store:
+        return pid
+    if name:
+        for key, entry in store.items():
+            if names_same_person(name, entry.get("name") or ""):
+                return key
+    return None
+
+
+def _merge_timeline_person_fields(
+    existing: dict[str, Any],
+    person: dict[str, Any],
+    *,
+    date: str,
+) -> None:
+    preferred = prefer_display_name(existing.get("name"), person.get("name"))
+    if preferred:
+        existing["name"] = preferred
+    existing["roles"] = merge_role_lists(existing.get("roles"), person.get("roles"))
+    existing["last_seen"] = date or existing.get("last_seen")
+    existing["source_date"] = date or existing.get("source_date")
+    for key in ("residence", "nationality", "heimatort"):
+        if person.get(key) and not existing.get(key):
+            existing[key] = person[key]
+
+
 def build_person_timeline(sogc_pub: list[dict] | None) -> list[dict[str, Any]]:
     """
     Chronological SHAB replay → current + former persons.
 
     Each entry: id, name, roles, residence, status (current|former),
     first_seen, last_seen, exited_date (if former).
+
+    Middle-name variants («Michael» / «Michael Gabriel») are collapsed into one
+    timeline entry so seed SHAB and later publications stay linked.
     """
     current: dict[str, dict[str, Any]] = {}
     former: dict[str, dict[str, Any]] = {}
@@ -275,33 +401,37 @@ def build_person_timeline(sogc_pub: list[dict] | None) -> list[dict[str, Any]]:
         message = pub.get("message", "")
 
         # Exits first, then entries — re-entry in the same publication stays current
-        for pid in parse_exited_persons_from_message(message):
-            if pid not in current:
+        for exit_person in parse_exited_person_entries(message, sogc_date=date):
+            pid = exit_person.get("id")
+            name = exit_person.get("name")
+            match_key = _find_same_person_entry(current, pid=pid, name=name)
+            if not match_key:
                 continue
-            left = current.pop(pid)
+            left = current.pop(match_key)
+            preferred = prefer_display_name(left.get("name"), name)
+            if preferred:
+                left["name"] = preferred
             left["status"] = "former"
             left["exited_date"] = date
             left["last_seen"] = date or left.get("last_seen")
-            former[pid] = left
+            former[match_key] = left
 
         for person in parse_persons_from_message(message, sogc_date=date):
             pid = person["id"]
-            if pid in former:
-                # Re-entry after exit
-                former.pop(pid, None)
-            existing = current.get(pid)
-            if existing:
-                for role in person.get("roles") or []:
-                    if role not in existing.setdefault("roles", []):
-                        existing["roles"].append(role)
-                existing["last_seen"] = date or existing.get("last_seen")
-                existing["source_date"] = date or existing.get("source_date")
-                if person.get("residence"):
-                    existing["residence"] = person["residence"]
-                if person.get("nationality"):
-                    existing["nationality"] = person["nationality"]
-                if person.get("heimatort"):
-                    existing["heimatort"] = person["heimatort"]
+            name = person.get("name") or ""
+            former_key = _find_same_person_entry(former, pid=pid, name=name)
+            if former_key:
+                # Re-entry after exit (possibly under fuller / shorter name)
+                reentered = former.pop(former_key)
+                _merge_timeline_person_fields(reentered, person, date=date)
+                reentered["status"] = "current"
+                reentered["exited_date"] = None
+                current[former_key] = reentered
+                continue
+
+            match_key = _find_same_person_entry(current, pid=pid, name=name)
+            if match_key:
+                _merge_timeline_person_fields(current[match_key], person, date=date)
             else:
                 current[pid] = {
                     **person,
@@ -357,10 +487,41 @@ _SHAB_SECTION_MARKERS = re.compile(
     r"Firma\s+neu|"
     r"Publizierte\s+Statuten|"
     r"Ausgeschiedene\s+Personen|"
-    r"Eingetragene\s+Personen"
+    r"Eingetragene\s+Personen|"
+    r"Persone\s+iscritte|"
+    r"Persone\s+uscite|"
+    r"Personnes\s+inscrites|"
+    r"Personnes\s+(?:sortantes|sorties)|"
+    r"Capitale\s+sociale|"
+    r"Organo\s+di\s+pubblicazione"
     r")\b)",
     re.IGNORECASE,
 )
+
+
+def repair_mojibake(text: str) -> str:
+    """Fix UTF-8 text that was mis-decoded as Latin-1 (e.g. GeschÃ¤ftsfÃ¼hrer)."""
+    s = text or ""
+    if not s:
+        return ""
+    if re.search(r"Ã.|Â.|Ä[¼¤¶]|Ã\x83", s):
+        try:
+            repaired = s.encode("latin-1").decode("utf-8")
+            if repaired and "\ufffd" not in repaired:
+                s = repaired
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return (
+        s.replace("Ã¼", "ü")
+        .replace("Ã¤", "ä")
+        .replace("Ã¶", "ö")
+        .replace("Ã©", "é")
+        .replace("Ã¨", "è")
+        .replace("ÃŸ", "ß")
+        .replace("Ä¼", "ü")
+        .replace("Ä¤", "ä")
+        .replace("Ä¶", "ö")
+    )
 
 
 def _soft_trunc(text: str, max_len: int) -> str:
@@ -395,6 +556,7 @@ def clean_shab_message_for_display(
     """
     text = _strip_ft_tags(message or "")
     text = html.unescape(text)
+    text = repair_mojibake(text)
     text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return ""
@@ -431,9 +593,13 @@ def enrich_publication_for_timeline(pub: dict[str, Any]) -> dict[str, Any]:
     cleaned = clean_shab_message_for_display(raw)
     # Full stripped message as fallback when clean dropped everything useful
     fallback = soft_format_shab_prose(
-        re.sub(r"\s+", " ", html.unescape(_strip_ft_tags(raw or ""))).strip()
+        re.sub(
+            r"\s+",
+            " ",
+            repair_mojibake(html.unescape(_strip_ft_tags(raw or ""))),
+        ).strip()
     )
-    full = cleaned or fallback
+    full = repair_mojibake(cleaned or fallback)
     return {
         "entered": changes["entered"],
         "exited": changes["exited"],
@@ -457,8 +623,11 @@ def detect_shab_warnings(sogc_pub: list[dict] | None) -> list[str]:
         for p in pubs
     ).lower()
 
-    if "verzicht" in corpus and "revision" in corpus:
+    if re.search(r"verzicht\w*\s+.{0,40}revision|rinuncia\b.{0,40}revisione|renonce\b.{0,40}r[eé]vision", corpus):
         warnings.append("Revisionsverzicht im SHAB erwähnt")
-    if "eingetragene personen" not in corpus:
+    if not re.search(
+        r"eingetragene\s+personen|persone\s+iscritte|personnes\s+inscrites",
+        corpus,
+    ):
         warnings.append("Keine eingetragenen Personen im verfügbaren SHAB-Text gefunden")
     return warnings

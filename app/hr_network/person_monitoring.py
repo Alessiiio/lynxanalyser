@@ -241,8 +241,13 @@ async def scan_watched_person_incremental(
         await session.commit()
 
     # ── 1) Primary: Moneyhouse person search → Zefix firm resolve ─────────
+    # Seed firm disambiguates common names (profile must list seed when possible).
     mh = await asyncio.to_thread(
-        search_person_mandates, display_name, residence=residence
+        search_person_mandates,
+        display_name,
+        residence=residence,
+        seed_company=source_name,
+        seed_uid=seed_uid,
     )
     matches: list[dict[str, Any]] = []
     zefix_resolved = 0

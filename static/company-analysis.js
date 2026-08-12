@@ -1,12 +1,152 @@
 /** Unified company analysis — compact workspace + SHAB timeline. */
 
+/** User-facing Suchweite 1–5 (API still uses `level`). Parallel labels: what / for whom. */
 const LEVEL_META = {
-  1: { title: "Firma + Inhaber", speed: "schnell" },
-  2: { title: "Ehemalige + Struktur", speed: "schnell" },
-  3: { title: "Weitere Firmen", speed: "mittel" },
-  4: { title: "Ehemalige vernetzt", speed: "länger" },
-  5: { title: "2. Ring", speed: "länger" },
+  1: {
+    phase: "register",
+    title: "Firma + aktuelle Organe",
+    desc: "Aktuelle Organe der Kernfirma",
+    speed: "schnell",
+    speedHint: "Register schnell",
+  },
+  2: {
+    phase: "register",
+    title: "+ ehemalige Organe + Struktur",
+    desc: "Ehemalige Organe und Firmenstruktur",
+    speed: "schnell",
+    speedHint: "Register schnell",
+  },
+  3: {
+    phase: "network",
+    title: "Mandate der aktuellen Organe",
+    desc: "Weitere Firmen der aktuellen Personen",
+    speed: "mittel",
+    speedHint: "Netzwerk kann dauern",
+  },
+  4: {
+    phase: "network",
+    title: "+ Mandate der ehemaligen",
+    desc: "Weitere Firmen ehemaliger Personen",
+    speed: "länger",
+    speedHint: "Netzwerk kann dauern",
+  },
+  5: {
+    phase: "network",
+    title: "+ Personen an Mandatsfirmen",
+    desc: "Zweiter Ring — Personen an verbundenen Firmen",
+    speed: "länger",
+    speedHint: "Netzwerk kann dauern",
+  },
 };
+
+const PHASE_META = {
+  register: {
+    id: "register",
+    title: "Phase Register",
+    hint: "Register schnell",
+  },
+  network: {
+    id: "network",
+    title: "Phase Netzwerk erweitern",
+    hint: "Netzwerk kann dauern",
+  },
+};
+
+const LEVEL_LABELS = Object.fromEntries(
+  Object.entries(LEVEL_META).map(([k, v]) => [k, v.title])
+);
+
+function levelLabel(level) {
+  return LEVEL_META[level]?.title || `Suchweite ${level}`;
+}
+
+function levelSpeedHint(level) {
+  return LEVEL_META[level]?.speedHint || "";
+}
+
+/** Compact phase tag for collapsed summary bar. */
+function phaseShortLabel(level) {
+  return LEVEL_META[level]?.phase === "network" ? "Netzwerk" : "Register";
+}
+
+const CA_SUCHWEITE_EXPAND_KEY = "lynx_ca_suchweite_expanded";
+
+function readSuchweiteExpanded() {
+  try {
+    return localStorage.getItem(CA_SUCHWEITE_EXPAND_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function writeSuchweiteExpanded(expanded) {
+  try {
+    localStorage.setItem(CA_SUCHWEITE_EXPAND_KEY, expanded ? "1" : "0");
+  } catch (_) { /* private mode */ }
+}
+
+function isSuchweiteExpanded() {
+  const wrap = document.getElementById("caSuchweite");
+  return !!wrap && !wrap.classList.contains("is-collapsed");
+}
+
+function applySuchweiteExpanded(expanded, { persist = true } = {}) {
+  const wrap = document.getElementById("caSuchweite");
+  const body = document.getElementById("caSuchweiteBody");
+  const toggle = document.getElementById("caSuchweiteToggle");
+  const label = document.getElementById("caSuchweiteToggleLabel");
+  if (!wrap) return;
+  wrap.classList.toggle("is-collapsed", !expanded);
+  wrap.classList.toggle("is-expanded", expanded);
+  if (body) {
+    if (expanded) body.removeAttribute("hidden");
+    else body.setAttribute("hidden", "");
+  }
+  if (toggle) toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  if (label) label.textContent = expanded ? "Zuklappen" : "Suchweite wählen";
+  if (persist) writeSuchweiteExpanded(expanded);
+  updateSuchweiteMiniExtend();
+}
+
+function setSuchweiteExpanded(expanded) {
+  applySuchweiteExpanded(!!expanded, { persist: true });
+}
+
+function wireSuchweiteCollapse() {
+  applySuchweiteExpanded(readSuchweiteExpanded(), { persist: false });
+  document.getElementById("caSuchweiteToggle")?.addEventListener("click", () => {
+    setSuchweiteExpanded(!isSuchweiteExpanded());
+  });
+  document.getElementById("caSuchweiteMiniExtend")?.addEventListener("click", () => {
+    setDeepLevel(3);
+    setSuchweiteExpanded(true);
+    requestAnimationFrame(() => {
+      const card = document.querySelector('#caSuchweitePhases [data-suchweite="3"]');
+      card?.focus?.();
+      card?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    });
+  });
+}
+
+function suchweiteSummaryText() {
+  const loaded = loadedDeepLevel != null ? Number(loadedDeepLevel) : null;
+  const selected = Number(selectedDeepLevel) || 2;
+  if (loaded != null) {
+    return `Suchweite ${loaded} · ${phaseShortLabel(loaded)} · geladen`;
+  }
+  return `Suchweite ${selected} · ${phaseShortLabel(selected)}`;
+}
+
+function updateSuchweiteMiniExtend() {
+  const btn = document.getElementById("caSuchweiteMiniExtend");
+  if (!btn) return;
+  const loaded = loadedDeepLevel != null ? Number(loadedDeepLevel) : null;
+  const collapsed = !isSuchweiteExpanded();
+  // Only when collapsed after a Register result — invite network deepen without opening the full picker by default.
+  const show = collapsed && loaded != null && loaded <= 2;
+  btn.classList.toggle("hidden", !show);
+  btn.disabled = !show;
+}
 
 /** Zefix mutationTypes.key → German label (mirrors app/checks/zefix_mutations.py). */
 const MUTATION_LABELS = {
@@ -64,15 +204,25 @@ const MUTATION_KIND_PRIORITY = [
   "unknown",
 ];
 
-/** Matches first-load `/api/hr-network` (level 2: Firma + aktuelle/ehemalige). */
+/** Matches first-load `/api/hr-network` (level 2: Register — ehemalige + Struktur). */
 let selectedDeepLevel = 2;
+/** Last successfully loaded Suchweite (for CTA + card state). */
+let loadedDeepLevel = null;
 let networkInstance = null;
 let lastGraph = null;
 let currentCompany = null;
 let lastAnalysis = null;
 let suggestTimer = null;
 let currentCaseHit = null;
+/** Active «In Abklärung» tag for current company (server row or null). */
+let currentCompanyTag = null;
+/** Team tag index for search/recent highlights: { byUidDigits, byName, rows }. */
+let _companyTagIndex = { byUid: new Map(), byName: new Map(), loaded: false };
 let branchSignal = null;
+/** Locked Moneyhouse identities for this analysis session (accept/ignore). */
+let sessionIdentityOverrides = [];
+/** User dismissed the incomplete/identity status card (UI only for this firm session). */
+let sessionBannerUiDismissed = false;
 
 const companyInput = document.getElementById("companyInput");
 const suggestBox = document.getElementById("suggestBox");
@@ -90,47 +240,186 @@ const SAFE_MAX_LEVEL = 2;
 const SAFE_PERSON_SEARCHES = 4;
 const FULL_PERSON_SEARCHES = 8;
 
+/**
+ * Foundation: module-level bindings + pure helpers used by boot / renderFirmBar.
+ * These must initialize before any top-level wire-up (boot runs at end of file).
+ */
+
+/** CH legal-form legend (renderFirmBar / Form-Info). */
+const LEGAL_FORM_LEGEND = [
+  ["EU", "Einzelunternehmen — eine natürliche Person, volle persönliche Haftung"],
+  ["GmbH", "Gesellschaft mit beschränkter Haftung — Stammkapital, Haftung begrenzt"],
+  ["AG", "Aktiengesellschaft — Aktienkapital, Haftung auf Gesellschaft beschränkt"],
+  ["KlG", "Kollektivgesellschaft — mind. zwei Gesellschafter, unbeschränkte Haftung"],
+  ["KmG", "Kommanditgesellschaft — Komplementäre unbeschränkt, Kommanditäre beschränkt"],
+  ["Gen.", "Genossenschaft — gemeinsamer Zweck, Mitgliederstruktur"],
+  ["Verein", "Verein — ideeller Zweck, i. d. R. ohne Kapitalanteil"],
+  ["Stiftung", "Stiftung — zweckgebundenes Vermögen, keine Eigentümer"],
+];
+
+function legalFormLegendHtml(highlight) {
+  const rows = LEGAL_FORM_LEGEND.map(([abbr, desc]) => {
+    const active = abbr === highlight ? " is-current" : "";
+    return `<li class="ca-form-legend-row${active}"><strong>${escHtml(abbr)}</strong><span>${escHtml(desc)}</span></li>`;
+  }).join("");
+  return `<span class="ca-form-legend-title">Rechtsformen (CH)</span><ul class="ca-form-legend-list">${rows}</ul>`;
+}
+
+const CA_RECENT_KEY = "lynx_ca_search_history";
+const CA_RECENT_COLLAPSE_KEY = "lynx_ca_recent_collapsed";
+const CA_RECENT_MAX = 15;
+const CA_TZ = "Europe/Zurich";
+let _recentTeamItems = null;
+
+const NETWORK_VIEW_KEY = "lynx_ca_network_view";
+
+const LEVEL_ETA_MS = { 1: 6000, 2: 10000, 3: 22000, 4: 38000, 5: 55000 };
+let deepProgressTimer = null;
+let deepProgressValue = 0;
+
+let notifyTimer = null;
+let notifyHideTimer = null;
+
+/** Incomplete-banner CTAs: one-time delegated listener (survives banner re-renders). */
+let _incompleteBannerDelegated = false;
+let _identityConfirmBusy = false;
+
+let graphFindHits = [];
+let graphFindIndex = 0;
+
+const COPY_ICON_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const COPY_CHECK_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`;
+
+/** Small icon button; `text` is raw clipboard payload (never anonymized). */
+function copyBtnHtml(text, title = "Kopieren") {
+  const t = String(text || "").trim();
+  if (!t) return "";
+  return `<button type="button" class="ca-copy-btn" data-copy="${escHtml(t)}" title="${escHtml(title)}" aria-label="${escHtml(title)}">${COPY_ICON_SVG}</button>`;
+}
+
+function showCopyBubble(btn, label) {
+  document.querySelectorAll(".ca-copy-bubble").forEach((el) => el.remove());
+  const bubble = document.createElement("span");
+  bubble.className = "ca-copy-bubble ca-copy-bubble--fixed";
+  bubble.setAttribute("role", "status");
+  bubble.textContent = label || "Kopiert";
+  document.body.appendChild(bubble);
+  const r = btn?.getBoundingClientRect?.();
+  if (r && r.width) {
+    bubble.style.left = `${Math.round(r.left + r.width / 2)}px`;
+    bubble.style.top = `${Math.round(r.top)}px`;
+  } else {
+    bubble.style.left = "50%";
+    bubble.style.top = "18%";
+  }
+  requestAnimationFrame(() => bubble.classList.add("is-on"));
+  clearTimeout(bubble._hide);
+  bubble._hide = setTimeout(() => {
+    bubble.classList.remove("is-on");
+    setTimeout(() => bubble.remove(), 180);
+  }, 1600);
+}
+
+function flashCopySuccess(btn, preview) {
+  if (btn) {
+    btn.classList.add("is-copied");
+    const prevTitle = btn.getAttribute("title") || "Kopieren";
+    const hadIconOnly = btn.classList.contains("ca-copy-btn");
+    if (hadIconOnly) {
+      if (!btn.dataset.copyIconHtml) btn.dataset.copyIconHtml = btn.innerHTML;
+      btn.innerHTML = COPY_CHECK_SVG;
+    }
+    btn.setAttribute("title", "Kopiert");
+    clearTimeout(btn._copyFlash);
+    btn._copyFlash = setTimeout(() => {
+      btn.classList.remove("is-copied");
+      btn.setAttribute("title", prevTitle === "Kopiert" ? "Kopieren" : prevTitle);
+      if (hadIconOnly && btn.dataset.copyIconHtml) {
+        btn.innerHTML = btn.dataset.copyIconHtml;
+      }
+    }, 1400);
+  }
+  const short = preview.length > 40 ? `${preview.slice(0, 37)}…` : preview;
+  showCopyBubble(btn, `Kopiert · ${short}`);
+  // Bottom toast as secondary signal (always on document body context)
+  if (typeof showNotify === "function") {
+    showNotify(`In Zwischenablage: ${short}`, { ok: true, duration: 2000 });
+  }
+}
+
+async function copyTextToClipboard(text, btn) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  try {
+    // Prefer Clipboard API when available (secure context)
+    if (navigator.clipboard?.writeText && window.isSecureContext !== false) {
+      await navigator.clipboard.writeText(t);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = t;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      ta.style.top = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, t.length);
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (!ok) throw new Error("execCommand failed");
+    }
+    flashCopySuccess(btn, t);
+    return true;
+  } catch (_) {
+    // Fallback once more with execCommand if Clipboard API failed
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = t;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (!ok) throw new Error("execCommand failed");
+      flashCopySuccess(btn, t);
+      return true;
+    } catch (__) {
+      if (typeof showNotify === "function") {
+        showNotify("Kopieren fehlgeschlagen — bitte manuell markieren.", { ok: false, duration: 3200 });
+      } else {
+        showCopyBubble(btn, "Kopieren fehlgeschlagen");
+      }
+      return false;
+    }
+  }
+}
+
+function wireCopyButtons(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-copy]").forEach((btn) => {
+    if (btn.dataset.copyWired === "1") return;
+    btn.dataset.copyWired = "1";
+    const runCopy = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // dataset prefers decoded payload; getAttribute is fallback
+      const payload = (btn.dataset.copy != null ? btn.dataset.copy : btn.getAttribute("data-copy")) || "";
+      copyTextToClipboard(payload, btn);
+    };
+    btn.addEventListener("click", runCopy);
+    // Firm name is an h2 with role=button — allow Enter/Space
+    if (btn.classList.contains("ca-firm-name-copy")) {
+      btn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") runCopy(e);
+      });
+    }
+  });
+}
+
 let heavyModalResolver = null;
-
-fillLevelSlider(2);
-wireSideTabs();
-wireSearch();
-wireGraphControls();
-wireNetworkViewToggle();
-wireHeavyWarnModal();
-document.getElementById("deepBtn")?.addEventListener("click", () => deepAnalyze());
-document.getElementById("deepForceRefreshBtn")?.addEventListener("click", () => {
-  if (!currentCompany) return;
-  const level = Number(document.getElementById("deepLevelRange")?.value || selectedDeepLevel);
-  runDeepAnalyze(level, FULL_PERSON_SEARCHES, { forceRefresh: true });
-});
-wireRecentSearches();
-renderRecentSearches();
-setIdleHome(true);
-
-const params = new URLSearchParams(location.search);
-if (params.get("tab") === "cases" || params.get("tab") === "list") {
-  location.replace("/cases");
-}
-if (params.get("profiler") === "1" && (params.get("company") || params.get("uid"))) {
-  const qs = new URLSearchParams();
-  if (params.get("company")) qs.set("company", params.get("company"));
-  if (params.get("uid")) qs.set("uid", params.get("uid"));
-  location.replace(`/profiler?${qs}`);
-}
-if (params.get("company") || params.get("uid")) {
-  if (params.get("company")) companyInput.value = params.get("company");
-  pendingUid = params.get("uid") || "";
-  quickAnalyze();
-}
-loadOpenTeamCases();
-loadBranchSignal();
-
-window.onAnonymizeModeChange = function () {
-  if (typeof renderSiteNav === "function") renderSiteNav();
-  if (lastAnalysis) renderSearchResults(lastAnalysis);
-  else if (currentCompany) renderFirmBar(currentCompany, lastAnalysis || {});
-};
 
 async function loadBranchSignal() {
   try {
@@ -248,25 +537,123 @@ async function loadOpenTeamCases() {
   }
 }
 
-function fillLevelSlider(initial) {
-  selectedDeepLevel = initial;
-  const range = document.getElementById("deepLevelRange");
-  const valueEl = document.getElementById("deepLevelValue");
-  const titleEl = document.getElementById("deepLevelTitle");
-  if (!range) return;
+function fillSuchweitePicker(initial) {
+  selectedDeepLevel = Number(initial) || 2;
+  renderSuchweitePicker();
+  updateHeavyCompanyHint();
+  syncForceRefreshBtn();
+  updateSuchweiteCta();
+}
 
-  const sync = () => {
-    const level = Number(range.value) || 1;
-    selectedDeepLevel = level;
-    if (valueEl) valueEl.textContent = String(level);
-    if (titleEl) titleEl.textContent = LEVEL_META[level]?.title || "";
-    updateHeavyCompanyHint();
-    syncForceRefreshBtn();
-  };
+function renderSuchweitePicker() {
+  const phasesRoot = document.getElementById("caSuchweitePhases");
+  const currentEl = document.getElementById("suchweiteCurrent");
+  const wrap = document.getElementById("caSuchweite");
+  if (!phasesRoot) return;
 
-  range.value = String(initial);
-  range.addEventListener("input", sync);
-  sync();
+  const loaded = loadedDeepLevel != null ? Number(loadedDeepLevel) : null;
+  const selected = Number(selectedDeepLevel) || 2;
+  if (currentEl) {
+    currentEl.textContent = suchweiteSummaryText();
+  }
+  wrap?.setAttribute(
+    "title",
+    loaded != null
+      ? `Geladen: Suchweite ${loaded} — ${levelLabel(loaded)}`
+      : `Auswahl: Suchweite ${selected} — ${levelLabel(selected)}`
+  );
+
+  // Promote network phase after Register result (default post-Analyse = L2)
+  const promoteNetwork = loaded != null && loaded <= 2;
+  wrap?.classList.toggle("ca-suchweite--after-register", promoteNetwork);
+  wrap?.classList.toggle("ca-suchweite--has-result", loaded != null);
+
+  const phases = ["register", "network"];
+  phasesRoot.innerHTML = phases
+    .map((phaseId) => {
+      const phase = PHASE_META[phaseId];
+      const levels = Object.entries(LEVEL_META)
+        .filter(([, m]) => m.phase === phaseId)
+        .map(([n]) => Number(n));
+      const isNetwork = phaseId === "network";
+      const phaseClass = [
+        "ca-suchweite-phase",
+        isNetwork ? "ca-suchweite-phase--network" : "ca-suchweite-phase--register",
+        promoteNetwork && isNetwork ? "is-promoted" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const cards = levels
+        .map((lvl) => {
+          const m = LEVEL_META[lvl];
+          const isSel = lvl === selected;
+          const isLoaded = loaded != null && lvl === loaded;
+          const cardClass = [
+            "ca-suchweite-card",
+            isSel ? "is-selected" : "",
+            isLoaded ? "is-loaded" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const loadedBadge = isLoaded
+            ? `<span class="ca-suchweite-card-badge">geladen</span>`
+            : "";
+          return (
+            `<button type="button" role="radio" class="${cardClass}"` +
+            ` data-suchweite="${lvl}" aria-checked="${isSel ? "true" : "false"}"` +
+            ` aria-label="Suchweite ${lvl}: ${escHtml(m.title)}">` +
+            `<span class="ca-suchweite-card-num">${lvl}</span>` +
+            `<span class="ca-suchweite-card-body">` +
+            `<span class="ca-suchweite-card-title">${escHtml(m.title)}</span>` +
+            `<span class="ca-suchweite-card-desc">${escHtml(m.desc)}</span>` +
+            `</span>` +
+            loadedBadge +
+            `</button>`
+          );
+        })
+        .join("");
+
+      return (
+        `<div class="${phaseClass}" data-phase="${phaseId}">` +
+        `<div class="ca-suchweite-phase-head">` +
+        `<h3 class="ca-suchweite-phase-title">${escHtml(phase.title)}</h3>` +
+        `<span class="ca-suchweite-phase-hint">${escHtml(phase.hint)}</span>` +
+        `</div>` +
+        (promoteNetwork && isNetwork
+          ? `<p class="ca-suchweite-network-lead">Netzwerk erweitern — Mandate und weitere Verbindungen laden</p>`
+          : "") +
+        `<div class="ca-suchweite-cards" role="radiogroup" aria-label="${escHtml(phase.title)}">` +
+        cards +
+        `</div></div>`
+      );
+    })
+    .join("");
+
+  phasesRoot.querySelectorAll("[data-suchweite]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lvl = Number(btn.getAttribute("data-suchweite")) || 1;
+      setDeepLevel(lvl);
+    });
+  });
+
+  updateSuchweiteCta();
+  updateSuchweiteMiniExtend();
+}
+
+function updateSuchweiteCta() {
+  const btn = document.getElementById("deepBtn");
+  if (!btn) return;
+  const selected = Number(selectedDeepLevel) || 2;
+  const loaded = loadedDeepLevel != null ? Number(loadedDeepLevel) : null;
+  if (loaded == null) {
+    btn.textContent = "Suche starten";
+  } else if (selected === loaded) {
+    btn.textContent = "Suche starten";
+  } else {
+    btn.textContent = "Mit dieser Suchweite laden";
+  }
+  btn.title = `Suchweite ${selected}: ${levelLabel(selected)}`;
 }
 
 /**
@@ -374,9 +761,6 @@ function wireGraphControls() {
     }
   });
 }
-
-let graphFindHits = [];
-let graphFindIndex = 0;
 
 function toggleGraphFullscreen() {
   const panel = document.getElementById("caGraphPanel");
@@ -565,14 +949,159 @@ function expandSearch({ focus = false } = {}) {
   syncRecentVisibility();
 }
 
-const CA_RECENT_KEY = "lynx_ca_search_history";
-const CA_RECENT_MAX = 10;
+function companyUidDigits(uid) {
+  return String(uid || "").replace(/\D/g, "");
+}
+
+function companyNameKey(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function rebuildCompanyTagIndex(rows) {
+  const byUid = new Map();
+  const byName = new Map();
+  for (const row of rows || []) {
+    if ((row.tag || "under_investigation") !== "under_investigation") continue;
+    const d = companyUidDigits(row.company_uid || row.uid);
+    if (d) byUid.set(d, row);
+    const nk = companyNameKey(row.company_name || row.name);
+    if (nk) byName.set(nk, row);
+  }
+  _companyTagIndex = { byUid, byName, loaded: true };
+}
+
+function findIndexedCompanyTag(uid, name) {
+  if (!_companyTagIndex.loaded) return null;
+  const d = companyUidDigits(uid);
+  if (d && _companyTagIndex.byUid.has(d)) return _companyTagIndex.byUid.get(d);
+  const nk = companyNameKey(name);
+  if (nk && _companyTagIndex.byName.has(nk)) return _companyTagIndex.byName.get(nk);
+  return null;
+}
+
+async function loadCompanyTagsFromServer() {
+  try {
+    const resp = await fetch("/api/company-tags?tag=under_investigation");
+    if (!resp.ok) throw new Error(String(resp.status));
+    const data = await resp.json();
+    rebuildCompanyTagIndex(Array.isArray(data?.tags) ? data.tags : []);
+  } catch (_) {
+    if (!_companyTagIndex.loaded) {
+      _companyTagIndex = { byUid: new Map(), byName: new Map(), loaded: false };
+    }
+  }
+  if (currentCompany) {
+    currentCompanyTag = findIndexedCompanyTag(currentCompany.uid, currentCompany.name);
+  }
+  renderRecentSearches();
+}
+
+async function ensureCompanyTagLookup(company) {
+  if (!company) return null;
+  const fromIndex = findIndexedCompanyTag(company.uid, company.name);
+  if (fromIndex) return fromIndex;
+  const qs = new URLSearchParams();
+  if (company.uid) qs.set("uid", company.uid);
+  if (company.name) qs.set("name", company.name);
+  qs.set("tag", "under_investigation");
+  try {
+    const resp = await fetch(`/api/company-tags/lookup?${qs}`);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const hit = data.tag || null;
+    if (hit) {
+      // Keep index warm without full reload
+      const d = companyUidDigits(hit.company_uid || hit.uid || company.uid);
+      const nk = companyNameKey(hit.company_name || hit.name || company.name);
+      if (d) _companyTagIndex.byUid.set(d, hit);
+      if (nk) _companyTagIndex.byName.set(nk, hit);
+      _companyTagIndex.loaded = true;
+    }
+    return hit;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function toggleCompanyUnderInvestigation() {
+  if (!currentCompany) return;
+  const on = !!currentCompanyTag;
+  const name = currentCompany.name || "";
+  const uid = currentCompany.uid || "";
+  try {
+    if (on) {
+      const qs = new URLSearchParams();
+      if (uid) qs.set("uid", uid);
+      if (name) qs.set("name", name);
+      qs.set("tag", "under_investigation");
+      const resp = await fetch(`/api/company-tags?${qs}`, { method: "DELETE" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      currentCompanyTag = null;
+    } else {
+      const resp = await fetch("/api/company-tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: name,
+          company_uid: uid || null,
+          tag: "under_investigation",
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        const d = err.detail;
+        const msg = Array.isArray(d) ? d.map((x) => x.msg || x).join("; ") : (d || `HTTP ${resp.status}`);
+        throw new Error(msg);
+      }
+      const data = await resp.json();
+      currentCompanyTag = data.tag || null;
+    }
+    await loadCompanyTagsFromServer();
+    if (currentCompany) {
+      renderFirmBar(currentCompany, lastAnalysis || lastGraph || {});
+    }
+  } catch (err) {
+    showError(err.message || "Tag konnte nicht gespeichert werden");
+  }
+}
 
 function wireRecentSearches() {
-  document.getElementById("caRecentClearBtn")?.addEventListener("click", () => {
-    try { localStorage.removeItem(CA_RECENT_KEY); } catch (_) {}
-    renderRecentSearches();
+  // Always start collapsed on page load; expand only when the user needs it this session.
+  applyRecentCollapsed(true);
+  try { localStorage.setItem(CA_RECENT_COLLAPSE_KEY, "1"); } catch (_) {}
+  document.getElementById("caRecentToggle")?.addEventListener("click", () => {
+    const el = document.getElementById("caRecentSearches");
+    const next = !el?.classList.contains("is-collapsed");
+    applyRecentCollapsed(next);
+    // Persist for any consumers of the key; next page load still forces collapsed (see above).
+    try { localStorage.setItem(CA_RECENT_COLLAPSE_KEY, next ? "1" : "0"); } catch (_) {}
   });
+  document.getElementById("caRecentClearBtn")?.addEventListener("click", async () => {
+    try {
+      await fetch("/api/hr-network/search-history", { method: "DELETE" });
+    } catch (_) { /* offline */ }
+    try { localStorage.removeItem(CA_RECENT_KEY); } catch (_) {}
+    _recentTeamItems = null;
+    await loadRecentSearchesFromServer();
+  });
+}
+
+function readRecentCollapsed() {
+  // Default collapsed when key is missing; only explicit "0" means expanded (session use).
+  try {
+    const v = localStorage.getItem(CA_RECENT_COLLAPSE_KEY);
+    if (v === null || v === "") return true;
+    return v === "1";
+  } catch (_) {
+    return true;
+  }
+}
+
+function applyRecentCollapsed(collapsed) {
+  const el = document.getElementById("caRecentSearches");
+  const toggle = document.getElementById("caRecentToggle");
+  el?.classList.toggle("is-collapsed", !!collapsed);
+  toggle?.setAttribute("aria-expanded", collapsed ? "false" : "true");
 }
 
 function currentMemberLabel() {
@@ -581,7 +1110,7 @@ function currentMemberLabel() {
   return u.display_name || u.username || "Team";
 }
 
-function getRecentSearches() {
+function getLocalRecentSearches() {
   try {
     const raw = JSON.parse(localStorage.getItem(CA_RECENT_KEY) || "[]");
     return Array.isArray(raw) ? raw : [];
@@ -590,7 +1119,12 @@ function getRecentSearches() {
   }
 }
 
-function rememberSearch(company) {
+function getRecentSearches() {
+  if (Array.isArray(_recentTeamItems)) return _recentTeamItems;
+  return getLocalRecentSearches();
+}
+
+function rememberSearchLocal(company) {
   if (!company) return;
   const name = (company.name || "").trim();
   const uid = (company.uid || "").trim();
@@ -602,16 +1136,113 @@ function rememberSearch(company) {
     by: currentMemberLabel(),
     at: new Date().toISOString(),
   };
-  const next = [entry, ...getRecentSearches().filter((e) => ((e.uid || e.name || "").toLowerCase() !== key))].slice(0, CA_RECENT_MAX);
+  const next = [entry, ...getLocalRecentSearches().filter((e) => ((e.uid || e.name || "").toLowerCase() !== key))].slice(0, CA_RECENT_MAX);
   try {
     localStorage.setItem(CA_RECENT_KEY, JSON.stringify(next));
   } catch (_) { /* quota */ }
+}
+
+async function rememberSearch(company) {
+  rememberSearchLocal(company);
+  // Optimistic: bubble own entry to top while server dedupes/persists (log is server-side).
+  if (company && Array.isArray(_recentTeamItems)) {
+    const name = (company.name || "").trim();
+    const uid = (company.uid || "").trim();
+    const key = (uid || name).toLowerCase();
+    const entry = {
+      name,
+      uid,
+      by: currentMemberLabel(),
+      at: new Date().toISOString(),
+    };
+    _recentTeamItems = [entry, ..._recentTeamItems.filter((e) => ((e.uid || e.name || "").toLowerCase() !== key))].slice(0, CA_RECENT_MAX);
+    renderRecentSearches();
+  }
+  // Refresh from server shortly after analyze so teammate names/timestamps settle.
+  setTimeout(() => { loadRecentSearchesFromServer(); }, 400);
+}
+
+async function loadRecentSearchesFromServer() {
+  try {
+    const resp = await fetch("/api/hr-network/search-history?limit=15");
+    if (!resp.ok) throw new Error(String(resp.status));
+    const data = await resp.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    _recentTeamItems = items.map((e) => ({
+      name: e.name || "",
+      uid: e.uid || "",
+      by: e.by || "Team",
+      at: e.at || null,
+    }));
+    // Seed offline fallback when server returned something.
+    if (_recentTeamItems.length) {
+      try {
+        localStorage.setItem(CA_RECENT_KEY, JSON.stringify(_recentTeamItems.slice(0, CA_RECENT_MAX)));
+      } catch (_) { /* quota */ }
+    }
+  } catch (_) {
+    if (!Array.isArray(_recentTeamItems)) {
+      _recentTeamItems = null; // use localStorage only
+    }
+  }
   renderRecentSearches();
+}
+
+/**
+ * Parse server/local timestamps as absolute instants.
+ * Naive ISO (no Z/offset) is treated as UTC — history is stored in UTC.
+ */
+function parseRecentWhenMs(iso) {
+  if (!iso) return NaN;
+  let s = String(iso).trim();
+  if (!s) return NaN;
+  // "YYYY-MM-DDTHH:MM[:SS[.fff]]" without zone → UTC
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)
+    && !/[zZ]$/.test(s)
+    && !/[+-]\d{2}:?\d{2}$/.test(s)
+  ) {
+    s += "Z";
+  }
+  return Date.parse(s);
+}
+
+/** Absolute timestamp in Swiss local time, German UI style: DD-MM-YYYY HH:MM */
+function formatRecentWhenAbsolute(iso) {
+  const t = parseRecentWhenMs(iso);
+  if (Number.isNaN(t)) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("de-CH", {
+      timeZone: CA_TZ,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(t));
+    const get = (type) => parts.find((p) => p.type === type)?.value || "";
+    const day = get("day");
+    const month = get("month");
+    const year = get("year");
+    const hour = get("hour");
+    const minute = get("minute");
+    if (day && month && year && hour && minute) {
+      return `${day}-${month}-${year} ${hour}:${minute}`;
+    }
+  } catch (_) { /* Intl / timeZone unavailable */ }
+  // Fallback: browser local (usually CH for this team)
+  const d = new Date(t);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}-${mm}-${d.getFullYear()} ${hh}:${mi}`;
 }
 
 function formatRecentWhen(iso) {
   if (!iso) return "";
-  const t = Date.parse(iso);
+  const t = parseRecentWhenMs(iso);
   if (Number.isNaN(t)) return "";
   const mins = Math.floor((Date.now() - t) / 60000);
   if (mins < 1) return "gerade eben";
@@ -620,7 +1251,7 @@ function formatRecentWhen(iso) {
   if (hrs < 24) return `vor ${hrs} Std.`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `vor ${days} Tag${days === 1 ? "" : "en"}`;
-  return formatDateDisplay(iso);
+  return formatRecentWhenAbsolute(iso);
 }
 
 function setIdleHome(on) {
@@ -632,6 +1263,7 @@ function setIdleHome(on) {
     page?.classList.remove("is-transitioning", "is-analyzing");
     caResults?.classList.remove("ca-results-enter");
   }
+  syncRecentVisibility();
 }
 
 function prefersReducedMotion() {
@@ -692,14 +1324,15 @@ async function transitionToIdle() {
   setIdleHome(true);
   expandSearch();
   page?.classList.remove("is-transitioning", "is-analyzing");
+  loadRecentSearchesFromServer();
 }
 
 function syncRecentVisibility() {
   const el = document.getElementById("caRecentSearches");
   if (!el) return;
   const searchOpen = !document.getElementById("caSearchBar")?.classList.contains("is-collapsed");
-  const hasItems = getRecentSearches().length > 0;
-  el.classList.toggle("hidden", !searchOpen || !hasItems);
+  // Always show under open search (idle start) — empty state explains team history.
+  el.classList.toggle("hidden", !searchOpen);
 }
 
 function renderRecentSearches() {
@@ -707,21 +1340,30 @@ function renderRecentSearches() {
   if (!list) return;
   const items = getRecentSearches();
   if (!items.length) {
-    list.innerHTML = "";
+    list.innerHTML = `<li class="ca-recent-empty">Noch keine Team-Suchen — eigene und Kolleg:innen erscheinen hier nach der Analyse.</li>`;
     syncRecentVisibility();
     return;
   }
-  list.innerHTML = items.map((e) => `
+  list.innerHTML = items.map((e) => {
+    const tagged = !!findIndexedCompanyTag(e.uid, e.name);
+    const tagBadge = tagged
+      ? `<span class="ca-tag-chip-sm" title="Team-Markierung">In Abklärung</span>`
+      : "";
+    return `
     <li>
-      <button type="button" class="ca-recent-item" data-name="${escHtml(e.name || "")}" data-uid="${escHtml(e.uid || "")}">
-        <span class="ca-recent-name">${escHtml(e.name || e.uid || "—")}</span>
+      <button type="button" class="ca-recent-item${tagged ? " is-in-klaerung" : ""}" data-name="${escHtml(e.name || "")}" data-uid="${escHtml(e.uid || "")}">
+        <span class="ca-recent-name-row">
+          <span class="ca-recent-name">${escHtml(e.name || e.uid || "—")}</span>
+          ${tagBadge}
+        </span>
         <span class="ca-recent-meta">
           ${e.uid ? `<span class="ca-recent-uid">${escHtml(e.uid)}</span>` : ""}
           <span class="ca-recent-by">${escHtml(e.by || "Team")}</span>
-          <span class="ca-recent-when">${escHtml(formatRecentWhen(e.at))}</span>
+          <span class="ca-recent-when" title="${escHtml(formatRecentWhenAbsolute(e.at))}">${escHtml(formatRecentWhen(e.at))}</span>
         </span>
       </button>
-    </li>`).join("");
+    </li>`;
+  }).join("");
   list.querySelectorAll(".ca-recent-item").forEach((btn) => {
     btn.addEventListener("click", () => {
       companyInput.value = btn.dataset.name || "";
@@ -744,6 +1386,7 @@ async function fetchSuggestions(q) {
     suggestBox.innerHTML = results.map((r) => {
       const cancelled = !!r.is_cancelled;
       const being = !!r.is_being_cancelled;
+      const tagged = !!findIndexedCompanyTag(r.uid, r.name);
       let badge = "";
       if (cancelled) {
         const when = r.deletion_date ? ` · gelöscht ${escHtml(formatDateDisplay(r.deletion_date))}` : "";
@@ -751,9 +1394,13 @@ async function fetchSuggestions(q) {
       } else if (being) {
         badge = `<span class="ca-suggest-badge is-liquidating">In Auflösung</span>`;
       }
+      if (tagged) {
+        badge += `<span class="ca-suggest-badge is-in-klaerung">In Abklärung</span>`;
+      }
       const cls = [
         cancelled ? "is-cancelled" : "",
         being ? "is-liquidating" : "",
+        tagged ? "is-in-klaerung" : "",
       ].filter(Boolean).join(" ");
       return `<li><button type="button" class="${cls}" data-name="${escHtml(r.name || "")}" data-uid="${escHtml(r.uid || "")}">
         <span class="ca-suggest-main">
@@ -830,13 +1477,19 @@ async function quickAnalyze() {
       throw parseErr;
     }
     currentCompany = data.company;
+    sessionIdentityOverrides = [];
+    sessionBannerUiDismissed = false;
     lastGraph = data;
     lastAnalysis = data;
     currentCaseHit = await ensureCaseLookup(currentCompany);
+    currentCompanyTag = await ensureCompanyTagLookup(currentCompany);
     showBranchHintForCompany(currentCompany);
     renderSearchResults(data);
-    // Erste Analyse = Ebene 2 (Firma + aktuelle/ehemalige) — Regler daran ausrichten.
-    setDeepLevel(Number(data.level) || 2);
+    // Erste Analyse = Suchweite 2 (Phase Register). Auswahl: nächster Schritt (SW3).
+    loadedDeepLevel = Number(data.level) || 2;
+    const nextSuggest =
+      loadedDeepLevel <= 2 ? Math.max(3, loadedDeepLevel + 1) : loadedDeepLevel;
+    setDeepLevel(Math.min(5, nextSuggest));
     rememberSearch(currentCompany);
     syncForceRefreshBtn();
     await transitionToResults();
@@ -851,7 +1504,7 @@ async function quickAnalyze() {
 
 async function deepAnalyze() {
   if (!currentCompany) return;
-  let level = Number(document.getElementById("deepLevelRange")?.value || selectedDeepLevel);
+  let level = Number(selectedDeepLevel) || 2;
   selectedDeepLevel = level;
   let maxPersonSearches = FULL_PERSON_SEARCHES;
 
@@ -898,10 +1551,10 @@ function updateHeavyCompanyHint() {
 }
 
 function setDeepLevel(level) {
-  const range = document.getElementById("deepLevelRange");
-  if (!range) return;
-  range.value = String(level);
-  range.dispatchEvent(new Event("input"));
+  selectedDeepLevel = Math.min(5, Math.max(1, Number(level) || 1));
+  renderSuchweitePicker();
+  updateHeavyCompanyHint();
+  syncForceRefreshBtn();
 }
 
 function wireHeavyWarnModal() {
@@ -933,10 +1586,10 @@ function openHeavyWarnModal(level) {
   const sizeLine = bits.join(" · ") || "hohe Komplexität";
 
   body.textContent =
-    `Viele Register-Einträge (${sizeLine}). Ebene ${level} startet zusätzliche Personen-/Firmensuchen ` +
+    `Viele Register-Einträge (${sizeLine}). Suchweite ${level} startet zusätzliche Personen-/Firmensuchen ` +
     `über Zefix/SHAB — das kann mehrere Minuten dauern und die APIs belasten.`;
   if (hint) {
-    hint.textContent = `Empfehlung: sichere Suche (Ebene ≤ ${SAFE_MAX_LEVEL}, weniger Personensuchen).`;
+    hint.textContent = `Empfehlung: sichere Suche (Suchweite ≤ ${SAFE_MAX_LEVEL} / Phase Register, weniger Personensuchen).`;
   }
 
   modal.classList.remove("hidden");
@@ -961,30 +1614,58 @@ function closeHeavyWarnModal(choice) {
 
 async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false } = {}) {
   selectedDeepLevel = level;
+  renderSuchweitePicker();
   hideNotify();
   const before = graphFingerprint(lastGraph);
   startDeepProgress(level);
   document.getElementById("deepBtn").disabled = true;
   try {
+    const body = {
+      level,
+      ad_hoc_company: {
+        name: currentCompany.name || companyInput.value.trim(),
+        uid: currentCompany.uid || pendingUid || "",
+      },
+      max_person_searches: maxPersonSearches,
+      force_refresh: !!forceRefresh,
+    };
+    if (sessionIdentityOverrides.length) {
+      body.identity_overrides = sessionIdentityOverrides;
+    }
     const parsed = await fetchJson("/api/fraud-network/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        level,
-        ad_hoc_company: {
-          name: currentCompany.name || companyInput.value.trim(),
-          uid: currentCompany.uid || pendingUid || "",
-        },
-        max_person_searches: maxPersonSearches,
-        force_refresh: !!forceRefresh,
-      }),
+      body: JSON.stringify(body),
     });
     const data = parsed.data;
     if (!parsed.ok) throw new Error(formatDetail(data?.detail) || `HTTP ${parsed.status}`);
     lastGraph = data;
-    setDeepLevel(Number(data.level) || level);
+    loadedDeepLevel = Number(data.level) || level;
+    setDeepLevel(loadedDeepLevel);
     paintNetworkView();
     renderPersonsTable(data.persons_table || [], currentCompany);
+    renderSearchIncompleteBanner(data);
+    renderNextStepHint(data);
+    // Merge identity warnings into sticky warnings box
+    const baseWarnings = [...(lastAnalysis?.warnings || [])];
+    const idWarns = data.stats?.person_search?.identity_warnings || [];
+    for (const w of idWarns) {
+      if (w && !baseWarnings.includes(w)) baseWarnings.push(w);
+    }
+    if (currentCaseHit) {
+      const st = currentCaseHit.status || "confirmed";
+      const caseLine =
+        st === "under_review"
+          ? `Bereits in Prüfung (Akte #${currentCaseHit.id}, ${currentCaseHit.opened_by || ""})`
+          : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`;
+      if (!baseWarnings.includes(caseLine)) baseWarnings.unshift(caseLine);
+    }
+    renderWarnings(baseWarnings);
+    if (lastAnalysis) {
+      lastAnalysis = { ...lastAnalysis, ...data, persons_table: data.persons_table };
+    } else {
+      lastAnalysis = data;
+    }
     const after = graphFingerprint(data);
     const added = {
       nodes: Math.max(0, after.nodes - before.nodes),
@@ -992,28 +1673,43 @@ async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false }
       persons: Math.max(0, after.persons - before.persons),
     };
     const ps = data.stats?.person_search || {};
-    const shabBit = ps.searched ? ` · SHAB ${ps.matches || 0} in ${ps.elapsed_seconds || "?"}s` : "";
+    const mhN = Number(ps.moneyhouse_matches || 0);
+    const shabN = Number(ps.shab_matches || 0);
+    const incomplete = ps.search_complete === false;
+    const shabBit = [
+      mhN ? ` · Moneyhouse ${mhN}` : "",
+      ps.searched ? ` · SHAB ${shabN || ps.matches || 0} in ${ps.elapsed_seconds || "?"}s` : "",
+    ].join("");
     if (data.cached) {
       stopDeepProgress();
       hideStatus();
       const when = formatDateTimeDisplay(data.cached_at);
       showNotify(
         `Aus Cache${when ? ` (${when})` : ""} — «Neu laden» für frische Registerdaten.`,
-        { ok: true, sound: false }
+        { ok: !incomplete, sound: false, duration: incomplete ? 5600 : 4800 }
       );
-      showDeepCacheBar(level, maxPersonSearches, { fromCache: true, cachedAt: data.cached_at });
+      showDeepCacheBar(level, maxPersonSearches, {
+        fromCache: true,
+        cachedAt: data.cached_at,
+        incomplete,
+        identityWarnings: ps.identity_warnings,
+      });
     } else {
       await finishDeepProgress();
-      if (level >= 4) {
-        showDeepCacheBar(level, maxPersonSearches, { fromCache: false });
+      if (level >= 4 || incomplete || (ps.identity_warnings || []).length) {
+        showDeepCacheBar(level, maxPersonSearches, {
+          fromCache: false,
+          incomplete,
+          identityWarnings: ps.identity_warnings,
+        });
       } else {
         hideDeepCacheBar();
       }
       if (added.nodes === 0 && added.edges === 0 && added.persons === 0) {
         hideStatus();
         showNotify(
-          `Keine neuen Treffer auf Ebene ${level} — Netzwerk unverändert${shabBit}.`,
-          { ok: false, sound: true }
+          `Keine neuen Treffer bei Suchweite ${level} — Netzwerk unverändert${shabBit}.`,
+          { ok: false, sound: true, duration: incomplete ? 5600 : 4800 }
         );
       } else {
         const bits = [];
@@ -1022,8 +1718,8 @@ async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false }
         if (added.edges) bits.push(`+${added.edges} Verbindungen`);
         hideStatus();
         showNotify(
-          `Ergebnisse bereit · Ebene ${level}: ${bits.join(" · ")}${shabBit}`,
-          { ok: true, sound: true }
+          `Ergebnisse bereit · Suchweite ${level}: ${bits.join(" · ")}${shabBit}`,
+          { ok: !incomplete, sound: true, duration: incomplete ? 5600 : 4800 }
         );
       }
     }
@@ -1040,21 +1736,45 @@ async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false }
   }
 }
 
-function showDeepCacheBar(level, maxPersonSearches, { fromCache = true, cachedAt = null } = {}) {
+function showDeepCacheBar(
+  level,
+  maxPersonSearches,
+  { fromCache = true, cachedAt = null, incomplete = false, identityWarnings = null } = {}
+) {
   const bar = document.getElementById("caDeepCacheBar");
   if (!bar) return;
   bar.classList.remove("hidden");
-  bar.dataset.keep = fromCache || level >= 4 ? "1" : "";
+  bar.dataset.keep = fromCache || level >= 4 || incomplete ? "1" : "";
   const when = formatDateTimeDisplay(cachedAt);
+  // Incomplete details live in the status card above — keep this bar about cache only.
   const label = fromCache
-    ? `Ebene ${level} aus Server-Cache (7 Tage)${when && when !== "—" ? ` · ${when}` : ""}.`
-    : `Ebene ${level} für 7 Tage im Server-Cache gespeichert.`;
+    ? `Suchweite ${level} aus Server-Cache (7 Tage)${when && when !== "—" ? ` · ${when}` : ""}.`
+    : `Suchweite ${level} für 7 Tage im Server-Cache gespeichert.`;
+  const softNote = incomplete
+    ? `<button type="button" class="ca-deep-cache-softlink" data-scroll-incomplete>Zur Hinweis-Karte</button>`
+    : "";
+  // Identity context is primary on the status card when incomplete; avoid stacking duplicates.
+  const warns =
+    !incomplete && Array.isArray(identityWarnings)
+      ? identityWarnings.filter(Boolean)
+      : [];
+  const warnLine = warns.length
+    ? `<span class="ca-deep-cache-warn">${escHtml(warns.slice(0, 2).join(" · "))}${warns.length > 2 ? ` (+${warns.length - 2})` : ""}</span>`
+    : "";
   bar.innerHTML = `
     <span>${label}</span>
+    ${softNote}
+    ${warnLine}
     <button type="button" class="btn-nav" id="caDeepForceRefresh">Neu laden</button>
   `;
   document.getElementById("caDeepForceRefresh")?.addEventListener("click", () => {
     runDeepAnalyze(level, maxPersonSearches, { forceRefresh: true });
+  });
+  bar.querySelector("[data-scroll-incomplete]")?.addEventListener("click", () => {
+    document.getElementById("caSearchIncompleteBanner")?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
   });
 }
 
@@ -1100,12 +1820,12 @@ async function refreshCompanyCacheOffer() {
     const best = bits[0];
     bar.classList.remove("hidden");
     bar.innerHTML = `
-      <span>Cached Ebene ${best.level} verfügbar${best.when ? ` (${best.when})` : ""} — ${best.nodes} Knoten.</span>
+      <span>Cache Suchweite ${best.level} verfügbar${best.when ? ` (${best.when})` : ""} — ${best.nodes} Knoten.</span>
       <span class="ca-deep-cache-actions">
         ${bits
           .map(
             (b) =>
-              `<button type="button" class="btn-nav ca-cache-load" data-level="${b.level}">E${b.level} laden</button>`
+              `<button type="button" class="btn-nav ca-cache-load" data-level="${b.level}">SW${b.level} laden</button>`
           )
           .join("")}
       </span>
@@ -1133,10 +1853,6 @@ function graphFingerprint(data) {
   };
 }
 
-const LEVEL_ETA_MS = { 1: 6000, 2: 10000, 3: 22000, 4: 38000, 5: 55000 };
-let deepProgressTimer = null;
-let deepProgressValue = 0;
-
 function startDeepProgress(level) {
   stopDeepProgress();
   deepProgressValue = 4;
@@ -1145,7 +1861,14 @@ function startDeepProgress(level) {
   wrap?.classList.remove("hidden");
   wrap?.setAttribute("aria-hidden", "false");
   if (bar) bar.style.width = `${deepProgressValue}%`;
-  showStatus(`Suche Ebene ${level}…`);
+  const meta = LEVEL_META[level] || {};
+  if (level >= 3) {
+    showStatus(
+      `Suche Suchweite ${level} (${meta.title || "Netzwerk"})… Moneyhouse/SHAB — Fortschritt ist ungefähr; unvollständige Monats-Scans werden gekennzeichnet.`
+    );
+  } else {
+    showStatus(`Suche Suchweite ${level}${meta.title ? ` · ${meta.title}` : ""}…`);
+  }
 
   const eta = LEVEL_ETA_MS[level] || 25000;
   const tickMs = 280;
@@ -1155,6 +1878,12 @@ function startDeepProgress(level) {
     const step = Math.max(0.35, (targetBeforeDone - deepProgressValue) * (tickMs / eta) * 1.4);
     deepProgressValue = Math.min(targetBeforeDone, deepProgressValue + step);
     if (bar) bar.style.width = `${deepProgressValue.toFixed(1)}%`;
+    // Progressive honesty without overbuilding — refresh status text sparingly
+    if (level >= 3 && deepProgressValue > 45 && deepProgressValue < 50) {
+      showStatus(
+        `Suche Suchweite ${level}… noch aktiv (Monats-Scans / Zefix können dauern).`
+      );
+    }
   }, tickMs);
 }
 
@@ -1189,9 +1918,6 @@ function stopDeepProgress(hide = true) {
     deepProgressValue = 0;
   }
 }
-
-let notifyTimer = null;
-let notifyHideTimer = null;
 
 /** Short ready-chime (Web Audio) — no external sound file. */
 function playReadyChime() {
@@ -1277,13 +2003,794 @@ function renderSearchResults(data) {
         : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`
     );
   }
+  // Soft MH identity + incomplete-search context (also sticky banner below)
+  const ps = data.stats?.person_search || lastGraph?.stats?.person_search || {};
+  const idWarns = ps.identity_warnings || [];
+  for (const w of idWarns) {
+    if (w && !warnings.includes(w)) warnings.push(w);
+  }
   renderWarnings(warnings);
+  renderSearchIncompleteBanner(data);
+  renderNextStepHint(data);
   renderPersonsTable(data.persons_table || data.persons || [], company);
   renderTimeline(data.recent_publications || [], data.mutation_analysis);
   renderDetails(company, data);
   // Network: Graph (default) or Organigramm — preference in localStorage
   paintNetworkView();
   updateHeavyCompanyHint();
+}
+
+function personSearchStats(data) {
+  return data?.stats?.person_search || lastGraph?.stats?.person_search || {};
+}
+
+function countFormerPersons(data) {
+  const fromStats = Number(data?.stats?.former_persons);
+  if (Number.isFinite(fromStats) && fromStats > 0) return fromStats;
+  const persons = data?.persons_table || data?.persons || [];
+  return persons.filter((p) => p.status === "former").length;
+}
+
+function humanIncompleteReason(ps) {
+  const note = String(ps?.note || "").trim();
+  if (/Zeitlimit|Timeout|Monats-Scan|nur\s+\d+\s*\/\s*\d+\s*Monate/i.test(note)) {
+    return "Die Netzwerk-Suche hat das Zeitlimit erreicht. Ältere Mandate und Übernahmen können fehlen.";
+  }
+  if (note && !/\d+\s*\/\s*\d+\s*Monate/i.test(note) && note.length < 160) {
+    return note;
+  }
+  return "Die Personensuche wurde abgebrochen. Angezeigte Mandate können lückenhaft sein.";
+}
+
+function technicalSearchDetails(ps, level) {
+  const bits = [`Suchweite ${level}`];
+  if (ps.searched != null && ps.searched !== "") bits.push(`${ps.searched} Personen gestartet`);
+  if (ps.matches != null) bits.push(`${ps.matches} Treffer`);
+  if (ps.moneyhouse_matches != null && Number(ps.moneyhouse_matches) > 0) {
+    bits.push(`Moneyhouse ${ps.moneyhouse_matches}`);
+  }
+  if (ps.shab_matches != null && Number(ps.shab_matches) > 0) {
+    bits.push(`SHAB ${ps.shab_matches}`);
+  }
+  if (ps.elapsed_seconds != null && ps.elapsed_seconds !== "") {
+    bits.push(`${ps.elapsed_seconds}s`);
+  }
+  if (ps.years_back != null) bits.push(`${ps.years_back} J. Ziel`);
+  if (ps.scanned_months != null && ps.total_months != null) {
+    bits.push(`${ps.scanned_months}/${ps.total_months} Monate`);
+  }
+  const note = String(ps?.note || "").trim();
+  if (note) bits.push(note);
+  return bits.join(" · ");
+}
+
+function focusPersonsSidebar() {
+  const tab = document.querySelector('.ca-side-tab[data-side="persons"]');
+  if (tab && !tab.classList.contains("is-active")) tab.click();
+  document.getElementById("personsBox")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+/**
+ * Incomplete / identity banner actions — delegated once.
+ * Must not depend on re-attaching click handlers after each innerHTML rewrite
+ * (re-render races or missed wire-up leave dead gold buttons).
+ */
+function incompleteBannerLevel(root) {
+  const fromData = Number(root?.dataset?.level);
+  if (Number.isFinite(fromData) && fromData > 0) return fromData;
+  return Number(selectedDeepLevel) || Number(loadedDeepLevel) || 2;
+}
+
+function _normIdToken(v) {
+  let s = String(v || "").trim();
+  if (s.toLowerCase().startsWith("person:")) s = s.slice(7).trim();
+  return s;
+}
+
+function sessionOverrideMatchesPerson(override, personName, personId) {
+  if (!override) return false;
+  const oid = _normIdToken(override.person_id);
+  const pid = _normIdToken(personId);
+  if (oid && pid && oid === pid) return true;
+  const on = (override.person_name || "").trim().toLowerCase();
+  const name = (personName || "").trim().toLowerCase();
+  return Boolean(on && name && on === name);
+}
+
+function isSessionResolvedIdentity(personName, personId) {
+  return sessionIdentityOverrides.some((o) =>
+    sessionOverrideMatchesPerson(o, personName, personId)
+  );
+}
+
+/** Drop choices the user already accepted/ignored this session (even if API re-sends them). */
+function filterSessionIdentityChoices(choices) {
+  if (!Array.isArray(choices) || !choices.length) return [];
+  return choices.filter(
+    (c) => !isSessionResolvedIdentity(c?.person_name || "", c?.person_id || "")
+  );
+}
+
+function filterSessionIdentityWarnings(warns) {
+  if (!Array.isArray(warns) || !warns.length) return [];
+  if (!sessionIdentityOverrides.length) return warns.filter(Boolean);
+  return warns.filter((w) => {
+    const line = String(w || "").trim();
+    if (!line) return false;
+    const lower = line.toLowerCase();
+    return !sessionIdentityOverrides.some((o) => {
+      const name = (o.person_name || "").trim().toLowerCase();
+      if (name && lower.startsWith(name)) return true;
+      const pid = _normIdToken(o.person_id).toLowerCase();
+      if (pid && lower.includes(pid)) return true;
+      return false;
+    });
+  });
+}
+
+/** Mutate (or clone) person_search stats so resolved people never reappear in the UI. */
+function applySessionIdentityFilterToStats(ps) {
+  if (!ps || typeof ps !== "object") return ps;
+  const next = { ...ps };
+  next.identity_choices = filterSessionIdentityChoices(ps.identity_choices);
+  next.identity_warnings = filterSessionIdentityWarnings(ps.identity_warnings);
+  return next;
+}
+
+function applySessionIdentityFilterToPayload(data) {
+  if (!data || typeof data !== "object") return data;
+  const ps = data.stats?.person_search;
+  if (!ps) return data;
+  return {
+    ...data,
+    stats: {
+      ...data.stats,
+      person_search: applySessionIdentityFilterToStats(ps),
+    },
+  };
+}
+
+function wireIncompleteBannerActions(root, data) {
+  // Keep dataset in sync whenever we re-render the card
+  if (root && data) {
+    const level = Number(data?.level) || selectedDeepLevel || 2;
+    root.dataset.level = String(level);
+  }
+  if (_incompleteBannerDelegated) return;
+  const el = root || document.getElementById("caSearchIncompleteBanner");
+  if (!el) return;
+  _incompleteBannerDelegated = true;
+
+  el.addEventListener(
+    "click",
+    (e) => {
+      const idBtn = e.target?.closest?.("[data-identity-action]");
+      if (idBtn && el.contains(idBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (_identityConfirmBusy || idBtn.disabled) return;
+        const action = idBtn.getAttribute("data-identity-action") || "";
+        const personName = idBtn.getAttribute("data-person-name") || "";
+        const personId = idBtn.getAttribute("data-person-id") || "";
+        // Prefer data-mh-key; empty string is valid for ignore
+        const mhKey = idBtn.hasAttribute("data-mh-key")
+          ? idBtn.getAttribute("data-mh-key") || ""
+          : "";
+        confirmIdentityChoice({
+          action,
+          personName,
+          personId,
+          moneyhousePersonKey: mhKey,
+          level: incompleteBannerLevel(el),
+          sourceBtn: idBtn,
+        });
+        return;
+      }
+
+      const actBtn = e.target?.closest?.("[data-incomplete-action]");
+      if (!actBtn || !el.contains(actBtn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (actBtn.disabled) return;
+      const action = actBtn.getAttribute("data-incomplete-action");
+      const level = incompleteBannerLevel(el);
+      if (action === "dismiss") {
+        sessionBannerUiDismissed = true;
+        el.classList.add("hidden");
+        el.innerHTML = "";
+        showNotify("Statuskarte geschlossen. «Neu laden» zeigt sie bei Bedarf erneut.", {
+          ok: true,
+          duration: 3600,
+        });
+        return;
+      }
+      if (action === "force-refresh") {
+        sessionBannerUiDismissed = false;
+        runDeepAnalyze(level, FULL_PERSON_SEARCHES, { forceRefresh: true });
+        return;
+      }
+      if (action === "persons") {
+        focusPersonsSidebar();
+        return;
+      }
+      if (action === "level") {
+        const lvl = Number(actBtn.getAttribute("data-next-level")) || 3;
+        setDeepLevel(lvl);
+        deepAnalyze();
+      }
+    },
+    // Capture so graph canvas / layout parents cannot swallow the click first
+    true
+  );
+}
+
+function upsertSessionOverride(entry) {
+  const name = (entry.person_name || "").trim();
+  const pid = (entry.person_id || "").trim();
+  sessionIdentityOverrides = sessionIdentityOverrides.filter((o) => {
+    const on = (o.person_name || "").trim();
+    const op = (o.person_id || "").trim();
+    if (pid && op && _normIdToken(pid) === _normIdToken(op)) return false;
+    if (name && on && name.toLowerCase() === on.toLowerCase()) return false;
+    return true;
+  });
+  sessionIdentityOverrides.push(entry);
+}
+
+function removeSessionOverride(personName, personId) {
+  const name = (personName || "").trim();
+  const pid = (personId || "").trim();
+  sessionIdentityOverrides = sessionIdentityOverrides.filter(
+    (o) => !sessionOverrideMatchesPerson(o, name, pid)
+  );
+}
+
+async function confirmIdentityChoice({
+  action,
+  personName,
+  personId,
+  moneyhousePersonKey,
+  level,
+  sourceBtn = null,
+}) {
+  if (!currentCompany) {
+    showNotify("Keine Firma geladen — bitte erneut analysieren.", { ok: false });
+    return;
+  }
+  const act = action === "ignore" ? "ignore" : "accept";
+  const mhKey = String(moneyhousePersonKey || "").trim();
+  if (act === "accept" && !mhKey) {
+    showNotify("Bitte ein Moneyhouse-Profil wählen.", { ok: false });
+    return;
+  }
+  if (!personName && !personId) {
+    showNotify("Person fehlt — bitte Statuskarte neu laden.", { ok: false });
+    return;
+  }
+  if (_identityConfirmBusy) return;
+  _identityConfirmBusy = true;
+
+  const levelN = Number(level) || selectedDeepLevel || loadedDeepLevel || 3;
+  const confirmLevel = Math.max(3, levelN);
+  hideNotify();
+  // Short progress: identity confirm only expands one person (no full SW5 walk).
+  startDeepProgress(confirmLevel);
+  const deepBtn = document.getElementById("deepBtn");
+  if (deepBtn) deepBtn.disabled = true;
+
+  const entry = {
+    action: act,
+    person_name: personName || null,
+    person_id: personId || null,
+    moneyhouse_person_key: act === "accept" ? mhKey : null,
+  };
+  // Optimistically drop this person from the sticky card so it cannot reappear.
+  upsertSessionOverride(entry);
+  if (lastAnalysis) {
+    renderSearchIncompleteBanner(lastAnalysis);
+  }
+
+  const banner = document.getElementById("caSearchIncompleteBanner");
+  banner?.classList.add("is-confirming");
+  banner
+    ?.querySelectorAll("[data-identity-action], [data-incomplete-action]")
+    .forEach((b) => {
+      b.disabled = true;
+    });
+  if (sourceBtn) {
+    sourceBtn.classList.add("is-busy");
+    sourceBtn.setAttribute("aria-busy", "true");
+  }
+  try {
+    // Other locks already decided this session (excluding this person).
+    const prior = sessionIdentityOverrides.filter((o) => {
+      return !sessionOverrideMatchesPerson(o, personName, personId);
+    });
+    const companyName =
+      (currentCompany && currentCompany.name) ||
+      (companyInput && companyInput.value.trim()) ||
+      "";
+    const companyUid =
+      (currentCompany && currentCompany.uid) || pendingUid || "";
+    if (!companyName && !companyUid) {
+      throw new Error("Firma (Name/UID) fehlt — bitte erneut analysieren.");
+    }
+    // Prefer in-memory graph (often from cache) so the backend merges MH only
+    // for this person — never force_refresh / full multi-person re-scan.
+    const baseGraph = lastAnalysis || lastGraph || null;
+    const base_analysis =
+      baseGraph && Array.isArray(baseGraph.nodes)
+        ? {
+            nodes: baseGraph.nodes,
+            edges: baseGraph.edges || [],
+            persons_table: baseGraph.persons_table || [],
+            stats: baseGraph.stats || {},
+            seed_companies: baseGraph.seed_companies || [],
+            level: baseGraph.level || confirmLevel,
+            level_label: baseGraph.level_label,
+            warnings: baseGraph.warnings,
+            cached: !!baseGraph.cached,
+            cached_at: baseGraph.cached_at || null,
+          }
+        : null;
+    const parsed = await fetchJson("/api/fraud-network/confirm-identity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        level: confirmLevel,
+        ad_hoc_company: {
+          name: companyName,
+          uid: companyUid,
+        },
+        person_name: personName || null,
+        person_id: personId || null,
+        moneyhouse_person_key: act === "accept" ? mhKey : null,
+        action: act,
+        max_person_searches: FULL_PERSON_SEARCHES,
+        identity_overrides: prior,
+        base_analysis,
+      }),
+    });
+    const data = parsed.data;
+    if (!parsed.ok) throw new Error(formatDetail(data?.detail) || `HTTP ${parsed.status}`);
+    upsertSessionOverride(entry);
+    const filtered = applySessionIdentityFilterToPayload(data);
+    lastGraph = filtered;
+    if (lastAnalysis) {
+      lastAnalysis = {
+        ...lastAnalysis,
+        ...filtered,
+        persons_table: filtered.persons_table,
+        // Keep session identity locks; do not re-show picker for this person.
+        stats: filtered.stats || lastAnalysis.stats,
+      };
+    } else {
+      lastAnalysis = filtered;
+    }
+    loadedDeepLevel = Number(filtered.level) || confirmLevel;
+    setDeepLevel(loadedDeepLevel);
+    paintNetworkView();
+    renderPersonsTable(filtered.persons_table || [], currentCompany);
+    renderSearchIncompleteBanner(filtered);
+    renderNextStepHint(filtered);
+    const baseWarn = (lastAnalysis?.warnings || []).filter((w) => {
+      const nameL = (personName || "").trim().toLowerCase();
+      if (!nameL) return true;
+      return !String(w).toLowerCase().startsWith(nameL);
+    });
+    renderWarnings([
+      ...baseWarn,
+      ...(filtered.stats?.person_search?.identity_warnings || []),
+    ]);
+    await finishDeepProgress();
+    hideStatus();
+    const ps = filtered.stats?.person_search || {};
+    const mhN =
+      Number(filtered.identity_firms_added) >= 0 &&
+      filtered.identity_firms_added != null
+        ? Number(filtered.identity_firms_added)
+        : Number(ps.moneyhouse_matches || 0);
+    const incremental = filtered.incremental_identity !== false || !!base_analysis;
+    showNotify(
+      act === "ignore"
+        ? `${personName || "Person"}: Moneyhouse-Hinweis ignoriert.`
+        : `${personName || "Person"}: Profil übernommen` +
+            (mhN ? ` · ${mhN} Firmen nachgezogen` : "") +
+            (incremental ? " (ohne Neu-Scan)." : "."),
+      { ok: true, sound: true, duration: 4800 }
+    );
+  } catch (err) {
+    // Roll back optimistic lock so the person can be confirmed again
+    removeSessionOverride(personName, personId);
+    if (lastAnalysis) {
+      renderSearchIncompleteBanner(lastAnalysis);
+    }
+    stopDeepProgress();
+    showNotify(err.message || String(err), { ok: false });
+  } finally {
+    _identityConfirmBusy = false;
+    if (deepBtn) deepBtn.disabled = false;
+    banner?.classList.remove("is-confirming");
+    // Banner may have been re-rendered; clear busy on any leftover button
+    document
+      .getElementById("caSearchIncompleteBanner")
+      ?.querySelectorAll("[data-identity-action], [data-incomplete-action]")
+      .forEach((b) => {
+        b.disabled = false;
+        b.classList.remove("is-busy");
+        b.removeAttribute("aria-busy");
+      });
+  }
+}
+
+function formatCandidateFirms(c) {
+  const firms = Array.isArray(c?.related_companies) ? c.related_companies.filter(Boolean) : [];
+  if (!firms.length) {
+    const n = Number(c?.related_companies_count || 0);
+    return n > 0 ? `${n} Firmen im Profil` : "Keine Firmen im Profil";
+  }
+  const shown = firms.slice(0, 3).join(", ");
+  const extra = firms.length > 3 ? ` (+${firms.length - 3})` : "";
+  return shown + extra;
+}
+
+/** Absolute Moneyhouse person profile URL, or "" if not available. Never invent from bare ids. */
+function moneyhouseProfileUrl(c) {
+  const raw = (c?.profile_url || c?.uri || "").trim();
+  if (!raw) return "";
+  if (/^https:\/\/(www\.)?moneyhouse\.ch\//i.test(raw)) {
+    return raw.replace(/^https:\/\/moneyhouse\.ch\//i, "https://www.moneyhouse.ch/");
+  }
+  if (/^http:\/\/(www\.)?moneyhouse\.ch\//i.test(raw)) {
+    return raw.replace(/^http:\/\/(www\.)?/i, "https://www.");
+  }
+  if (raw.startsWith("/") && !raw.startsWith("//")) {
+    return `https://www.moneyhouse.ch${raw}`;
+  }
+  return "";
+}
+
+function moneyhouseProfileLinkHtml(c) {
+  const url = moneyhouseProfileUrl(c);
+  if (!url) return "";
+  return (
+    `<a class="ca-id-mh-link" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">` +
+    `Moneyhouse-Profil ↗</a>`
+  );
+}
+
+function identityIgnoreButtonHtml(name, pid) {
+  return (
+    `<button type="button" class="ca-search-incomplete-cta ca-id-ignore" data-identity-action="ignore" ` +
+    `data-person-name="${escHtml(name)}" data-person-id="${escHtml(pid)}" ` +
+    `data-mh-key="">Ignorieren</button>`
+  );
+}
+
+function renderIdentityChoicesBlock(choices) {
+  if (!Array.isArray(choices) || !choices.length) return "";
+  const blocks = choices.map((choice) => {
+    const name = choice.person_name || "Person";
+    const msg =
+      choice.message ||
+      "Moneyhouse konnte die Person nicht eindeutig der analysierten Firma zuordnen.";
+    const status = choice.status || "ambiguous";
+    const pid = choice.person_id || "";
+    const candidates = Array.isArray(choice.candidates) ? choice.candidates : [];
+    const softKey = choice.soft_person_key || candidates[0]?.person_key || "";
+    const tech =
+      choice.technical ||
+      (candidates.length
+        ? candidates
+            .map(
+              (c) =>
+                `${c.name || "?"}${c.city ? ` · ${c.city}` : ""}${
+                  c.seed_listed ? " · Firma im Profil" : ""
+                }`
+            )
+            .join("; ")
+        : "");
+
+    // Always expose Ignorieren (soft, multi-candidate, empty) so the panel is dismissible per person.
+    let actionsHtml =
+      `<div class="ca-id-choice-actions">` +
+      identityIgnoreButtonHtml(name, pid);
+
+    if (status === "soft" && softKey) {
+      actionsHtml =
+        `<div class="ca-id-choice-actions">` +
+        `<button type="button" class="ca-search-incomplete-cta ca-id-accept" data-identity-action="accept" ` +
+        `data-person-name="${escHtml(name)}" data-person-id="${escHtml(pid)}" ` +
+        `data-mh-key="${escHtml(softKey)}">Übernehmen</button>` +
+        identityIgnoreButtonHtml(name, pid) +
+        `<span class="ca-search-incomplete-hint">Nur dem Namen nach — Firmenliste manuell bestätigen</span>` +
+        `</div>`;
+    } else if (!candidates.length) {
+      actionsHtml +=
+        `<span class="ca-search-incomplete-hint">Kein Moneyhouse-Profil übernehmen — Hinweis schliessen mit Ignorieren</span>` +
+        `</div>`;
+    } else {
+      actionsHtml +=
+        `<span class="ca-search-incomplete-hint">Profil wählen oder Hinweis ignorieren</span>` +
+        `</div>`;
+    }
+
+    let candsHtml = "";
+    if (candidates.length && status !== "soft") {
+      candsHtml =
+        `<ul class="ca-id-candidate-list">` +
+        candidates
+          .map((c) => {
+            const key = c.person_key || c.uri || "";
+            const city = c.city ? ` · ${c.city}` : "";
+            const firms = formatCandidateFirms(c);
+            const mhLink = moneyhouseProfileLinkHtml(c);
+            return (
+              `<li class="ca-id-candidate">` +
+              `<div class="ca-id-candidate-meta">` +
+              `<strong>${escHtml(c.name || "?")}</strong>${escHtml(city)}` +
+              (mhLink ? `<span class="ca-id-candidate-link">${mhLink}</span>` : "") +
+              `<span class="ca-id-candidate-firms">${escHtml(firms)}</span>` +
+              `</div>` +
+              `<button type="button" class="ca-search-incomplete-cta ca-id-accept" data-identity-action="accept" ` +
+              `data-person-name="${escHtml(name)}" data-person-id="${escHtml(pid)}" ` +
+              `data-mh-key="${escHtml(key)}">In Analyse übernehmen</button>` +
+              `</li>`
+            );
+          })
+          .join("") +
+        `</ul>`;
+    } else if (status === "soft" && candidates.length) {
+      const c = candidates[0];
+      const mhLink = moneyhouseProfileLinkHtml(c);
+      candsHtml =
+        `<p class="ca-id-soft-preview">` +
+        `Moneyhouse-Profil: <strong>${escHtml(c.name || name)}</strong>` +
+        (c.city ? escHtml(` · ${c.city}`) : "") +
+        ` — ${escHtml(formatCandidateFirms(c))}` +
+        (mhLink ? ` ${mhLink}` : "") +
+        `</p>`;
+    }
+
+    const techHtml = tech
+      ? `<details class="ca-search-incomplete-tech ca-id-tech">` +
+        `<summary>Technische Details</summary>` +
+        `<p>${escHtml(tech)}</p>` +
+        `</details>`
+      : "";
+
+    return (
+      `<div class="ca-id-choice" data-status="${escHtml(status)}">` +
+      `<div class="ca-id-choice-who">${escHtml(name)}</div>` +
+      `<p class="ca-id-choice-msg">${escHtml(msg)}</p>` +
+      actionsHtml +
+      candsHtml +
+      techHtml +
+      `</div>`
+    );
+  });
+  return (
+    `<div class="ca-search-incomplete-id">` +
+    `<span class="ca-search-incomplete-id-label">Personen zuordnen</span>` +
+    blocks.join("") +
+    `</div>`
+  );
+}
+
+function renderSearchIncompleteBanner(data) {
+  const el = document.getElementById("caSearchIncompleteBanner");
+  if (!el) return;
+
+  if (sessionBannerUiDismissed) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+
+  const filtered = applySessionIdentityFilterToPayload(data) || data;
+  const level = Number(filtered?.level) || selectedDeepLevel || 2;
+  const ps = personSearchStats(filtered);
+  const incomplete = ps.search_complete === false;
+  const idChoices = Array.isArray(ps.identity_choices) ? ps.identity_choices : [];
+  const idWarns = Array.isArray(ps.identity_warnings)
+    ? ps.identity_warnings.filter(Boolean)
+    : [];
+  const formers = countFormerPersons(filtered);
+  const hasIdentity = idChoices.length > 0 || idWarns.length > 0;
+
+  if (!incomplete && !hasIdentity) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+
+  const title = incomplete
+    ? "Ergebnisse können unvollständig sein"
+    : "Personenzuordnung unklar";
+  const reason = incomplete
+    ? humanIncompleteReason(ps)
+    : idChoices.length
+      ? "Moneyhouse hat ähnliche Namen gefunden, aber die analysierte Firma steht dort nicht eindeutig. Sie können ein Profil übernehmen oder den Hinweis ignorieren."
+      : "Moneyhouse konnte Personen nicht eindeutig der analysierten Firma zuordnen. Treffer bitte manuell prüfen.";
+
+  const actions = [];
+  if (incomplete || hasIdentity) {
+    actions.push({
+      action: "force-refresh",
+      label: "Neu laden",
+      hint: incomplete
+        ? "Erneut scannen ohne Cache — oft mehr Monate abgedeckt"
+        : "Ohne Cache neu laden und Zuordnung erneut prüfen",
+    });
+  }
+  if (incomplete && level <= 3 && formers > 0) {
+    actions.push({
+      action: "level",
+      level: 4,
+      label: "Suchweite 4",
+      hint: "+ Mandate der ehemaligen — kann weitere Firmen finden",
+    });
+  }
+  if (incomplete && level <= 4) {
+    actions.push({
+      action: "level",
+      level: 5,
+      label: "Suchweite 5",
+      hint: "+ Personen an Mandatsfirmen (2. Ring)",
+    });
+  }
+  if (incomplete || (ps.matches != null && Number(ps.matches) > 0) || hasIdentity) {
+    actions.push({
+      action: "persons",
+      label: "Personen prüfen",
+      hint: "Bereits gefundene Mandate in der Sidebar ansehen",
+    });
+  }
+
+  // De-dupe by label while preserving order
+  const seen = new Set();
+  const uniqueActions = actions.filter((a) => {
+    if (seen.has(a.label)) return false;
+    seen.add(a.label);
+    return true;
+  });
+
+  const actionsHtml = uniqueActions.length
+    ? `<ul class="ca-search-incomplete-actions">${uniqueActions
+        .map((a) => {
+          const levelAttr =
+            a.action === "level" ? ` data-next-level="${a.level}"` : "";
+          return (
+            `<li>` +
+            `<button type="button" class="ca-search-incomplete-cta" data-incomplete-action="${escHtml(a.action)}"${levelAttr}>` +
+            `${escHtml(a.label)}</button>` +
+            `<span class="ca-search-incomplete-hint">${escHtml(a.hint)}</span>` +
+            `</li>`
+          );
+        })
+        .join("")}</ul>`
+    : "";
+
+  // Prefer structured choices; fall back to plain warning lines
+  let idHtml = renderIdentityChoicesBlock(idChoices);
+  if (!idHtml && idWarns.length) {
+    idHtml =
+      `<div class="ca-search-incomplete-id">` +
+      `<span class="ca-search-incomplete-id-label">Personen zuordnen</span>` +
+      `<ul class="ca-search-incomplete-id-list">` +
+      idWarns
+        .slice(0, 4)
+        .map((w) => `<li>${escHtml(String(w))}</li>`)
+        .join("") +
+      (idWarns.length > 4
+        ? `<li class="ca-search-incomplete-id-more">+${idWarns.length - 4} weitere</li>`
+        : "") +
+      `</ul>` +
+      `<div class="ca-id-choice-actions">` +
+      `<button type="button" class="ca-search-incomplete-cta ca-id-ignore" data-incomplete-action="dismiss">` +
+      `Hinweise schliessen</button>` +
+      `<span class="ca-search-incomplete-hint">Nur Anzeige — Graph wieder freigeben</span>` +
+      `</div></div>`;
+  }
+
+  const tech = technicalSearchDetails(ps, level);
+  const techHtml =
+    incomplete && tech
+      ? `<details class="ca-search-incomplete-tech">` +
+        `<summary>Technische Details</summary>` +
+        `<p>${escHtml(tech)}</p>` +
+        `</details>`
+      : "";
+
+  el.innerHTML =
+    `<div class="ca-search-incomplete-card">` +
+    `<button type="button" class="ca-search-incomplete-close" data-incomplete-action="dismiss" ` +
+    `aria-label="Statuskarte schliessen" title="Schliessen">×</button>` +
+    `<div class="ca-search-incomplete-icon" aria-hidden="true">` +
+    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+    `<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>` +
+    `<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>` +
+    `</svg></div>` +
+    `<div class="ca-search-incomplete-body">` +
+    `<h3 class="ca-search-incomplete-title">${escHtml(title)}</h3>` +
+    `<p class="ca-search-incomplete-reason">${escHtml(reason)}</p>` +
+    actionsHtml +
+    idHtml +
+    techHtml +
+    `</div></div>`;
+  el.classList.remove("hidden");
+  wireIncompleteBannerActions(el, filtered);
+}
+
+function renderNextStepHint(data) {
+  const el = document.getElementById("caNextStepHint");
+  if (!el) return;
+  const filtered = applySessionIdentityFilterToPayload(data) || data;
+  const level = Number(filtered?.level) || selectedDeepLevel || 2;
+  const formers = countFormerPersons(filtered);
+  const ps = personSearchStats(filtered);
+  const incomplete = ps.search_complete === false;
+  const idWarns = Array.isArray(ps.identity_warnings)
+    ? ps.identity_warnings.filter(Boolean)
+    : [];
+  // Routine SW2→SW3 guidance lives in the collapsed Suchweite strip — avoid double CTAs under the firm bar.
+  // Only surface this banner for incomplete person-search or identity warnings.
+  if (!incomplete && !idWarns.length) {
+    el.innerHTML = "";
+    el.classList.add("hidden");
+    return;
+  }
+
+  let next = "";
+  let promote = "";
+
+  if (level <= 2) {
+    // Status card already covers incomplete/identity UX; no extra Register→SW3 banner.
+    el.innerHTML = "";
+    el.classList.add("hidden");
+    return;
+  } else if (level === 3) {
+    const matchBit =
+      ps.matches != null
+        ? ` · ${ps.matches} Mandats-Treffer`
+        : "";
+    next = `Geladen: <strong>Suchweite 3</strong> — Mandate der aktuellen Organe${matchBit}.`;
+    if (incomplete) {
+      promote = formers
+        ? ` Vertiefen: <button type="button" class="ca-next-step-cta" data-next-level="4">Suchweite 4 — Ehemalige</button>` +
+          ` oder <button type="button" class="ca-next-step-cta" data-next-level="5">Suchweite 5 — 2. Ring</button>.`
+        : ` Vertiefen: <button type="button" class="ca-next-step-cta" data-next-level="5">Suchweite 5 — 2. Ring</button>.`;
+    } else if (idWarns.length) {
+      promote = formers
+        ? ` ${formers} ehemalige Person${formers === 1 ? "" : "en"} — ` +
+          `<button type="button" class="ca-next-step-cta" data-next-level="4">Suchweite 4 laden</button>.`
+        : "";
+    }
+  } else if (level === 4) {
+    next =
+      `Geladen: <strong>Suchweite 4</strong> — + Mandate der ehemaligen. Personen-Karten zeigen verknüpfte Firmen.` +
+      (incomplete
+        ? ` Optional: <button type="button" class="ca-next-step-cta" data-next-level="5">Suchweite 5 — 2. Ring</button>.`
+        : "");
+  } else {
+    next = `Geladen: <strong>Suchweite 5</strong> — + Personen an Mandatsfirmen (2. Ring). Prüfe Graph und Personen-Sidebar.`;
+  }
+
+  const html = (next + promote).trim();
+  if (!html) {
+    el.innerHTML = "";
+    el.classList.add("hidden");
+    return;
+  }
+  el.innerHTML = html;
+  el.classList.remove("hidden");
+  el.querySelectorAll("[data-next-level]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lvl = Number(btn.getAttribute("data-next-level")) || 3;
+      setDeepLevel(lvl);
+      deepAnalyze();
+    });
+  });
 }
 
 function renderFirmBar(company, data) {
@@ -1299,25 +2806,37 @@ function renderFirmBar(company, data) {
   const formShort = shortenLegalForm(company.legal_form);
   const onCase = !!currentCaseHit;
   const caseStatus = currentCaseHit?.status || "";
+  const onTag = !!currentCompanyTag;
   const hr = safeHttpUrl(company.cantonal_excerpt_url);
   const metaCount = [company.uid, seat, formShort, data.publication_count != null].filter(Boolean).length;
 
   card.classList.toggle("is-on-fraudlist", onCase && caseStatus !== "under_review");
+  card.classList.toggle("is-in-klaerung", onTag);
   const firmNameRaw = String(company.name || "").trim();
   const firmNameShow =
     typeof anon === "function" ? anon(firmNameRaw, "company") : firmNameRaw;
   const uidRaw = String(company.uid || "").trim();
   const uidShow = typeof anon === "function" ? anon(uidRaw, "uid") : uidRaw;
 
+  const nameCopyAttrs = firmNameRaw
+    ? ` data-copy="${escHtml(firmNameRaw)}" title="Name kopieren" role="button" tabindex="0"`
+    : "";
+  const tagToggleLabel = onTag ? "Markierung entfernen" : "Als In Abklärung markieren";
+  const tagToggleTitle = onTag
+    ? "«In Abklärung»-Markierung entfernen"
+    : "Firma teamweit als «In Abklärung» markieren (ohne Akte)";
+  const caseSoftNote = onCase && onTag
+    ? `<p class="ca-firm-tag-note">Markierung parallel zur Akte möglich.</p>`
+    : "";
   card.innerHTML = `
     <div class="ca-firm-top">
       <div class="ca-firm-identity">
-        <div class="ca-firm-name-row">
-          <h2 class="ca-firm-name">${escHtml(firmNameShow)}</h2>
-          ${copyBtnHtml(firmNameRaw, "Firmenname kopieren")}
-        </div>
+        <h2 class="ca-firm-name${firmNameRaw ? " ca-firm-name-copy" : ""}"${nameCopyAttrs}>${escHtml(firmNameShow)}</h2>
         <div class="ca-firm-badges">
           ${status ? `<span class="ca-status ca-status-${statusClass}" title="${escHtml(status)}"><span class="ca-status-dot" aria-hidden="true"></span>${escHtml(statusText)}</span>` : ""}
+          ${onTag
+            ? `<span class="ca-tag-badge" title="Team-Markierung${currentCompanyTag.set_by ? ` · ${escHtml(currentCompanyTag.set_by)}` : ""}">In Abklärung</span>`
+            : ""}
           ${onCase
             ? `<span class="ca-fraudlist-badge" title="Firmenakte">${caseStatus === "under_review" ? "In Prüfung" : "Fraud-Fall"}${currentCaseHit.id ? ` #${currentCaseHit.id}` : ""}</span>`
             : ""}
@@ -1328,20 +2847,19 @@ function renderFirmBar(company, data) {
           <button type="button" class="ca-tool-link" id="caChangeSearchBtn" title="Andere Firma suchen">Suche ändern</button>
           ${hr ? `<a class="ca-tool-link" href="${escHtml(hr)}" target="_blank" rel="noopener">HR-Auszug ↗</a>` : ""}
           <button type="button" class="ca-tool-link ca-profiler-enter hidden" id="profilerEnterBtn" title="Fall-Cockpit: Netzwerk, Signale, Konten, Screening">Profiler</button>
+          <button type="button" class="ca-tool-link ca-tag-toggle${onTag ? " is-active" : ""}" id="caTagToggleBtn" title="${escHtml(tagToggleTitle)}" aria-pressed="${onTag ? "true" : "false"}">${escHtml(tagToggleLabel)}</button>
         </div>
         ${onCase && currentCaseHit.id
           ? `<a class="btn-nav ca-btn-fraud is-listed ca-firm-primary" href="/cases/${currentCaseHit.id}">Zur Akte</a>`
           : `<button type="button" class="btn-nav ca-btn-fraud ca-firm-primary" id="openCaseBtn" title="Akte jederzeit möglich — Netzwerkprüfung empfohlen">Akte eröffnen</button>`}
       </div>
     </div>
+    ${caseSoftNote}
     <div class="ca-firm-meta" style="--ca-meta-cols:${Math.max(metaCount, 1)}">
-      ${uidRaw ? `<span class="ca-meta ca-meta-uid" title="UID">
+      ${uidRaw ? `<button type="button" class="ca-meta ca-meta-uid ca-meta-copy" data-copy="${escHtml(uidRaw)}" title="UID kopieren" aria-label="UID kopieren">
         <span class="ca-meta-label">UID</span>
-        <button type="button" class="ca-copy-value" data-copy="${escHtml(uidRaw)}" title="UID kopieren" aria-label="UID kopieren">
-          <strong>${escHtml(uidShow)}</strong>
-          ${COPY_ICON_SVG}
-        </button>
-      </span>` : ""}
+        <strong>${escHtml(uidShow)}</strong>
+      </button>` : ""}
       ${seat ? `<span class="ca-meta ca-meta-seat" title="Sitz"><span class="ca-meta-label">Sitz</span><span class="ca-meta-seat-value">${canton ? cantonWappenHtml(canton, 16) : ""}<strong>${escHtml(typeof anon === "function" ? anon(seat, "place") : seat)}</strong></span></span>` : ""}
       ${formShort ? `<span class="ca-meta ca-meta-form">
         <span class="ca-meta-label-row">
@@ -1354,25 +2872,16 @@ function renderFirmBar(company, data) {
         <strong title="${escHtml(company.legal_form || "")}">${escHtml(formShort)}</strong>
       </span>` : ""}
       ${data.publication_count != null ? `<span class="ca-meta ca-meta-shab" title="SHAB-Publikationen"><span class="ca-meta-label">SHAB</span><strong>${escHtml(String(data.publication_count))}</strong></span>` : ""}
-    </div>
-    ${!onCase ? `<p class="ca-open-case-hint" id="openCaseHint">${escHtml(openCaseSoftHint())}</p>` : ""}`;
+    </div>`;
   wireWappenImages(card);
   wireCopyButtons(card);
   document.getElementById("caChangeSearchBtn")?.addEventListener("click", () => expandSearch({ focus: true }));
   document.getElementById("openCaseBtn")?.addEventListener("click", openCompanyCase);
+  document.getElementById("caTagToggleBtn")?.addEventListener("click", () => toggleCompanyUnderInvestigation());
   document.getElementById("profilerEnterBtn")?.addEventListener("click", () => {
     if (typeof window.openProfiler === "function") window.openProfiler();
   });
   if (typeof window.refreshProfilerAdminUi === "function") window.refreshProfilerAdminUi();
-}
-
-/** Soft process rule (C): always allow open; network is a bonus before/after the call. */
-function openCaseSoftHint() {
-  const hasGraph = !!(networkInstance || (lastAnalysis?.nodes || []).length);
-  if (hasGraph) {
-    return "Akte anlegen → Status «In Prüfung». Typisch: nach (oder vor) dem Kundengespräch bestätigen.";
-  }
-  return "Akte jederzeit möglich. Netzwerk ist ein Bonus zur Vorbereitung — nicht Pflicht vor dem Anruf.";
 }
 
 function statusTone(status) {
@@ -1398,25 +2907,6 @@ function shortenLegalForm(form) {
     .replace(/Kollektivgesellschaft/gi, "KlG")
     .replace(/Kommanditgesellschaft/gi, "KmG")
     .replace(/Genossenschaft/gi, "Gen.");
-}
-
-const LEGAL_FORM_LEGEND = [
-  ["EU", "Einzelunternehmen — eine natürliche Person, volle persönliche Haftung"],
-  ["GmbH", "Gesellschaft mit beschränkter Haftung — Stammkapital, Haftung begrenzt"],
-  ["AG", "Aktiengesellschaft — Aktienkapital, Haftung auf Gesellschaft beschränkt"],
-  ["KlG", "Kollektivgesellschaft — mind. zwei Gesellschafter, unbeschränkte Haftung"],
-  ["KmG", "Kommanditgesellschaft — Komplementäre unbeschränkt, Kommanditäre beschränkt"],
-  ["Gen.", "Genossenschaft — gemeinsamer Zweck, Mitgliederstruktur"],
-  ["Verein", "Verein — ideeller Zweck, i. d. R. ohne Kapitalanteil"],
-  ["Stiftung", "Stiftung — zweckgebundenes Vermögen, keine Eigentümer"],
-];
-
-function legalFormLegendHtml(highlight) {
-  const rows = LEGAL_FORM_LEGEND.map(([abbr, desc]) => {
-    const active = abbr === highlight ? " is-current" : "";
-    return `<li class="ca-form-legend-row${active}"><strong>${escHtml(abbr)}</strong><span>${escHtml(desc)}</span></li>`;
-  }).join("");
-  return `<span class="ca-form-legend-title">Rechtsformen (CH)</span><ul class="ca-form-legend-list">${rows}</ul>`;
 }
 
 function renderWarnings(warnings) {
@@ -1528,6 +3018,59 @@ function renderPersonsTable(persons) {
   }
   const current = list.filter((p) => p.status !== "former");
   const former = list.filter((p) => p.status === "former");
+  // Investigation: always surface formers when present (case/watchlist or organ change)
+  const openFormers = former.length >= 1;
+
+  const mandatesForPerson = (p) => {
+    let mandates = Array.isArray(p.mandates) ? p.mandates : [];
+    if (mandates.length) return mandates;
+    // Fallback: graph node mandates / edges after deep search
+    const nodes = lastGraph?.nodes || lastAnalysis?.nodes || [];
+    const edges = lastGraph?.edges || lastAnalysis?.edges || [];
+    const node = nodes.find(
+      (n) =>
+        n.type === "person" &&
+        (n.id === `person:${p.person_id || p.id}` ||
+          n.label === p.name ||
+          (p.name && n.label && n.label.toLowerCase() === p.name.toLowerCase()))
+    );
+    if (node?.mandates?.length) return node.mandates;
+    if (!node) return [];
+    const firms = [];
+    for (const e of edges) {
+      if (e.from !== node.id && e.to !== node.id) continue;
+      if (e.type && e.type !== "person_role" && e.type !== "person_company") continue;
+      const otherId = e.from === node.id ? e.to : e.from;
+      const firm = nodes.find((n) => n.id === otherId && n.type === "company");
+      if (!firm) continue;
+      firms.push({
+        company: firm.label,
+        uid: firm.uid,
+        status: e.person_status || node.person_status || null,
+      });
+    }
+    return firms;
+  };
+
+  const renderMandates = (p) => {
+    const mandates = mandatesForPerson(p);
+    if (!mandates.length) return "";
+    const level = Number(lastGraph?.level || lastAnalysis?.level || selectedDeepLevel) || 2;
+    // Show mandate list after deeper scans; seed alone is already implied
+    if (level < 3 && mandates.length <= 1) return "";
+    const items = mandates.map((m) => {
+      const name = m.company || m.name || "—";
+      const uid = (m.uid || "").trim();
+      const st = m.status === "former" ? "ehemalig" : m.status === "current" ? "aktuell" : "";
+      const uidShow = typeof anon === "function" && uid ? anon(uid, "uid") : uid;
+      return `<li class="ca-person-mandate${m.status === "former" ? " is-former" : ""}">
+        <span class="ca-person-mandate-name">${escHtml(name)}</span>
+        ${uid ? `<span class="ca-person-mandate-uid">${escHtml(uidShow)}</span>` : ""}
+        ${st ? `<span class="ca-person-mandate-status">${escHtml(st)}</span>` : ""}
+      </li>`;
+    }).join("");
+    return `<ul class="ca-person-mandates" aria-label="Firmen / Mandate">${items}</ul>`;
+  };
 
   const renderPersonItem = (p) => {
     const name = p.name || "";
@@ -1569,6 +3112,7 @@ function renderPersonsTable(persons) {
       </div>
       ${roles.length ? `<p class="ca-person-roles">${roles.map((r) => escHtml(r)).join(" · ")}</p>` : ""}
       ${facts.length ? `<dl class="ca-person-facts">${facts.join("")}</dl>` : ""}
+      ${renderMandates(p)}
     </li>`;
   };
 
@@ -1580,9 +3124,10 @@ function renderPersonsTable(persons) {
     </div>`;
   }
   if (former.length) {
-    html += `<details class="ca-person-group ca-person-group-former">
+    html += `<details class="ca-person-group ca-person-group-former"${openFormers ? " open" : ""}>
       <summary class="ca-former-summary">
         <span class="fraud-group-label">Ehemalig (${former.length})</span>
+        <span class="ca-former-hint">Organ-Austritt · weitere Firmen prüfen</span>
       </summary>
       <ul class="ca-persons-list ca-persons-former">${former.map(renderPersonItem).join("")}</ul>
     </details>`;
@@ -2074,7 +3619,10 @@ function repairMojibake(str) {
     .replace(/Ã¤/g, "ä")
     .replace(/Ã¶/g, "ö")
     .replace(/Ã©/g, "é")
-    .replace(/Ã¨/g, "è");
+    .replace(/Ã¨/g, "è")
+    .replace(/ÃŸ/g, "ß")
+    .replace(/GeschÃ¤ftsfÃ¼hrer/g, "Geschäftsführer")
+    .replace(/GeschÃ¤ftsfÃ¼hrerin/g, "Geschäftsführerin");
 }
 
 function extractAddressSnippet(message) {
@@ -2161,9 +3709,7 @@ function collectEdgeRolesByNode(edges) {
   return map;
 }
 
-/** localStorage: "graph" (default) | "board" Organigramm */
-const NETWORK_VIEW_KEY = "lynx_ca_network_view";
-
+/** localStorage: "graph" (default) | "board" Organigramm — key in foundation block. */
 function getNetworkViewMode() {
   try {
     const v = localStorage.getItem(NETWORK_VIEW_KEY);
@@ -2282,131 +3828,6 @@ function personNameVornameNachname(name) {
   const last = raw.slice(0, idx).trim();
   const first = raw.slice(idx + 1).trim();
   return [first, last].filter(Boolean).join(" ");
-}
-
-const COPY_ICON_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-const COPY_CHECK_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`;
-
-/** Small icon button; `text` is raw clipboard payload (never anonymized). */
-function copyBtnHtml(text, title = "Kopieren") {
-  const t = String(text || "").trim();
-  if (!t) return "";
-  return `<button type="button" class="ca-copy-btn" data-copy="${escHtml(t)}" title="${escHtml(title)}" aria-label="${escHtml(title)}">${COPY_ICON_SVG}</button>`;
-}
-
-function showCopyBubble(btn, label) {
-  document.querySelectorAll(".ca-copy-bubble").forEach((el) => el.remove());
-  const bubble = document.createElement("span");
-  bubble.className = "ca-copy-bubble ca-copy-bubble--fixed";
-  bubble.setAttribute("role", "status");
-  bubble.textContent = label || "Kopiert";
-  document.body.appendChild(bubble);
-  const r = btn?.getBoundingClientRect?.();
-  if (r && r.width) {
-    bubble.style.left = `${Math.round(r.left + r.width / 2)}px`;
-    bubble.style.top = `${Math.round(r.top)}px`;
-  } else {
-    bubble.style.left = "50%";
-    bubble.style.top = "18%";
-  }
-  requestAnimationFrame(() => bubble.classList.add("is-on"));
-  clearTimeout(bubble._hide);
-  bubble._hide = setTimeout(() => {
-    bubble.classList.remove("is-on");
-    setTimeout(() => bubble.remove(), 180);
-  }, 1600);
-}
-
-function flashCopySuccess(btn, preview) {
-  if (btn) {
-    btn.classList.add("is-copied");
-    const prevTitle = btn.getAttribute("title") || "Kopieren";
-    const hadIconOnly = btn.classList.contains("ca-copy-btn");
-    if (hadIconOnly) {
-      if (!btn.dataset.copyIconHtml) btn.dataset.copyIconHtml = btn.innerHTML;
-      btn.innerHTML = COPY_CHECK_SVG;
-    }
-    btn.setAttribute("title", "Kopiert");
-    clearTimeout(btn._copyFlash);
-    btn._copyFlash = setTimeout(() => {
-      btn.classList.remove("is-copied");
-      btn.setAttribute("title", prevTitle === "Kopiert" ? "Kopieren" : prevTitle);
-      if (hadIconOnly && btn.dataset.copyIconHtml) {
-        btn.innerHTML = btn.dataset.copyIconHtml;
-      }
-    }, 1400);
-  }
-  const short = preview.length > 40 ? `${preview.slice(0, 37)}…` : preview;
-  showCopyBubble(btn, `Kopiert · ${short}`);
-  // Bottom toast as secondary signal (always on document body context)
-  if (typeof showNotify === "function") {
-    showNotify(`In Zwischenablage: ${short}`, { ok: true, duration: 2000 });
-  }
-}
-
-async function copyTextToClipboard(text, btn) {
-  const t = String(text || "").trim();
-  if (!t) return false;
-  try {
-    // Prefer Clipboard API when available (secure context)
-    if (navigator.clipboard?.writeText && window.isSecureContext !== false) {
-      await navigator.clipboard.writeText(t);
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = t;
-      ta.setAttribute("readonly", "");
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      ta.style.top = "0";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      ta.setSelectionRange(0, t.length);
-      const ok = document.execCommand("copy");
-      ta.remove();
-      if (!ok) throw new Error("execCommand failed");
-    }
-    flashCopySuccess(btn, t);
-    return true;
-  } catch (_) {
-    // Fallback once more with execCommand if Clipboard API failed
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = t;
-      ta.setAttribute("readonly", "");
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      ta.remove();
-      if (!ok) throw new Error("execCommand failed");
-      flashCopySuccess(btn, t);
-      return true;
-    } catch (__) {
-      if (typeof showNotify === "function") {
-        showNotify("Kopieren fehlgeschlagen — bitte manuell markieren.", { ok: false, duration: 3200 });
-      } else {
-        showCopyBubble(btn, "Kopieren fehlgeschlagen");
-      }
-      return false;
-    }
-  }
-}
-
-function wireCopyButtons(root) {
-  if (!root) return;
-  root.querySelectorAll("[data-copy]").forEach((btn) => {
-    if (btn.dataset.copyWired === "1") return;
-    btn.dataset.copyWired = "1";
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // dataset prefers decoded payload; getAttribute is fallback
-      const payload = (btn.dataset.copy != null ? btn.dataset.copy : btn.getAttribute("data-copy")) || "";
-      copyTextToClipboard(payload, btn);
-    });
-  });
 }
 
 function personRolesForBoard(n, rolesByNode) {
@@ -2542,7 +3963,7 @@ function renderOrgBoard(nodes, edges, company) {
   const levelNote = scopedOut
     ? `<p class="ca-org-level-note">Organigramm zeigt nur direkte Bindungen zur Kernfirma
         (${persons.length} Personen${relatedCos.length ? `, ${relatedCos.length} Struktur-Firmen` : ""}).
-        Graph-Ebene ${escHtml(String(lastGraph?.level || lastAnalysis?.level || selectedDeepLevel || "—"))}:
+        Graph-Suchweite ${escHtml(String(lastGraph?.level || lastAnalysis?.level || selectedDeepLevel || "—"))}:
         ${networkPersonCount} Personen · ${networkCompanyCount + 1} Firmen im Netzwerk.</p>`
     : "";
 
@@ -2606,6 +4027,14 @@ function renderGraph(nodes, edges, containerId, setInstance) {
     nodes.filter((n) => n.type === "person" && n.person_status === "former").map((n) => n.id)
   );
 
+  const isFormerEdge = (e) => {
+    // Prefer per-edge affiliation (same person can be former @ A, current @ B)
+    if (e && e.person_status === "former") return true;
+    if (e && e.person_status === "current") return false;
+    // Legacy edges: fall back to person-node seed status
+    return formerIds.has(e.from) || formerIds.has(e.to);
+  };
+
   const visNodes = new vis.DataSet(nodes.map((n) => {
     const isPerson = n.type === "person";
     const isFormer = isPerson && n.person_status === "former";
@@ -2656,12 +4085,19 @@ function renderGraph(nodes, edges, containerId, setInstance) {
 
   // Continuous edges — no mid-line labels (roles sit under person names)
   const visEdges = new vis.DataSet(edges.map((e, i) => {
-    const touchesFormer = formerIds.has(e.from) || formerIds.has(e.to);
+    const touchesFormer = isFormerEdge(e);
+    const baseLabel = e.label ? (shortenEdgeLabel(e.label) || e.label) : "";
+    const tipBits = [];
+    if (baseLabel) tipBits.push(baseLabel);
+    if (e.person_status === "former") tipBits.push("Ehemalig");
+    else if (e.person_status === "current") tipBits.push("Aktuell");
     return {
       id: `e${i}`,
       from: e.from,
       to: e.to,
-      title: e.label ? htmlTitle(tipPlainToHtml(shortenEdgeLabel(e.label) || e.label)) : undefined,
+      title: tipBits.length
+        ? htmlTitle(tipPlainToHtml(tipBits.join(" · ")))
+        : undefined,
       arrows: {
         to: { enabled: true, scaleFactor: touchesFormer ? 0.7 : 0.9, type: "arrow" },
       },
@@ -2674,6 +4110,7 @@ function renderGraph(nodes, edges, containerId, setInstance) {
       width: touchesFormer ? 1.15 : 2.4,
       selectionWidth: touchesFormer ? 1.6 : 3.2,
       hoverWidth: touchesFormer ? 1.5 : 3,
+      dashes: touchesFormer ? [4, 4] : false,
       smooth: { type: "continuous", roundness: 0.35 },
     };
   }));
@@ -2944,3 +4381,49 @@ function formatDetail(detail) {
   if (Array.isArray(detail)) return detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
   return JSON.stringify(detail);
 }
+
+/* ── Boot / wire-up (must run after all module-level const/let) ─────────── */
+fillSuchweitePicker(2);
+wireSuchweiteCollapse();
+wireSideTabs();
+wireSearch();
+wireGraphControls();
+wireNetworkViewToggle();
+wireHeavyWarnModal();
+document.getElementById("deepBtn")?.addEventListener("click", () => deepAnalyze());
+document.getElementById("deepForceRefreshBtn")?.addEventListener("click", () => {
+  if (!currentCompany) return;
+  const level = Number(loadedDeepLevel ?? selectedDeepLevel) || 2;
+  setDeepLevel(level);
+  runDeepAnalyze(level, FULL_PERSON_SEARCHES, { forceRefresh: true });
+});
+wireRecentSearches();
+setIdleHome(true);
+// Identity / incomplete CTAs: one-time delegated listener (survives banner re-renders)
+wireIncompleteBannerActions(document.getElementById("caSearchIncompleteBanner"));
+loadRecentSearchesFromServer();
+loadCompanyTagsFromServer();
+
+const params = new URLSearchParams(location.search);
+if (params.get("tab") === "cases" || params.get("tab") === "list") {
+  location.replace("/cases");
+}
+if (params.get("profiler") === "1" && (params.get("company") || params.get("uid"))) {
+  const qs = new URLSearchParams();
+  if (params.get("company")) qs.set("company", params.get("company"));
+  if (params.get("uid")) qs.set("uid", params.get("uid"));
+  location.replace(`/profiler?${qs}`);
+}
+if (params.get("company") || params.get("uid")) {
+  if (params.get("company")) companyInput.value = params.get("company");
+  pendingUid = params.get("uid") || "";
+  quickAnalyze();
+}
+loadOpenTeamCases();
+loadBranchSignal();
+
+window.onAnonymizeModeChange = function () {
+  if (typeof renderSiteNav === "function") renderSiteNav();
+  if (lastAnalysis) renderSearchResults(lastAnalysis);
+  else if (currentCompany) renderFirmBar(currentCompany, lastAnalysis || {});
+};

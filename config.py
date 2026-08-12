@@ -13,7 +13,8 @@ URLSCAN_API_KEY: str = os.getenv("URLSCAN_API_KEY", "")
 ZEFIX_USERNAME: str = os.getenv("ZEFIX_USERNAME", "")
 ZEFIX_PASSWORD: str = os.getenv("ZEFIX_PASSWORD", "")
 
-# Person→Mandate lookup only (not firm search). Resolve hits via Zefix.
+# Person→mandate fill-in only (never firm identity; Zefix/SHAB is primary).
+# Resolve MH firm names via Zefix. Set MONEYHOUSE_PERSON_SEARCH=0 to disable.
 MONEYHOUSE_PERSON_SEARCH: bool = os.getenv(
     "MONEYHOUSE_PERSON_SEARCH", "1"
 ).strip().lower() in {"1", "true", "yes", ""}

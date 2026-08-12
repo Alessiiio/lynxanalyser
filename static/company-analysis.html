@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/style.css?v=shab-msg-2">
+  <link rel="stylesheet" href="/static/style.css?v=id-dismiss-20260810">
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
@@ -50,12 +50,17 @@
       </form>
     </section>
 
-    <section id="caRecentSearches" class="ca-recent search-card hidden" aria-label="Zuletzt gesucht">
+    <section id="caRecentSearches" class="ca-recent search-card is-collapsed" aria-label="Zuletzt im Team gesucht">
       <div class="ca-recent-head">
-        <h2 class="ca-recent-title">Zuletzt gesucht</h2>
-        <button type="button" class="ca-tool-link" id="caRecentClearBtn">Leeren</button>
+        <button type="button" class="ca-recent-toggle" id="caRecentToggle" aria-expanded="false" aria-controls="caRecentBody">
+          <span class="ca-recent-chevron" aria-hidden="true">▾</span>
+          <h2 class="ca-recent-title">Zuletzt im Team gesucht</h2>
+        </button>
+        <button type="button" class="ca-tool-link" id="caRecentClearBtn" title="Nur eigene Einträge entfernen">Eigene leeren</button>
       </div>
-      <ul id="caRecentList" class="ca-recent-list"></ul>
+      <div id="caRecentBody" class="ca-recent-body">
+        <ul id="caRecentList" class="ca-recent-list"></ul>
+      </div>
     </section>
 
     <div id="branchSignalHint" class="ca-branch-hint fraud-help hidden"></div>
@@ -72,6 +77,9 @@
 
     <section id="caResults" class="ca-results hidden">
       <div class="ca-firm-bar" id="companyCard"></div>
+      <!-- No role=status / aria-live on interactive card (buttons must stay fully clickable) -->
+      <div id="caSearchIncompleteBanner" class="ca-search-incomplete hidden" aria-label="Status Personensuche"></div>
+      <div id="caNextStepHint" class="ca-next-step hidden" role="status"></div>
       <div id="warningsBox" class="ca-warnings hidden"></div>
       <section id="caOpenCases" class="fraud-panel ca-open-cases hidden" style="margin-bottom:0.55rem">
         <div class="fraud-panel-head">
@@ -95,28 +103,33 @@
               <span id="caGraphFindMeta" class="ca-graph-find-meta" aria-live="polite"></span>
             </div>
             <div class="ca-deep-actions">
-              <button type="button" class="btn-nav ca-search-start-btn" id="deepBtn">Suche starten</button>
               <button type="button" class="btn-nav ca-force-refresh-btn hidden" id="deepForceRefreshBtn"
-                title="Aktuelle Ebene ohne Cache neu vom Register laden">Neu laden</button>
+                title="Aktuelle Suchweite ohne Cache neu vom Register laden">Neu laden</button>
             </div>
           </div>
           <div id="caDeepCacheBar" class="ca-deep-cache-bar hidden" role="status"></div>
-          <div class="ca-level-slider-wrap">
-            <label class="ca-level-slider-label" for="deepLevelRange">
-              Ebene <strong id="deepLevelValue">2</strong>
-              <span id="deepLevelTitle" class="ca-level-slider-title">Ehemalige + Struktur</span>
-            </label>
-            <input type="range" id="deepLevelRange" class="ca-level-slider" min="1" max="5" step="1" value="2"
-              list="deepLevelTicks" aria-label="Analyse-Ebene">
-            <datalist id="deepLevelTicks">
-              <option value="1" label="E1"></option>
-              <option value="2" label="E2"></option>
-              <option value="3" label="E3"></option>
-              <option value="4" label="E4"></option>
-              <option value="5" label="E5"></option>
-            </datalist>
-            <div class="ca-level-ticks" aria-hidden="true">
-              <span>E1</span><span>E2</span><span>E3</span><span>E4</span><span>E5</span>
+          <div class="ca-suchweite is-collapsed" id="caSuchweite" aria-label="Suchweite">
+            <div class="ca-suchweite-bar">
+              <button type="button" class="ca-suchweite-toggle" id="caSuchweiteToggle"
+                aria-expanded="false" aria-controls="caSuchweiteBody">
+                <span class="ca-suchweite-summary" id="suchweiteCurrent">Suchweite 2 · Register</span>
+                <span class="ca-suchweite-toggle-label" id="caSuchweiteToggleLabel">Suchweite wählen</span>
+                <svg class="ca-suchweite-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 6l4 4 4-4"/>
+                </svg>
+              </button>
+              <div class="ca-suchweite-bar-actions">
+                <button type="button" class="btn-nav ca-suchweite-mini-extend hidden" id="caSuchweiteMiniExtend"
+                  title="Suchweite 3 wählen (Mandate der aktuellen Organe)">Netzwerk erweitern</button>
+              </div>
+            </div>
+            <div class="ca-suchweite-body" id="caSuchweiteBody" hidden>
+              <div class="ca-suchweite-phases" id="caSuchweitePhases">
+                <!-- filled by company-analysis.js -->
+              </div>
+              <div class="ca-suchweite-footer">
+                <button type="button" class="btn-check ca-suchweite-cta" id="deepBtn">Mit dieser Suchweite laden</button>
+              </div>
             </div>
           </div>
           <div class="ca-graph-stage">
@@ -146,7 +159,7 @@
             <li><span class="ca-leg-swatch ca-leg-seed"></span><span>Kernfirma</span></li>
             <li><span class="ca-leg-swatch ca-leg-company"></span><span>Verbunden</span></li>
             <li><span class="ca-leg-swatch ca-leg-person" aria-hidden="true"></span><span>Person</span></li>
-            <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig</span></li>
+            <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig (Person / Kante)</span></li>
             <li><span class="ca-leg-swatch ca-leg-case" aria-hidden="true">⚠</span><span>Fall / Watchlist</span></li>
           </ul>
           <ul class="ca-graph-legend ca-org-legend hidden" id="caOrgLegend" aria-label="Organigramm-Legende">
@@ -182,7 +195,7 @@
     <div class="ca-heavy-modal-panel">
       <h2 id="caHeavyModalTitle">Tiefe Suche — Performance</h2>
       <p id="caHeavyModalBody" class="ca-heavy-modal-body"></p>
-      <p class="ca-heavy-modal-hint">Empfehlung: sichere Suche (Ebene ≤ 2, weniger Personensuchen).</p>
+      <p class="ca-heavy-modal-hint">Empfehlung: sichere Suche (Suchweite ≤ 2 / Phase Register, weniger Personensuchen).</p>
       <div class="ca-heavy-modal-actions">
         <button type="button" class="btn-nav ca-heavy-cancel" data-heavy-close>Abbrechen</button>
         <div class="ca-heavy-modal-primary">
@@ -195,7 +208,7 @@
 
   <script src="/static/ui-common.js"></script>
   <script src="/static/cantons.js"></script>
-  <script src="/static/company-analysis.js?v=shab-msg-2"></script>
+  <script src="/static/company-analysis.js?v=id-confirm-incr-20260810"></script>
   <script src="/static/profiler-enter.js"></script>
 </body>
 </html>

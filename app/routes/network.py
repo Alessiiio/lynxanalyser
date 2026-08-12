@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 import config
 from app.database import User
-from app.hr_network.fraud_network import build_fraud_network
+from app.hr_network.fraud_network import apply_identity_confirmation, build_fraud_network
 from app.hr_network.fraud_network_cache import (
     cache_status_for_company,
     cached_at_iso,
@@ -38,11 +38,36 @@ from app.hr_network.person_monitoring import (
 from app.investigation_dossier import build_investigation_dossier_pdf
 from app.profiler_export import build_profiler_screening_pdf
 from app.hr_network.person_search import search_person_in_sogc
+from app.hr_network.search_history import (
+    clear_own_company_searches,
+    list_company_searches,
+    log_company_search,
+)
+from app.hr_network.company_tags import (
+    TAG_UNDER_INVESTIGATION,
+    clear_company_tag,
+    get_company_tag,
+    list_company_tags,
+    set_company_tag,
+)
 from app.hr_network.service import build_hr_network, search_companies_preview
 from app.routes.deps import enforce_rate_limit, get_current_user, require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class FraudNetworkIdentityOverride(BaseModel):
+    """Lock or skip Moneyhouse person identity for one organ."""
+
+    person_name: Optional[str] = None
+    person_id: Optional[str] = None
+    person_graph_id: Optional[str] = None
+    moneyhouse_person_key: Optional[str] = None
+    mh_person_key: Optional[str] = None
+    person_key: Optional[str] = None
+    uri: Optional[str] = None
+    action: str = Field("accept", description="accept | ignore")
 
 
 class FraudNetworkAnalyzeRequest(BaseModel):
@@ -51,6 +76,24 @@ class FraudNetworkAnalyzeRequest(BaseModel):
     ad_hoc_company: Optional[dict] = None
     max_person_searches: int = Field(8, ge=0, le=20)
     force_refresh: bool = False
+    identity_overrides: Optional[list[FraudNetworkIdentityOverride]] = None
+
+
+class ConfirmIdentityRequest(BaseModel):
+    """Confirm or ignore a Moneyhouse person candidate (prefer incremental merge)."""
+
+    level: int = Field(3, ge=3, le=5)
+    ad_hoc_company: dict = Field(default_factory=dict)
+    person_name: Optional[str] = None
+    person_id: Optional[str] = None
+    person_graph_id: Optional[str] = None
+    moneyhouse_person_key: Optional[str] = None
+    action: str = Field("accept", description="accept | ignore")
+    max_person_searches: int = Field(8, ge=0, le=20)
+    # Retain prior accept/ignore decisions across multi-step disambiguation
+    identity_overrides: Optional[list[FraudNetworkIdentityOverride]] = None
+    # Client lastAnalysis / lastGraph — preferred base for partial MH merge
+    base_analysis: Optional[dict] = None
 
 
 class WatchedPersonAddRequest(BaseModel):
@@ -163,7 +206,11 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
     ad_hoc = body.ad_hoc_company or {}
     name = (ad_hoc.get("name") or "").strip() or None
     uid = (ad_hoc.get("uid") or "").strip() or None
-    use_cache = body.level >= 4 and not body.company_ids
+    overrides = None
+    if body.identity_overrides:
+        overrides = [o.model_dump(exclude_none=True) for o in body.identity_overrides]
+    # Identity locks must not serve a stale auto-selected graph.
+    use_cache = body.level >= 4 and not body.company_ids and not overrides
     if use_cache and (name or uid) and not body.force_refresh:
         hit, key = load_cached_for_company(
             level=body.level, company_name=name, company_uid=uid
@@ -180,6 +227,7 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
             company_ids=body.company_ids,
             ad_hoc_company=body.ad_hoc_company,
             max_person_searches=body.max_person_searches,
+            identity_overrides=overrides,
         )
         if use_cache and (name or uid) and isinstance(result, dict):
             store_cached_for_company(
@@ -199,6 +247,121 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("Fraud network analysis failed")
+        raise HTTPException(status_code=502, detail=str(e)[:160]) from e
+
+
+@router.post("/api/fraud-network/confirm-identity")
+async def api_confirm_identity(body: ConfirmIdentityRequest, http_request: Request):
+    """Accept/ignore MH identity: merge into existing graph; never full force-refresh scan."""
+    enforce_rate_limit(http_request)
+    ad_hoc = body.ad_hoc_company or {}
+    name = (ad_hoc.get("name") or "").strip()
+    uid = (ad_hoc.get("uid") or "").strip()
+    if not name and not uid:
+        raise HTTPException(status_code=400, detail="Firma (name/uid) erforderlich")
+    action = (body.action or "accept").strip().lower()
+    if action not in ("accept", "ignore"):
+        raise HTTPException(status_code=400, detail="action muss accept oder ignore sein")
+    if action == "accept" and not (body.moneyhouse_person_key or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="moneyhouse_person_key erforderlich zum Übernehmen",
+        )
+    person_id = body.person_id or body.person_graph_id
+    if not (body.person_name or person_id):
+        raise HTTPException(status_code=400, detail="person_name oder person_id erforderlich")
+
+    # Prefer client graph, then disk cache — partial MH attach only.
+    base: dict | None = None
+    base_source = None
+    if isinstance(body.base_analysis, dict) and "nodes" in body.base_analysis:
+        base = body.base_analysis
+        base_source = "client"
+    else:
+        # Try requested level first, then nearby deep levels that may be cached.
+        for try_level in (body.level, 5, 4, 3):
+            if try_level < 3:
+                continue
+            hit, key = load_cached_for_company(
+                level=try_level, company_name=name or None, company_uid=uid or None
+            )
+            if hit is not None:
+                base = hit
+                base_source = f"cache_L{try_level}"
+                break
+
+    try:
+        if base is not None:
+            result = await apply_identity_confirmation(
+                base=base,
+                level=body.level,
+                person_name=body.person_name,
+                person_id=person_id,
+                moneyhouse_person_key=(body.moneyhouse_person_key or "").strip() or None,
+                action=action,
+            )
+            out = dict(result) if isinstance(result, dict) else result
+            if isinstance(out, dict):
+                out["cached"] = False
+                # Preserve original cache timestamp for UI ("based on cache") if any
+                if base_source and str(base_source).startswith("cache"):
+                    out["base_cached"] = True
+                    out["cached_at"] = base.get("cached_at") or out.get("cached_at")
+                else:
+                    out["base_cached"] = base_source == "client" and bool(
+                        base.get("cached")
+                    )
+                    if base.get("cached_at"):
+                        out["cached_at"] = base.get("cached_at")
+                out["identity_confirmed"] = action == "accept"
+                out["identity_action"] = action
+                out["incremental_identity"] = True
+                out["identity_base_source"] = base_source
+            return out
+
+        # No graph in hand: last-resort full rebuild with identity locks.
+        # (Does not use force_refresh; shared intermediate caches still apply inside build.)
+        logger.info(
+            "confirm-identity full rebuild fallback for %r / %r (no client graph/cache)",
+            name,
+            uid,
+        )
+        overrides: list[dict] = []
+        if body.identity_overrides:
+            overrides.extend(
+                o.model_dump(exclude_none=True) for o in body.identity_overrides
+            )
+        overrides.append(
+            {
+                "action": action,
+                "person_name": body.person_name,
+                "person_id": body.person_id,
+                "person_graph_id": body.person_graph_id,
+                "moneyhouse_person_key": (body.moneyhouse_person_key or "").strip()
+                or None,
+            }
+        )
+        result = await build_fraud_network(
+            level=body.level,
+            ad_hoc_company={"name": name or None, "uid": uid or None},
+            max_person_searches=body.max_person_searches,
+            identity_overrides=overrides,
+        )
+        out = dict(result) if isinstance(result, dict) else result
+        if isinstance(out, dict):
+            out["cached"] = False
+            out["cached_at"] = None
+            out["identity_confirmed"] = action == "accept"
+            out["identity_action"] = action
+            out["incremental_identity"] = False
+            out["identity_base_source"] = "full_rebuild"
+        return out
+    except PermissionError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Identity confirm failed")
         raise HTTPException(status_code=502, detail=str(e)[:160]) from e
 
 
@@ -438,12 +601,13 @@ async def api_hr_network(
     http_request: Request,
     company: str = Query(""),
     uid: str = Query(""),
+    user: User = Depends(get_current_user),
 ):
     enforce_rate_limit(http_request)
     if not company.strip() and not uid.strip():
         raise HTTPException(status_code=400, detail="company or uid required")
     try:
-        return await build_hr_network(
+        result = await build_hr_network(
             company=company.strip() or None,
             uid=uid.strip() or None,
         )
@@ -456,6 +620,94 @@ async def api_hr_network(
     except Exception as e:
         logger.exception("HR network lookup failed")
         raise HTTPException(status_code=502, detail=f"Zefix lookup failed: {str(e)[:120]}") from e
+
+    firm = (result or {}).get("company") if isinstance(result, dict) else None
+    if isinstance(firm, dict):
+        await log_company_search(
+            company_name=firm.get("name") or company,
+            company_uid=firm.get("uid") or uid,
+            searched_by=user.display_name or user.username or "Team",
+            searched_by_username=user.username,
+        )
+    else:
+        await log_company_search(
+            company_name=company,
+            company_uid=uid,
+            searched_by=user.display_name or user.username or "Team",
+            searched_by_username=user.username,
+        )
+    return result
+
+
+@router.get("/api/hr-network/search-history")
+async def api_search_history(
+    limit: int = Query(15, ge=1, le=50),
+    _user: User = Depends(get_current_user),
+):
+    """Team-wide recent Firmenanalyse queries for the idle start page."""
+    return {"items": await list_company_searches(limit=limit)}
+
+
+@router.delete("/api/hr-network/search-history")
+async def api_clear_own_search_history(user: User = Depends(get_current_user)):
+    """Remove only the current user's entries from the shared team history."""
+    deleted = await clear_own_company_searches(user.username)
+    return {"deleted": deleted}
+
+
+class SetCompanyTagBody(BaseModel):
+    company_name: str = Field("", max_length=512)
+    company_uid: Optional[str] = Field(None, max_length=32)
+    tag: str = Field(TAG_UNDER_INVESTIGATION, max_length=64)
+
+
+@router.get("/api/company-tags")
+async def api_list_company_tags(
+    tag: Optional[str] = Query(None),
+    _user: User = Depends(get_current_user),
+):
+    """Team-visible firm tags (MVP: «In Abklärung»)."""
+    return {"tags": await list_company_tags(tag=tag)}
+
+
+@router.get("/api/company-tags/lookup")
+async def api_lookup_company_tag(
+    uid: Optional[str] = None,
+    name: Optional[str] = None,
+    tag: str = Query(TAG_UNDER_INVESTIGATION),
+    _user: User = Depends(get_current_user),
+):
+    hit = await get_company_tag(uid=uid, name=name, tag=tag)
+    return {"tag": hit}
+
+
+@router.post("/api/company-tags")
+async def api_set_company_tag(
+    body: SetCompanyTagBody,
+    user: User = Depends(get_current_user),
+):
+    try:
+        row = await set_company_tag(
+            company_name=body.company_name,
+            company_uid=body.company_uid,
+            tag=body.tag or TAG_UNDER_INVESTIGATION,
+            set_by=user.display_name or user.username or "Team",
+            set_by_username=user.username,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"tag": row}
+
+
+@router.delete("/api/company-tags")
+async def api_clear_company_tag(
+    uid: Optional[str] = None,
+    name: Optional[str] = None,
+    tag: str = Query(TAG_UNDER_INVESTIGATION),
+    _user: User = Depends(get_current_user),
+):
+    cleared = await clear_company_tag(uid=uid, name=name, tag=tag)
+    return {"cleared": cleared}
 
 
 @router.get("/api/hr-network/person-search")

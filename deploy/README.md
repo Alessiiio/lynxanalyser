@@ -53,6 +53,28 @@ docker compose exec app sqlite3 /app/data/fraud_checks.db ".backup '/app/data/fr
 docker compose cp app:/app/data/fraud_checks.backup.db ./fraud_checks.backup.db
 ```
 
+## Update existing VPS (redeploy)
+
+Production does **not** hot-reload. After code changes:
+
+```bash
+# On the Mac — sync code (no .env / DB / caches), e.g. rsync as in deploy/HETZNER.md
+# Or: git pull on the server if the repo was cloned there
+
+ssh root@DEINE_VPS_IP
+cd /opt/lynx
+# Confirm env still has ZEFIX_USERNAME / ZEFIX_PASSWORD
+# Optional: MONEYHOUSE_PERSON_SEARCH=1 (default) or =0 to disable MH fill-in
+export DOMAIN=deine-domain.ch
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=80 app
+```
+
+Then in the browser: hard-refresh (Cmd/Ctrl+Shift+R) so `company-analysis.js` / CSS reload.
+
+Quick checks: `/api/health`, login, Firmenanalyse SW2 on a known firm.
+
 ## Notes
 
 - The app container is not published on the host; only Caddy exposes 80/443.

@@ -33,7 +33,8 @@ def cache_key(
     name = (company_name or "").strip().lower()
     # Prefer UID when present so name spelling variants still hit
     identity = uid or name
-    raw = f"v2|{level}|{identity}"
+    # v6: Zefix/SHAB person mandate primary; Moneyhouse fill-in only (2026-08)
+    raw = f"v6|{level}|{identity}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
 
 
@@ -51,7 +52,7 @@ def cache_keys(
     for identity in (uid, name):
         if not identity:
             continue
-        raw = f"v2|{level}|{identity}"
+        raw = f"v5|{level}|{identity}"
         key = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
         if key not in seen:
             seen.add(key)

@@ -293,6 +293,51 @@ class AppSetting(Base):
     updated_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
 
+class CompanySearchHistory(Base):
+    """Shared team log of Firmenanalyse queries (start-page recent searches)."""
+
+    __tablename__ = "company_search_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_name: Mapped[str] = mapped_column(String(512), default="")
+    company_uid: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    searched_by: Mapped[str] = mapped_column(String(128), default="Team")
+    searched_by_username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    searched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+    __table_args__ = (
+        Index("ix_company_search_history_uid_at", "company_uid", "searched_at"),
+    )
+
+
+class CompanyTag(Base):
+    """Lightweight team firm tags (e.g. «In Abklärung») — not a formal Akte."""
+
+    __tablename__ = "company_tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_name: Mapped[str] = mapped_column(String(512), default="")
+    company_uid: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    # MVP: under_investigation («In Abklärung»)
+    tag: Mapped[str] = mapped_column(String(64), default="under_investigation", index=True)
+    set_by: Mapped[str] = mapped_column(String(128), default="Team")
+    set_by_username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    set_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+    __table_args__ = (
+        Index("ix_company_tags_uid_tag", "company_uid", "tag"),
+        Index("ix_company_tags_tag_at", "tag", "set_at"),
+    )
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(_drop_legacy_bank_tables)

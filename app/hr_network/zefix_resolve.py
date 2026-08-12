@@ -37,6 +37,27 @@ def company_age_years(sogc_pub: list | None, *, reference: date | None = None) -
     return round((ref - oldest).days / 365.25, 2)
 
 
+def _norm_company_name(name: str | None) -> str:
+    return re.sub(r"\s+", " ", (name or "").strip().lower())
+
+
+def _pick_search_hit(query_name: str, results: list[dict]) -> dict:
+    """Prefer exact name match (incl. liquidated); then active; else first hit."""
+    q = _norm_company_name(query_name)
+    exact = [
+        c
+        for c in results
+        if isinstance(c, dict) and _norm_company_name(c.get("name")) == q
+    ]
+    pool = exact or [c for c in results if isinstance(c, dict)]
+    if not pool:
+        raise LookupError(f"Keine Firma gefunden für «{query_name}»")
+    # Exact name wins even when cancelled/liquidated — mandate graphs need those firms.
+    if exact:
+        return next((c for c in exact if _is_active(c)), exact[0])
+    return next((c for c in pool if _is_active(c)), pool[0])
+
+
 async def resolve_company_detail(name: str | None, uid: str | None) -> dict[str, Any]:
     """Resolve Zefix company detail by UID (preferred) or name search."""
     if uid:
@@ -55,10 +76,11 @@ async def resolve_company_detail(name: str | None, uid: str | None) -> dict[str,
     if not name or not str(name).strip():
         raise ValueError("Firmenname oder UID erforderlich")
 
-    results = await asyncio.to_thread(_zefix_search, str(name).strip())
+    q = str(name).strip()
+    results = await asyncio.to_thread(_zefix_search, q)
     if not results:
-        raise LookupError(f"Keine Firma gefunden für «{str(name).strip()}»")
-    best = next((c for c in results if _is_active(c)), results[0])
+        raise LookupError(f"Keine Firma gefunden für «{q}»")
+    best = _pick_search_hit(q, results)
     ehraid = best.get("ehraid")
     if not ehraid:
         raise LookupError(f"Zefix-Treffer ohne EHRA-ID für «{name}»")
