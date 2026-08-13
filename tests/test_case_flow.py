@@ -264,7 +264,7 @@ async def test_close_documented_case_without_journal_note():
 
     closed = await close_documented_case(opened["id"], by="tester", note="")
     assert closed["status"] == "closed"
-    assert any("[Geschlossen]" in (e.get("text") or "") for e in closed["journal"])
+    assert any("[Dokumentiert]" in (e.get("text") or "") for e in closed["journal"])
 
 
 @pytest.mark.asyncio

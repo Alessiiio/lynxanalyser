@@ -874,8 +874,13 @@ async def add_bank_check_item(
         case = await session.get(CompanyCase, case_id)
         if not case:
             raise LookupError("Fall nicht gefunden")
-        if case.status not in ("under_review", "confirmed_fraud", "ready_for_report"):
-            raise ValueError("Checkliste nur bei offenen Akten erweiterbar")
+        if case.status not in (
+            "under_review",
+            "confirmed_fraud",
+            "ready_for_report",
+            "closed",
+        ):
+            raise ValueError("Checkliste nur bei Fraud-Akten erweiterbar (nicht bei «Kein Betrug»)")
 
         session.add(
             CaseBankCheckItem(
@@ -1086,7 +1091,10 @@ async def close_documented_case(
         )
 
     note = (note or "").strip()
-    journal_text = "[Geschlossen] Interne Dokumentation abgeschlossen — Akte geschlossen."
+    journal_text = (
+        "[Dokumentiert] Interne Dokumentation abgeschlossen — "
+        "Fraud bleibt aktiv; Firma und Personen bleiben auf der Watchlist."
+    )
     if note:
         journal_text = f"{journal_text} {note[:3800]}"
 
@@ -1383,8 +1391,8 @@ async def apply_case_network_l5_hits(
     )
 
     case = await get_company_case(case_id)
-    if case.get("status") in ("closed", "cleared"):
-        raise ValueError("Geschlossene Akte — keine neuen Treffer mehr aufnehmbar")
+    if case.get("status") == "cleared":
+        raise ValueError("Akte «Kein Betrug» — keine neuen Treffer mehr aufnehmbar")
 
     applied: list[dict[str, Any]] = []
     for raw in items or []:

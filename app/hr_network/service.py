@@ -84,6 +84,11 @@ async def build_hr_network(company: str | None = None, uid: str | None = None) -
             "status": p.get("status"),
             "source_date": None,
             "seed_company": p.get("seed_company"),
+            "on_watchlist": bool(p.get("on_watchlist")),
+            "case_involved": bool(p.get("case_involved")),
+            "case_flag_label": p.get("case_flag_label"),
+            "watched_person_id": p.get("watched_person_id"),
+            "watch_status": p.get("watch_status"),
         }
         for p in (data.get("persons_table") or [])
     ]
@@ -101,6 +106,16 @@ async def build_hr_network(company: str | None = None, uid: str | None = None) -
             p["heimatort"] = node.get("heimatort") or p.get("heimatort")
             p["gender"] = node.get("gender") or p.get("gender")
             p["source_date"] = node.get("first_seen") or node.get("last_seen")
+            if node.get("on_watchlist"):
+                p["on_watchlist"] = True
+            if node.get("case_involved"):
+                p["case_involved"] = True
+            if node.get("case_flag_label"):
+                p["case_flag_label"] = node.get("case_flag_label")
+            if node.get("watched_person_id"):
+                p["watched_person_id"] = node.get("watched_person_id")
+            if node.get("watch_status"):
+                p["watch_status"] = node.get("watch_status")
 
     return {
         "query": company or uid,

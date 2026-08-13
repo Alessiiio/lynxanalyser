@@ -7,8 +7,8 @@ const STATUS_LABELS = {
   confirmed_fraud: "Betrug bestätigt",
   ready_for_report: "Dokumentation fertig",
   reported: "Gemeldet",
-  closed: "Geschlossen",
-  cleared: "Geschlossen",
+  closed: "Fraudfall aktiv",
+  cleared: "Kein Betrug",
 };
 
 const ENTITY_LABELS = {
@@ -67,17 +67,15 @@ function renderNetworkL5(data) {
   if (!panel || !title || !text) return;
 
   const status = data?.status || "";
-  const closed = currentCase && (currentCase.status === "closed" || currentCase.status === "cleared");
+  const noFraud = currentCase && currentCase.status === "cleared";
+  const fraudDocumented = currentCase && currentCase.status === "closed";
 
-  if (!status || status === "missing" || closed) {
+  if (!status || status === "missing" || noFraud) {
     if (status !== "running") {
       panel.classList.add("hidden");
       hitsBox?.classList.add("hidden");
     }
-    if (closed) stopL5Poll();
-    if (status === "missing" && !closed) {
-      // still show nothing unless we were told via query that a scan started
-    }
+    if (noFraud) stopL5Poll();
     return;
   }
 
@@ -94,17 +92,23 @@ function renderNetworkL5(data) {
 
   // ready
   const hits = Array.isArray(data.hits) ? data.hits : [];
-  title.textContent = "Netzwerk Suchweite 5 bereit";
+  title.textContent = fraudDocumented
+    ? "Netzwerk Suchweite 5 — Fraud aktiv"
+    : "Netzwerk Suchweite 5 bereit";
   if (!hits.length || l5HitsDismissed) {
     text.textContent = hits.length
       ? "Hinweis ausgeblendet — Treffer bleiben im Netzwerk-Cache."
-      : "Keine zusätzlichen Treffer gegenüber der bisherigen Checkliste.";
+      : fraudDocumented
+        ? "Keine zusätzlichen Treffer — Watchlist und Überwachung laufen weiter."
+        : "Keine zusätzlichen Treffer gegenüber der bisherigen Checkliste.";
     hitsBox?.classList.add("hidden");
     stopL5Poll();
     return;
   }
 
-  text.textContent = `${hits.length} neue Hinweise — optional auf Watchlist und Checkliste übernehmen.`;
+  text.textContent = fraudDocumented
+    ? `${hits.length} neue Hinweise — Fraud bleibt aktiv; optional auf Watchlist / Checkliste übernehmen.`
+    : `${hits.length} neue Hinweise — optional auf Watchlist und Checkliste übernehmen.`;
   hitsBox?.classList.remove("hidden");
   if (hitsList) {
     hitsList.innerHTML = hits.map((h, i) => {
@@ -544,8 +548,8 @@ function renderDocsWizard(c) {
       ` : `<p class="fraud-help">Noch keine Journal-Einträge (optional).</p>`}
       ${alreadyClosed ? `
         <div class="docs-wiz-done-box">
-          <span class="docs-wiz-done-badge">Geschlossen</span>
-          <p>Akte ist abgeschlossen.</p>
+          <span class="docs-wiz-done-badge">Dokumentiert · Fraud aktiv</span>
+          <p>Dokumentation ist abgeschlossen — der Fraud bleibt aktiv. Firma und Personen bleiben auf der Watchlist und werden weiter überwacht.</p>
         </div>
         <div class="docs-wiz-actions">
           <button type="button" class="btn-nav docs-wiz-btn" data-wiz-prev>Zurück</button>
@@ -575,12 +579,12 @@ function renderDocsWizard(c) {
         </button>
         ${canClose ? `
           <button type="button" class="btn-case-equal btn-case-confirm docs-wiz-btn" data-wiz-close-case>
-            Akte abschliessen
+            Dokumentation abschliessen
           </button>
         ` : `
           <button type="button" class="btn-case-equal btn-case-confirm docs-wiz-btn" disabled
             title="Zuerst Sicherung und alle Checklisten-Einträge erledigen">
-            Akte abschliessen
+            Dokumentation abschliessen
           </button>
         `}
       </div>`}`;
@@ -724,11 +728,11 @@ async function saveBankCheckFromWizard(itemId, advance) {
 async function saveJournalFromWizard() {
   const text = document.getElementById("wizJournalText")?.value?.trim() || "";
   if (!text) {
-    setMsg("Kein Text — Journal ist optional. Zum Abschluss «Akte abschliessen» nutzen.");
+    setMsg("Kein Text — Journal ist optional. Zum Abschluss «Dokumentation abschliessen» nutzen.");
     return;
   }
   if (text.length < 3) {
-    setMsg("Eintrag zu kurz (mind. 3 Zeichen) — oder leer lassen und Akte abschliessen.");
+    setMsg("Eintrag zu kurz (mind. 3 Zeichen) — oder leer lassen und Dokumentation abschliessen.");
     return;
   }
   const r = await fetch(`/api/company-cases/${CASE_ID}/journal`, {
@@ -748,9 +752,9 @@ async function saveJournalFromWizard() {
 async function closeCaseFromWizard() {
   const note = document.getElementById("wizJournalText")?.value?.trim() || "";
   const go = confirm(
-    "Akte abschliessen?\n\n"
-    + "Dokumentation ist erfasst. Die Akte wird intern geschlossen "
-    + "(ohne Reporting/Compliance)."
+    "Dokumentation abschliessen?\n\n"
+    + "Die interne Erfassung ist fertig.\n"
+    + "Wichtig: Der Fraud bleibt aktiv — Firma und Personen bleiben auf der Watchlist und werden weiter verfolgt."
   );
   if (!go) return;
   const closeBtn = document.querySelector("[data-wiz-close-case]");
@@ -782,7 +786,7 @@ async function closeCaseFromWizard() {
       return;
     }
     renderCase(data);
-    setMsg("Akte geschlossen");
+    setMsg("Dokumentation abgeschlossen — Fraud bleibt aktiv, Watchlist bleibt");
   } catch (err) {
     setMsg(err.message || "Abschluss fehlgeschlagen");
     if (closeBtn) closeBtn.disabled = false;
@@ -894,9 +898,9 @@ function renderCase(c) {
   } else if (c.payment_blocked == null) {
     hint.textContent = "Checkliste Personen/Firma fertig — Sicherung noch offen.";
   } else if (c.status === "closed") {
-    hint.textContent = "Akte geschlossen — Dokumentation für interne Prävention abgeschlossen.";
+    hint.textContent = "Dokumentation fertig — Fraud bleibt aktiv; Watchlist und Überwachung laufen weiter.";
   } else if (c.documentation_complete) {
-    hint.textContent = "Dokumentation vollständig — «Akte abschliessen» im Journal-Schritt.";
+    hint.textContent = "Dokumentation vollständig — «Dokumentation abschliessen» im Journal-Schritt.";
   } else {
     hint.textContent = "Dokumentation läuft — offene Checklisten-Einträge abarbeiten.";
   }
@@ -910,7 +914,7 @@ function renderCase(c) {
     const auditText = c.status === "cleared" && isSuspiciousClose(c)
       ? "Als verdächtig (In Abklärung) geschlossen — Firma und Organe auf der Watchlist; Akte bleibt einsehbar."
       : c.status === "closed"
-        ? "Akte geschlossen — für alle Rollen weiterhin einsehbar (Audit-Trail)."
+        ? "Dokumentation abgeschlossen — Fraud aktiv. Firma/Personen bleiben auf der Watchlist und werden weiter überwacht."
         : "Fall als «Kein Betrug» geschlossen — Akte bleibt im Filter einsehbar.";
     if (!audit) {
       const p = document.createElement("p");

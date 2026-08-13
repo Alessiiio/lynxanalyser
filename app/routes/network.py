@@ -249,7 +249,11 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
     uid = (ad_hoc.get("uid") or "").strip() or None
     try:
         if is_demo_request(name=name, uid=uid):
-            return build_demo_fraud_network(level=body.level)
+            from app.hr_network.case_flags import annotate_network_with_case_flags
+
+            return await annotate_network_with_case_flags(
+                build_demo_fraud_network(level=body.level)
+            )
     except DemoFixtureError as e:
         logger.exception("Demo fraud-network fixture failed")
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -263,11 +267,14 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
             level=body.level, company_name=name, company_uid=uid
         )
         if hit is not None and key:
+            from app.hr_network.case_flags import annotate_network_with_case_flags
+
             out = dict(hit)
             out["cached"] = True
             out["cached_at"] = cached_at_iso(key)
             out["level"] = body.level
-            return out
+            # Re-annotate so Watchlist/Akte-Flags nicht am alten Cache hängen
+            return await annotate_network_with_case_flags(out)
     try:
         result = await build_fraud_network(
             level=body.level,
@@ -743,10 +750,13 @@ async def api_hr_network(
         )
     try:
         if is_demo_request(name=company_q or None, uid=uid_q or None, demo=demo_q or None):
+            from app.hr_network.case_flags import annotate_network_with_case_flags
+
             result = build_demo_hr_network(
                 company=company_q or None,
                 uid=uid_q or None,
             )
+            result = await annotate_network_with_case_flags(result)
             firm = (result or {}).get("company") if isinstance(result, dict) else None
             if not is_admin_incognito(http_request, user):
                 await log_company_search(

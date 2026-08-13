@@ -961,13 +961,14 @@ function findIndexedCompanyCase(uid, name) {
 }
 
 function caseChipLabel(c) {
-  if (!c) return "Akte";
+  if (!c) return "Fraudfall";
   const st = c.status || "";
   if (st === "under_review") return "In Prüfung";
-  if (st === "closed" || st === "cleared") return "Akte";
-  if (st === "confirmed_fraud" || st === "ready_for_report") return "Fraud-Fall";
-  if (st === "reported") return "Gemeldet";
-  return "Akte";
+  if (st === "cleared") return "Kein Betrug";
+  if (st === "closed") return "Fraudfall";
+  if (st === "confirmed_fraud" || st === "ready_for_report") return "Fraudfall";
+  if (st === "reported") return "Fraudfall";
+  return "Fraudfall";
 }
 
 async function loadCompanyCasesFromServer() {
@@ -1780,10 +1781,10 @@ async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false }
         st === "under_review"
           ? `Bereits in Prüfung (Akte #${currentCaseHit.id}, ${currentCaseHit.opened_by || ""})`
           : st === "closed"
-            ? `Akte vorhanden und geschlossen (#${currentCaseHit.id})`
+            ? `Fraudfall dokumentiert — weiter überwachen (#${currentCaseHit.id})`
             : st === "cleared"
-              ? `Akte geschlossen — kein Betrug (#${currentCaseHit.id})`
-              : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`;
+              ? `Akte: kein Betrug (#${currentCaseHit.id})`
+              : `Fraudfall registriert (Akte #${currentCaseHit.id || currentCaseHit.case_id})`;
       if (!baseWarnings.includes(caseLine)) baseWarnings.unshift(caseLine);
     }
     renderWarnings(baseWarnings);
@@ -2127,10 +2128,10 @@ function renderSearchResults(data) {
       st === "under_review"
         ? `Bereits in Prüfung (Akte #${currentCaseHit.id}, ${currentCaseHit.opened_by || ""})`
         : st === "closed"
-          ? `Akte vorhanden und geschlossen (#${currentCaseHit.id})`
+          ? `Fraudfall dokumentiert — weiter überwachen (#${currentCaseHit.id})`
           : st === "cleared"
-            ? `Akte geschlossen — kein Betrug (#${currentCaseHit.id})`
-            : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`
+            ? `Akte: kein Betrug (#${currentCaseHit.id})`
+            : `Fraudfall registriert (Akte #${currentCaseHit.id || currentCaseHit.case_id})`
     );
   }
   // Soft MH identity + incomplete-search context (also sticky banner below)
@@ -2937,11 +2938,12 @@ function renderFirmBar(company, data) {
   const onCase = !!currentCaseHit;
   const caseStatus = currentCaseHit?.status || "";
   const caseClosed = caseStatus === "closed" || caseStatus === "cleared";
+  const caseFraudActive = onCase && caseStatus !== "cleared" && caseStatus !== "under_review";
   const onTag = !!currentCompanyTag;
   const hr = safeHttpUrl(company.cantonal_excerpt_url);
   const metaCount = [company.uid, seat, formShort, data.publication_count != null].filter(Boolean).length;
 
-  card.classList.toggle("is-on-fraudlist", onCase && caseStatus !== "under_review");
+  card.classList.toggle("is-on-fraudlist", !!caseFraudActive);
   card.classList.toggle("is-case-closed", onCase && caseClosed);
   card.classList.toggle("is-in-klaerung", onTag);
   const firmNameRaw = String(company.name || "").trim();
@@ -2965,12 +2967,13 @@ function renderFirmBar(company, data) {
     : caseStatus === "under_review"
       ? "In Prüfung"
       : caseStatus === "cleared"
-        ? "Akte · kein Betrug"
-        : caseStatus === "closed"
-          ? "Akte geschlossen"
-          : caseStatus === "reported"
-            ? "Gemeldet"
-            : "Fraud-Fall";
+        ? "Kein Betrug"
+        : "Fraudfall";
+  const caseBadgeTitle = caseStatus === "cleared"
+    ? "Akte: kein Betrug"
+    : caseStatus === "under_review"
+      ? "Firmenakte in Prüfung"
+      : "Registrierter Fraudfall — Watchlist und Überwachung aktiv";
   card.innerHTML = `
     <div class="ca-firm-top">
       <div class="ca-firm-identity">
@@ -2981,7 +2984,7 @@ function renderFirmBar(company, data) {
             ? `<span class="ca-tag-badge" title="Team-Markierung${currentCompanyTag.set_by ? ` · ${escHtml(currentCompanyTag.set_by)}` : ""}">In Abklärung</span>`
             : ""}
           ${onCase
-            ? `<span class="ca-fraudlist-badge" title="Firmenakte">${escHtml(caseBadgeLabel)}${currentCaseHit.id ? ` #${currentCaseHit.id}` : ""}</span>`
+            ? `<span class="ca-fraudlist-badge" title="${escHtml(caseBadgeTitle)}">${escHtml(caseBadgeLabel)}${currentCaseHit.id ? ` #${currentCaseHit.id}` : ""}</span>`
             : ""}
         </div>
       </div>
@@ -3268,7 +3271,7 @@ function renderPersonsTable(persons) {
       <div class="ca-person-top">
         <strong class="ca-person-name">${genderMark(p.gender || inferGenderFromRoles(p.roles))}<span>${escHtml(showName)}</span>
           ${copyBtnHtml(copyName, `Name kopieren (${copyName || "—"})`)}
-          ${caseFlag ? `<span class="ca-case-pill" title="${escHtml(p.case_flag_label || "Fall")}">Fall</span>` : ""}
+          ${caseFlag ? `<span class="ca-case-pill" title="${escHtml(p.case_flag_label || "Fraudfall")}">${escHtml((p.case_flag_label || "Fraudfall").split(" / ")[0])}</span>` : ""}
         </strong>
         ${watchButtonHtml({ watched: !!caseFlag, name, residence })}
       </div>

@@ -114,8 +114,8 @@ function renderCaseModal(p) {
     : esc(d(p.source_company_name || "—", "company"));
   const statusLabel = STATUS_LABEL[p.status] || p.status;
   const caseHint = p.has_company_case && p.linked_case_id
-    ? `<a class="btn-nav" href="/cases/${p.linked_case_id}">Zur Firmenakte #${p.linked_case_id}</a>`
-    : `<span class="watch-no-case-badge">Ohne Akte</span>
+    ? `<a class="btn-nav" href="/cases/${p.linked_case_id}">Zum Fraudfall #${p.linked_case_id}</a>`
+    : `<span class="watch-no-case-badge">Ohne Fraudfall</span>
        <span class="fraud-help">Frühwarnung — bei Verdacht in der Firmenanalyse eine Akte eröffnen.</span>`;
   meta.innerHTML = `
     <span class="watch-meta-pill watch-meta-pill--${esc(p.status || "active")}">${esc(statusLabel)}</span>
@@ -531,8 +531,8 @@ async function loadPersons() {
     const aml = p.flag_aml
       ? `<span class="watch-flag-badge is-aml" title="AML">AML</span>` : "";
     const caseBadge = p.has_company_case
-      ? `<span class="watch-case-link-badge" title="Mit Firmenakte">Akte #${esc(String(p.linked_case_id || ""))}</span>`
-      : `<span class="watch-no-case-badge" title="Frühwarnung ohne Firmenakte — Akte eröffnen empfohlen">Ohne Akte</span>`;
+      ? `<span class="watch-case-link-badge" title="Registrierter Fraudfall">Fraudfall #${esc(String(p.linked_case_id || ""))}</span>`
+      : `<span class="watch-no-case-badge" title="Frühwarnung ohne Fraudfall — Akte eröffnen empfohlen">Ohne Fraudfall</span>`;
     const scanPrio = (p.scan_priority || "") === "high"
       ? `<span class="watch-case-link-badge" title="Nächtlich zuerst (Fall / In Abklärung)">High-Scan</span>`
       : "";

@@ -106,16 +106,18 @@ async def load_case_person_index() -> dict[str, Any]:
                 slug = _normalize_person_id(p.display_name or "")
             if not slug and not p.display_name:
                 continue
+            src = (p.source_reason or "").strip()
+            from_case = src in {
+                "case_open",
+                "fraud_list_officer",
+                "under_investigation",
+            } or (p.status or "") == "confirmed_fraud"
             flags = {
                 "case_involved": True,
                 "on_watchlist": True,
                 "watched_person_id": p.id,
                 "watch_status": p.status,
-                "case_flag_label": (
-                    "Confirmed Fraud"
-                    if p.status == "confirmed_fraud"
-                    else "Watchlist"
-                ),
+                "case_flag_label": "Fraudfall" if from_case else "Watchlist",
             }
             _register_case_flags(
                 by_slug,
@@ -164,13 +166,15 @@ async def load_case_person_index() -> dict[str, Any]:
                     "on_watchlist": False,
                     "watched_person_id": int(ref) if ref.isdigit() else None,
                     "watch_status": None,
-                    "case_flag_label": "Fall",
+                    "case_flag_label": "Fraudfall",
                 }
                 hit = by_slug.get(slug) if slug else None
                 if hit:
                     hit["case_involved"] = True
-                    if hit.get("case_flag_label") == "Watchlist":
-                        hit["case_flag_label"] = "Fall / Watchlist"
+                    if hit.get("case_flag_label") in (None, "", "Watchlist"):
+                        hit["case_flag_label"] = "Fraudfall / Watchlist"
+                    elif "Fraudfall" not in str(hit.get("case_flag_label") or ""):
+                        hit["case_flag_label"] = "Fraudfall / Watchlist"
                 else:
                     _register_case_flags(
                         by_slug,

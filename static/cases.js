@@ -5,7 +5,7 @@ const STATUS_LABELS = {
   confirmed_fraud: "Betrug bestätigt",
   ready_for_report: "Report bereit",
   reported: "Gemeldet",
-  closed: "Geschlossen",
+  closed: "Fraudfall aktiv",
   cleared: "Kein Betrug",
 };
 
