@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from urllib.parse import quote
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.database import (
     CaseBankCheckItem,
@@ -32,6 +33,19 @@ from app.hr_network.person_search import (
 from app.hr_network.zefix_resolve import format_company_uid, resolve_company_detail
 
 logger = logging.getLogger(__name__)
+
+# Lower = scan sooner when last_monitored_at ties / never scanned.
+_SOURCE_SCAN_PRIORITY = {
+    "under_investigation": 0,
+    "case_open": 0,
+    "shell_takeover_pattern": 1,
+    "fraud_list_officer": 2,
+    "manual": 3,
+}
+
+_MONITORABLE_STATUSES = ("active", "confirmed_fraud")
+_COVERAGE_WINDOW_DAYS = 7
+SCAN_PRIORITY_HIGH = "high"
 
 _FOUNDER_ROLE_HINTS = (
     "geschäftsführer",
@@ -421,6 +435,7 @@ async def scan_watched_person_incremental(
                 "company_name": name,
                 "confidence": confidence,
                 "source": src,
+                "message": msg,
             })
 
         today = date.today()
@@ -464,37 +479,312 @@ async def scan_watched_person_incremental(
     }
 
 
-async def run_person_monitoring(*, limit: int = 20) -> dict[str, Any]:
-    """Daily job: scan active watched persons with light concurrency."""
+def _scan_source_rank(source_reason: str | None) -> int:
+    return _SOURCE_SCAN_PRIORITY.get(source_reason or "", 9)
+
+
+def _person_scan_priority(person: WatchedPerson) -> str:
+    raw = (getattr(person, "scan_priority", None) or "").strip().lower()
+    if raw == SCAN_PRIORITY_HIGH:
+        return SCAN_PRIORITY_HIGH
+    # Defensive: treat known high sources as high even before migration backfill
+    if (person.source_reason or "") in {
+        "under_investigation",
+        "case_open",
+        "fraud_list_officer",
+        "shell_takeover_pattern",
+    }:
+        return SCAN_PRIORITY_HIGH
+    return "normal"
+
+
+async def select_persons_for_monitoring(
+    *,
+    limit: int,
+    scan_priority: str | None = None,
+    exclude_ids: set[int] | None = None,
+) -> list[WatchedPerson]:
+    """Pick next batch: never scanned / oldest last_run_at first; soft source priority.
+
+    Optional ``scan_priority='high'`` restricts to the nightly-first tier.
+    ``exclude_ids`` skips persons already selected (e.g. high-prio before rolling).
+    """
+    limit = max(1, int(limit))
+    exclude = exclude_ids or set()
     async with async_session() as session:
-        result = await session.execute(
-            select(WatchedPerson)
-            .where(WatchedPerson.status.in_(("active", "confirmed_fraud")))
-            .order_by(WatchedPerson.added_at.asc())
-            .limit(limit)
+        # One scan row per person in practice; aggregate for safety.
+        last_run_subq = (
+            select(
+                PersonWatchScan.person_id.label("person_id"),
+                func.max(PersonWatchScan.last_run_at).label("last_run_at"),
+            )
+            .group_by(PersonWatchScan.person_id)
+            .subquery()
         )
-        people = list(result.scalars().all())
-        ids = [p.id for p in people]
+        q = (
+            select(WatchedPerson, last_run_subq.c.last_run_at)
+            .outerjoin(last_run_subq, last_run_subq.c.person_id == WatchedPerson.id)
+            .where(WatchedPerson.status.in_(_MONITORABLE_STATUSES))
+        )
+        if scan_priority == SCAN_PRIORITY_HIGH:
+            q = q.where(WatchedPerson.scan_priority == SCAN_PRIORITY_HIGH)
+        elif scan_priority == "normal":
+            q = q.where(
+                or_(
+                    WatchedPerson.scan_priority.is_(None),
+                    WatchedPerson.scan_priority != SCAN_PRIORITY_HIGH,
+                )
+            )
+        if exclude:
+            q = q.where(WatchedPerson.id.notin_(exclude))
+        result = await session.execute(
+            q.order_by(
+                # Never scanned first (NULL last_run_at)
+                last_run_subq.c.last_run_at.is_(None).desc(),
+                last_run_subq.c.last_run_at.asc(),
+                WatchedPerson.added_at.desc(),
+            ).limit(max(limit * 4, limit))  # fetch extra for soft priority re-sort
+        )
+        rows = list(result.all())
 
-    sem = asyncio.Semaphore(2)
-    outcomes: list[dict[str, Any]] = []
+    # Soft priority among never-scanned / same age bucket: under_investigation first.
+    decorated = []
+    for person, last_run in rows:
+        if person.id in exclude:
+            continue
+        never = last_run is None
+        decorated.append(
+            (
+                0 if never else 1,
+                last_run or datetime.min.replace(tzinfo=timezone.utc),
+                _scan_source_rank(person.source_reason),
+                # recently added sooner when never scanned
+                -(person.added_at.timestamp() if person.added_at and never else 0),
+                person,
+            )
+        )
+    decorated.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+    return [t[4] for t in decorated[:limit]]
 
-    async def _one(pid: int) -> None:
-        async with sem:
-            try:
-                outcomes.append(await scan_watched_person_incremental(pid))
-            except Exception as e:
-                logger.exception("Watch scan failed for %s", pid)
-                outcomes.append({"person_id": pid, "error": str(e)})
 
-    await asyncio.gather(*[_one(pid) for pid in ids])
+async def select_monitoring_batch(
+    *,
+    rolling_limit: int,
+    high_priority_cap: int,
+    high_priority_only: bool = False,
+) -> tuple[list[WatchedPerson], dict[str, Any]]:
+    """
+    Nightly / manual batch composition.
+
+    - High-priority (Fall / In Abklärung): up to ``high_priority_cap``, every night
+    - Rest: rolling oldest/never-scanned up to ``rolling_limit`` (excluded high already picked)
+    """
+    high_cap = max(0, int(high_priority_cap))
+    roll_cap = max(0, int(rolling_limit))
+    high: list[WatchedPerson] = []
+    if high_cap > 0:
+        high = await select_persons_for_monitoring(
+            limit=high_cap,
+            scan_priority=SCAN_PRIORITY_HIGH,
+        )
+    if high_priority_only:
+        return high, {
+            "high_priority_selected": len(high),
+            "rolling_selected": 0,
+            "high_priority_only": True,
+        }
+    high_ids = {p.id for p in high}
+    rolling: list[WatchedPerson] = []
+    if roll_cap > 0:
+        rolling = await select_persons_for_monitoring(
+            limit=roll_cap,
+            exclude_ids=high_ids,
+        )
+    # Preserve order: high first (fresh case organs), then rolling
+    merged: list[WatchedPerson] = list(high)
+    seen = set(high_ids)
+    for p in rolling:
+        if p.id in seen:
+            continue
+        merged.append(p)
+        seen.add(p.id)
+    return merged, {
+        "high_priority_selected": len(high),
+        "rolling_selected": len(rolling),
+        "high_priority_only": False,
+    }
+
+async def watchlist_scan_coverage(*, window_days: int = _COVERAGE_WINDOW_DAYS) -> dict[str, Any]:
+    """Share of monitorable persons scanned within the coverage window."""
+    window_days = max(1, int(window_days))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    async with async_session() as session:
+        total = (
+            await session.execute(
+                select(func.count())
+                .select_from(WatchedPerson)
+                .where(WatchedPerson.status.in_(_MONITORABLE_STATUSES))
+            )
+        ).scalar_one()
+        last_run_subq = (
+            select(
+                PersonWatchScan.person_id.label("person_id"),
+                func.max(PersonWatchScan.last_run_at).label("last_run_at"),
+            )
+            .group_by(PersonWatchScan.person_id)
+            .subquery()
+        )
+        scanned_recent = (
+            await session.execute(
+                select(func.count())
+                .select_from(WatchedPerson)
+                .join(last_run_subq, last_run_subq.c.person_id == WatchedPerson.id)
+                .where(
+                    WatchedPerson.status.in_(_MONITORABLE_STATUSES),
+                    last_run_subq.c.last_run_at >= cutoff,
+                )
+            )
+        ).scalar_one()
+        never_scanned = (
+            await session.execute(
+                select(func.count())
+                .select_from(WatchedPerson)
+                .outerjoin(last_run_subq, last_run_subq.c.person_id == WatchedPerson.id)
+                .where(
+                    WatchedPerson.status.in_(_MONITORABLE_STATUSES),
+                    last_run_subq.c.last_run_at.is_(None),
+                )
+            )
+        ).scalar_one()
+
+    total_i = int(total or 0)
+    recent_i = int(scanned_recent or 0)
+    never_i = int(never_scanned or 0)
+    pct = round(100.0 * recent_i / total_i, 1) if total_i else 100.0
     return {
-        "scanned": len(ids),
+        "total_monitorable": total_i,
+        "scanned_within_window": recent_i,
+        "never_scanned": never_i,
+        "window_days": window_days,
+        "coverage_pct": pct,
+        "hint": (
+            f"Abdeckung: {recent_i}/{total_i} in {window_days} Tagen ({pct}%)"
+            + (f" · {never_i} noch nie" if never_i else "")
+        ),
+    }
+
+
+async def _delay_between_scans(base_sec: float, *, errors_so_far: int) -> None:
+    """Sleep between persons; backoff grows with consecutive API errors."""
+    if base_sec <= 0 and errors_so_far <= 0:
+        return
+    delay = float(base_sec)
+    if errors_so_far:
+        delay = max(delay, base_sec) * (1.5 ** min(errors_so_far, 4))
+    if delay <= 0:
+        return
+    jitter = delay * random.uniform(-0.3, 0.3)
+    await asyncio.sleep(max(0.0, delay + jitter))
+
+
+async def run_person_monitoring(
+    *,
+    limit: int | None = None,
+    delay_sec: float | None = None,
+    high_priority_only: bool = False,
+    include_high_priority: bool = True,
+    high_priority_cap: int | None = None,
+) -> dict[str, Any]:
+    """Daily / manual batch: high-prio first (optional), then rolling; one digest e-mail.
+
+    New findings create NetworkAlerts (Posteingang). E-mail only when there are
+    new alerts — never one mail per person in a batch.
+
+    Cron default: all ``scan_priority=high`` (capped) + ``WATCHLIST_SCAN_BATCH`` rolling.
+    """
+    import config
+
+    if limit is None:
+        limit = config.WATCHLIST_SCAN_BATCH
+    if delay_sec is None:
+        delay_sec = config.WATCHLIST_SCAN_DELAY_SEC
+    if high_priority_cap is None:
+        high_priority_cap = config.WATCHLIST_SCAN_HIGH_PRIORITY_CAP
+
+    if include_high_priority or high_priority_only:
+        people, selection_meta = await select_monitoring_batch(
+            rolling_limit=0 if high_priority_only else int(limit),
+            high_priority_cap=int(high_priority_cap),
+            high_priority_only=high_priority_only,
+        )
+    else:
+        people = await select_persons_for_monitoring(limit=int(limit))
+        selection_meta = {
+            "high_priority_selected": 0,
+            "rolling_selected": len(people),
+            "high_priority_only": False,
+        }
+    ids = [p.id for p in people]
+    names_by_id = {p.id: p.display_name for p in people}
+
+    outcomes: list[dict[str, Any]] = []
+    consecutive_errors = 0
+    aborted_remaining = 0
+
+    for i, pid in enumerate(ids):
+        if i > 0:
+            await _delay_between_scans(float(delay_sec or 0), errors_so_far=consecutive_errors)
+        try:
+            outcomes.append(await scan_watched_person_incremental(pid))
+            consecutive_errors = 0
+        except Exception as e:
+            logger.exception("Watch scan failed for %s", pid)
+            outcomes.append({"person_id": pid, "error": str(e)})
+            consecutive_errors += 1
+            # Soft circuit-break: many consecutive failures → stop rest of batch
+            if consecutive_errors >= 5:
+                aborted_remaining = len(ids) - i - 1
+                logger.warning(
+                    "Watchlist scan aborted after %s consecutive errors (%s remaining skipped)",
+                    consecutive_errors,
+                    aborted_remaining,
+                )
+                break
+
+    digest_alerts: list[dict[str, Any]] = []
+    for o in outcomes:
+        person_name = o.get("display_name") or names_by_id.get(o.get("person_id") or -1)
+        for a in o.get("created_alerts") or []:
+            digest_alerts.append({**a, "person_name": person_name, "person_id": o.get("person_id")})
+
+    email_result: dict[str, Any] | None = None
+    if digest_alerts:
+        from app.notify_email import notify_watchlist_new_hits
+
+        email_result = notify_watchlist_new_hits(
+            digest_alerts,
+            source="batch_monitoring",
+        )
+    else:
+        email_result = {"sent": False, "reason": "no_alerts"}
+
+    coverage = await watchlist_scan_coverage()
+
+    return {
+        "scanned": len(outcomes),
+        "selected": len(ids),
+        "aborted_remaining": aborted_remaining,
         "results": outcomes,
         "new_links": sum(o.get("new_links") or 0 for o in outcomes),
         "alerts": sum(o.get("alerts") or 0 for o in outcomes),
+        "email": email_result,
+        "coverage": coverage,
+        "batch_limit": limit,
+        "high_priority_cap": high_priority_cap if include_high_priority or high_priority_only else 0,
+        "selection": selection_meta,
+        "delay_sec": delay_sec,
+        "concurrency": 1,
     }
-
 
 async def list_network_alerts(
     *,
@@ -674,150 +964,186 @@ async def list_watched_persons(
             )
         people = list((await session.execute(people_q)).scalars().all())
         if not people:
-            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+            page_payload = {"items": [], "total": 0, "limit": limit, "offset": offset}
+        else:
+            person_ids = [p.id for p in people]
 
-        person_ids = [p.id for p in people]
-
-        alert_rows = list(
-            (
-                await session.execute(
-                    select(NetworkAlert).where(
-                        NetworkAlert.acknowledged.is_(False),
-                        NetworkAlert.person_id.in_(person_ids),
-                    )
-                )
-            ).scalars().all()
-        )
-        alerts_by_person: dict[int, list[NetworkAlert]] = {}
-        for a in alert_rows:
-            if a.person_id:
-                alerts_by_person.setdefault(a.person_id, []).append(a)
-
-        # One batch query for all company links (avoids N+1)
-        all_links = list(
-            (
-                await session.execute(
-                    select(PersonCompanyLink).where(PersonCompanyLink.person_id.in_(person_ids))
-                )
-            ).scalars().all()
-        )
-        links_by_person: dict[int, list[PersonCompanyLink]] = {}
-        for link in all_links:
-            links_by_person.setdefault(link.person_id, []).append(link)
-
-        # Link to CompanyCase (process rule C: watch without case is OK but visible)
-        from app.hr_network.company_cases import ACTIVE_FRAUD_STATUSES, OPEN_STATUSES
-
-        linked_statuses = tuple(set(OPEN_STATUSES + ACTIVE_FRAUD_STATUSES))
-        firm_cases = list(
-            (
-                await session.execute(
-                    select(CompanyCase).where(CompanyCase.status.in_(linked_statuses))
-                )
-            ).scalars().all()
-        )
-        case_by_id = {c.id: c for c in firm_cases}
-        case_by_ehraid = {c.company_ehraid: c for c in firm_cases if c.company_ehraid}
-        case_by_name = {
-            (c.company_name or "").strip().lower(): c
-            for c in firm_cases
-            if (c.company_name or "").strip()
-        }
-        person_id_to_case_id: dict[int, int] = {}
-        if firm_cases:
-            check_rows = list(
+            alert_rows = list(
                 (
                     await session.execute(
-                        select(CaseBankCheckItem).where(
-                            CaseBankCheckItem.case_id.in_([c.id for c in firm_cases]),
-                            CaseBankCheckItem.entity_type == "person",
+                        select(NetworkAlert).where(
+                            NetworkAlert.acknowledged.is_(False),
+                            NetworkAlert.person_id.in_(person_ids),
                         )
                     )
                 ).scalars().all()
             )
-            for row in check_rows:
-                ref = (row.entity_ref or "").strip()
-                if ref.isdigit():
-                    person_id_to_case_id.setdefault(int(ref), row.case_id)
+            alerts_by_person: dict[int, list[NetworkAlert]] = {}
+            for a in alert_rows:
+                if a.person_id:
+                    alerts_by_person.setdefault(a.person_id, []).append(a)
 
-        enriched: list[dict[str, Any]] = []
-        for p in people:
-            person_alerts = alerts_by_person.get(p.id, [])
-            if has_open_alert is True and not person_alerts:
-                continue
-            if has_open_alert is False and person_alerts:
-                continue
-
-            links = links_by_person.get(p.id, [])
-            newly_found = sum(1 for l in links if l.relation_type == "newly_found")
-            intermediary = estimate_probable_intermediary(links)
-            severities = [a.severity for a in person_alerts]
-            priority = compute_person_priority_score(
-                source_reason=p.source_reason,
-                open_alert_severities=severities,
-                newly_found_count=newly_found,
-                probable_intermediary=intermediary,
+            # One batch query for all company links (avoids N+1)
+            all_links = list(
+                (
+                    await session.execute(
+                        select(PersonCompanyLink).where(PersonCompanyLink.person_id.in_(person_ids))
+                    )
+                ).scalars().all()
             )
-            last_activity = p.added_at
-            for a in person_alerts:
-                if a.created_at and (last_activity is None or a.created_at > last_activity):
-                    last_activity = a.created_at
-            for l in links:
-                if l.first_detected_at and (last_activity is None or l.first_detected_at > last_activity):
-                    last_activity = l.first_detected_at
+            links_by_person: dict[int, list[PersonCompanyLink]] = {}
+            for link in all_links:
+                links_by_person.setdefault(link.person_id, []).append(link)
 
-            linked_case = None
-            if p.source_company_ehraid and p.source_company_ehraid in case_by_ehraid:
-                linked_case = case_by_ehraid[p.source_company_ehraid]
-            else:
-                src_name = (p.source_company_name or "").strip().lower()
-                if src_name and src_name in case_by_name:
-                    linked_case = case_by_name[src_name]
-            if linked_case is None and p.id in person_id_to_case_id:
-                linked_case = case_by_id.get(person_id_to_case_id[p.id])
+            scan_rows = list(
+                (
+                    await session.execute(
+                        select(PersonWatchScan).where(PersonWatchScan.person_id.in_(person_ids))
+                    )
+                ).scalars().all()
+            )
+            last_monitored_by_person: dict[int, datetime] = {}
+            for scan in scan_rows:
+                prev = last_monitored_by_person.get(scan.person_id)
+                if prev is None or (scan.last_run_at and scan.last_run_at > prev):
+                    last_monitored_by_person[scan.person_id] = scan.last_run_at
 
-            item: dict[str, Any] = {
-                "id": p.id,
-                "person_slug": p.person_slug,
-                "display_name": p.display_name,
-                "residence": p.residence,
-                "source_company_ehraid": p.source_company_ehraid,
-                "source_company_name": p.source_company_name,
-                "source_reason": p.source_reason,
-                "status": p.status,
-                "flag_undesired_customer": bool(getattr(p, "flag_undesired_customer", False)),
-                "flag_aml": bool(getattr(p, "flag_aml", False)),
-                "added_at": p.added_at.isoformat() if p.added_at else None,
-                "notes": p.notes,
-                "company_count": len(links),
-                "newly_found_count": newly_found,
-                "open_alert_count": len(person_alerts),
-                "priority_score": priority,
-                "probable_intermediary": intermediary,
-                "last_activity_at": last_activity.isoformat() if last_activity else None,
-                "has_company_case": linked_case is not None,
-                "linked_case_id": linked_case.id if linked_case else None,
-                "linked_case_status": linked_case.status if linked_case else None,
+            # Link to CompanyCase (process rule C: watch without case is OK but visible)
+            from app.hr_network.company_cases import ACTIVE_FRAUD_STATUSES, OPEN_STATUSES
+
+            linked_statuses = tuple(set(OPEN_STATUSES + ACTIVE_FRAUD_STATUSES))
+            firm_cases = list(
+                (
+                    await session.execute(
+                        select(CompanyCase).where(CompanyCase.status.in_(linked_statuses))
+                    )
+                ).scalars().all()
+            )
+            case_by_id = {c.id: c for c in firm_cases}
+            case_by_ehraid = {c.company_ehraid: c for c in firm_cases if c.company_ehraid}
+            case_by_name = {
+                (c.company_name or "").strip().lower(): c
+                for c in firm_cases
+                if (c.company_name or "").strip()
             }
-            if include_companies:
-                item["companies"] = [_link_dict(l) for l in links]
-            enriched.append(item)
+            person_id_to_case_id: dict[int, int] = {}
+            if firm_cases:
+                check_rows = list(
+                    (
+                        await session.execute(
+                            select(CaseBankCheckItem).where(
+                                CaseBankCheckItem.case_id.in_([c.id for c in firm_cases]),
+                                CaseBankCheckItem.entity_type == "person",
+                            )
+                        )
+                    ).scalars().all()
+                )
+                for row in check_rows:
+                    ref = (row.entity_ref or "").strip()
+                    if ref.isdigit():
+                        person_id_to_case_id.setdefault(int(ref), row.case_id)
 
-        if sort == "added_at":
-            enriched.sort(key=lambda x: x.get("added_at") or "", reverse=True)
-        else:
-            enriched.sort(
-                key=lambda x: (
-                    0 if x.get("probable_intermediary") else 1,
-                    x.get("priority_score") or 0,
-                    x.get("last_activity_at") or "",
-                ),
-                reverse=True,
-            )
+            enriched: list[dict[str, Any]] = []
+            for p in people:
+                person_alerts = alerts_by_person.get(p.id, [])
+                if has_open_alert is True and not person_alerts:
+                    continue
+                if has_open_alert is False and person_alerts:
+                    continue
 
-        total = len(enriched)
-        page = enriched[offset : offset + limit]
-        return {"items": page, "total": total, "limit": limit, "offset": offset}
+                links = links_by_person.get(p.id, [])
+                newly_found = sum(1 for l in links if l.relation_type == "newly_found")
+                intermediary = estimate_probable_intermediary(links)
+                severities = [a.severity for a in person_alerts]
+                priority = compute_person_priority_score(
+                    source_reason=p.source_reason,
+                    open_alert_severities=severities,
+                    newly_found_count=newly_found,
+                    probable_intermediary=intermediary,
+                )
+                last_activity = p.added_at
+                for a in person_alerts:
+                    if a.created_at and (last_activity is None or a.created_at > last_activity):
+                        last_activity = a.created_at
+                for l in links:
+                    if l.first_detected_at and (last_activity is None or l.first_detected_at > last_activity):
+                        last_activity = l.first_detected_at
+
+                linked_case = None
+                if p.source_company_ehraid and p.source_company_ehraid in case_by_ehraid:
+                    linked_case = case_by_ehraid[p.source_company_ehraid]
+                else:
+                    src_name = (p.source_company_name or "").strip().lower()
+                    if src_name and src_name in case_by_name:
+                        linked_case = case_by_name[src_name]
+                if linked_case is None and p.id in person_id_to_case_id:
+                    linked_case = case_by_id.get(person_id_to_case_id[p.id])
+
+                item: dict[str, Any] = {
+                    "id": p.id,
+                    "person_slug": p.person_slug,
+                    "display_name": p.display_name,
+                    "residence": p.residence,
+                    "source_company_ehraid": p.source_company_ehraid,
+                    "source_company_name": p.source_company_name,
+                    "source_reason": p.source_reason,
+                    "status": p.status,
+                    "scan_priority": getattr(p, "scan_priority", None) or "normal",
+                    "flag_undesired_customer": bool(getattr(p, "flag_undesired_customer", False)),
+                    "flag_aml": bool(getattr(p, "flag_aml", False)),
+                    "added_at": p.added_at.isoformat() if p.added_at else None,
+                    "last_monitored_at": (
+                        last_monitored_by_person[p.id].isoformat()
+                        if p.id in last_monitored_by_person and last_monitored_by_person[p.id]
+                        else None
+                    ),
+                    "notes": p.notes,
+                    "company_count": len(links),
+                    "newly_found_count": newly_found,
+                    "open_alert_count": len(person_alerts),
+                    "priority_score": priority,
+                    "probable_intermediary": intermediary,
+                    "last_activity_at": last_activity.isoformat() if last_activity else None,
+                    "has_company_case": linked_case is not None,
+                    "linked_case_id": linked_case.id if linked_case else None,
+                    "linked_case_status": linked_case.status if linked_case else None,
+                }
+                if include_companies:
+                    item["companies"] = [_link_dict(l) for l in links]
+                enriched.append(item)
+
+            if sort == "added_at":
+                enriched.sort(key=lambda x: x.get("added_at") or "", reverse=True)
+            else:
+                enriched.sort(
+                    key=lambda x: (
+                        0 if x.get("probable_intermediary") else 1,
+                        x.get("priority_score") or 0,
+                        x.get("last_activity_at") or "",
+                    ),
+                    reverse=True,
+                )
+
+            total = len(enriched)
+            page = enriched[offset : offset + limit]
+            page_payload = {
+                "items": page,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+
+    page_payload["coverage"] = await watchlist_scan_coverage()
+    try:
+        from app.hr_network.shab_daily import shab_daily_status
+
+        page_payload["shab_daily"] = await shab_daily_status()
+    except Exception:
+        page_payload["shab_daily"] = {
+            "hint": "SHAB-Tagesarchiv: Status nicht verfügbar",
+            "enabled": False,
+        }
+    return page_payload
 
 
 async def list_watched_person_cases(
@@ -901,6 +1227,14 @@ async def get_watched_person_dossier(person_id: int) -> dict[str, Any]:
                 )
             ).scalars().all()
         )
+        scan_row = (
+            await session.execute(
+                select(PersonWatchScan).where(PersonWatchScan.person_id == person_id)
+            )
+        ).scalar_one_or_none()
+        last_monitored_at = (
+            scan_row.last_run_at.isoformat() if scan_row and scan_row.last_run_at else None
+        )
         base = {
             "id": person.id,
             "person_slug": person.person_slug,
@@ -913,6 +1247,7 @@ async def get_watched_person_dossier(person_id: int) -> dict[str, Any]:
             "flag_undesired_customer": bool(getattr(person, "flag_undesired_customer", False)),
             "flag_aml": bool(getattr(person, "flag_aml", False)),
             "added_at": person.added_at.isoformat() if person.added_at else None,
+            "last_monitored_at": last_monitored_at,
             "notes": person.notes,
             "case_notes": person.case_notes,
             "companies": [_link_dict(l) for l in links],

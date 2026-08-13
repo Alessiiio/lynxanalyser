@@ -1,6 +1,7 @@
 /** Shared UI: expert mode, anonymize mode, site navigation. */
 
 const EXPERT_MODE_KEY = "lynx_expert_mode";
+const INCOGNITO_MODE_KEY = "lynx_incognito";
 const LEGACY_STORAGE_PREFIX = "fh_";
 
 (function clearLegacyStorage() {
@@ -74,6 +75,37 @@ function initExpertModeToggle() {
   if (!toggle) return;
   toggle.checked = isExpertMode();
   toggle.addEventListener("change", () => setExpertMode(toggle.checked));
+}
+
+/* ── Admin Inkognito: do not log Firmenanalyse into team search history ── */
+
+function isIncognitoMode() {
+  try {
+    return localStorage.getItem(INCOGNITO_MODE_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setIncognitoMode(on) {
+  try {
+    localStorage.setItem(INCOGNITO_MODE_KEY, on ? "1" : "0");
+  } catch (_) {}
+  document.body.classList.toggle("incognito-mode", !!on && window.__lynxUser?.role === "admin");
+  const toggle = document.getElementById("navIncognitoToggle");
+  if (toggle) toggle.checked = !!on;
+  if (typeof window.onIncognitoModeChange === "function") {
+    window.onIncognitoModeChange(!!on);
+  }
+}
+
+/** Headers for API calls — adds X-Lynx-Incognito only when admin + toggle on. */
+function lynxApiHeaders(extra) {
+  const headers = { ...(extra || {}) };
+  if (window.__lynxUser?.role === "admin" && isIncognitoMode()) {
+    headers["X-Lynx-Incognito"] = "1";
+  }
+  return headers;
 }
 
 /* ── Anonymize mode (server-backed, for demos / tests) ── */
@@ -223,7 +255,13 @@ function escHtml(str) {
  * Returns { ok, status, data, resp }. Throws Error with .loginRequired on 401.
  */
 async function fetchJson(url, options = {}) {
-  const resp = await fetch(url, { credentials: "same-origin", ...options });
+  const merged = { credentials: "same-origin", ...options };
+  const baseHeaders =
+    merged.headers instanceof Headers
+      ? Object.fromEntries(merged.headers.entries())
+      : { ...(merged.headers || {}) };
+  merged.headers = lynxApiHeaders(baseHeaders);
+  const resp = await fetch(url, merged);
   const ct = (resp.headers.get("content-type") || "").toLowerCase();
   const text = await resp.text();
   const looksHtml = /^\s*</.test(text) || ct.includes("text/html");
@@ -385,17 +423,25 @@ function renderSiteNav() {
   const isAdminRole = window.__lynxUser?.role === "admin";
 
   const adminActive = isNavActive("/admin", path);
+  const incognitoOn = isAdminRole && isIncognitoMode();
+  const incognitoBit = isAdminRole
+    ? `<label class="nav-link nav-dropdown-item nav-incognito-item" role="menuitem">
+        <input type="checkbox" id="navIncognitoToggle" ${incognitoOn ? "checked" : ""} />
+        <span>Inkognito (Suchen nicht loggen)</span>
+      </label>`
+    : "";
   const accountBit = window.__lynxUser
     ? `<span class="nav-dropdown nav-account">
-        <button type="button" class="nav-link nav-dropdown-trigger nav-account-trigger${isAdminRole ? " nav-role-admin" : ""}${adminActive ? " nav-link-active" : ""}"
+        <button type="button" class="nav-link nav-dropdown-trigger nav-account-trigger${isAdminRole ? " nav-role-admin" : ""}${adminActive ? " nav-link-active" : ""}${incognitoOn ? " is-incognito" : ""}"
           aria-expanded="false" aria-haspopup="true" aria-controls="navAccountPanel">
-          ${escHtml(roleLabel)} ▾
+          ${escHtml(roleLabel)}${incognitoOn ? " · Inkognito" : ""} ▾
         </button>
         <span id="navAccountPanel" class="nav-dropdown-panel nav-account-panel hidden" role="menu">
           <span class="nav-account-meta">${escHtml(displayName)} · <span class="${isAdminRole ? "nav-role-admin" : ""}">${escHtml(roleLabel)}</span></span>
           <a href="/account" class="nav-link nav-dropdown-item${isNavActive("/account", path) ? " nav-link-active" : ""}" role="menuitem">Konto</a>
           ${isAdminRole ? `<a href="/admin" class="nav-link nav-dropdown-item${adminActive ? " nav-link-active" : ""}" role="menuitem">Admin</a>` : ""}
           ${isAdminRole ? `<a href="/admin/planning" class="nav-link nav-dropdown-item${isNavActive("/admin/planning", path) ? " nav-link-active" : ""}" role="menuitem">Planung</a>` : ""}
+          ${incognitoBit}
           <a href="/changelog" class="nav-link nav-dropdown-item${isNavActive("/changelog", path) ? " nav-link-active" : ""}" role="menuitem">Changelog</a>
           <a href="/feedback" class="nav-link nav-dropdown-item${isNavActive("/feedback", path) ? " nav-link-active" : ""}" role="menuitem">Feedback</a>
           <a href="/logout" class="nav-link nav-dropdown-item" role="menuitem">Logout</a>
@@ -411,6 +457,16 @@ function renderSiteNav() {
 
   ensureNavDocListeners();
   nav.querySelectorAll(".nav-dropdown").forEach((dd) => wireNavDropdown(dd));
+  document.body.classList.toggle("incognito-mode", !!incognitoOn);
+  const incToggle = document.getElementById("navIncognitoToggle");
+  if (incToggle) {
+    incToggle.addEventListener("change", (e) => {
+      e.stopPropagation();
+      setIncognitoMode(incToggle.checked);
+      renderSiteNav();
+    });
+    incToggle.addEventListener("click", (e) => e.stopPropagation());
+  }
 }
 
 initExpertModeToggle();

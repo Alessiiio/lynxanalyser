@@ -162,7 +162,8 @@
             <button type="button" class="btn-nav" data-save-role="${u.id}" ${inactive ? "disabled" : ""}>Rolle speichern</button>
             ${
               inactive
-                ? `<button type="button" class="btn-nav" data-reactivate="${u.id}" data-name="${esc(u.username)}">Reaktivieren</button>`
+                ? `<button type="button" class="btn-nav" data-reactivate="${u.id}" data-name="${esc(u.username)}">Reaktivieren</button>
+            <button type="button" class="btn-nav btn-danger-quiet" data-hard-delete="${u.id}" data-name="${esc(u.username)}" ${u.id === meId ? "disabled" : ""}>Endgültig löschen</button>`
                 : `<button type="button" class="btn-nav" data-deactivate="${u.id}" data-name="${esc(u.username)}">Deaktivieren</button>`
             }
             <button type="button" class="btn-nav" data-reset="${u.id}" data-name="${esc(u.username)}" ${inactive ? "disabled" : ""}>Passwort reset</button>
@@ -212,6 +213,28 @@
           loadUsers();
         } catch (ex) {
           msg(ex.message || "Reaktivieren fehlgeschlagen", true);
+        }
+      });
+    });
+
+    list.querySelectorAll("[data-hard-delete]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const name = btn.dataset.name;
+        if (
+          !confirm(
+            `Benutzer «${name}» ENDGÜLTIG löschen?\n\nDer Account wird aus der Datenbank entfernt. Username kann danach neu vergeben werden. Nicht rückgängig machbar.`
+          )
+        ) {
+          return;
+        }
+        try {
+          const r = await fetch(`/api/users/${btn.dataset.hardDelete}`, { method: "DELETE" });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(detailMsg(d));
+          msg(`«${name}» endgültig gelöscht.`);
+          loadUsers();
+        } catch (ex) {
+          msg(ex.message || "Endgültiges Löschen fehlgeschlagen", true);
         }
       });
     });

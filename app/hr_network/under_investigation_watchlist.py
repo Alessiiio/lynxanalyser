@@ -5,9 +5,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.hr_network.watch_intake import ensure_seed_link, upsert_watched_person
-from app.hr_network.watched_companies import (
+from app.hr_network.watch_intake import (
+    SCAN_PRIORITY_HIGH,
     SOURCE_UNDER_INVESTIGATION,
+    ensure_seed_link,
+    upsert_watched_person,
+)
+from app.hr_network.watched_companies import (
+    SOURCE_UNDER_INVESTIGATION as COMPANY_SOURCE_UNDER_INVESTIGATION,
     upsert_watched_company,
 )
 from app.hr_network.shab_parser import _normalize_person_id
@@ -117,7 +122,7 @@ async def enroll_under_investigation_watchlist(
         company_ehraid=ehraid,
         address=addr,
         legal_seat=seat,
-        source_reason=SOURCE_UNDER_INVESTIGATION,
+        source_reason=COMPANY_SOURCE_UNDER_INVESTIGATION,
         added_by=added_by,
     )
 
@@ -135,6 +140,7 @@ async def enroll_under_investigation_watchlist(
             source_company_name=company.get("company_name") or name,
             source_reason=SOURCE_UNDER_INVESTIGATION,
             status="active",
+            scan_priority=SCAN_PRIORITY_HIGH,
             notes="Auto: In Abklärung (aktuelle Organe)",
         )
         role = ", ".join(p.get("roles") or []) or None

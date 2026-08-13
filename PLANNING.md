@@ -13,6 +13,9 @@ Ausführlicher Umsetzungsplan (noch nicht gebaut):
 Pipeline für Fraud-Testlauf (mehrere Firmennamen → Scan → Auswahl → Watchlist Firmen+Personen → CSV Export):
 
 - **[docs/WATCHLIST_BULK_SCAN_PLAN.md](docs/WATCHLIST_BULK_SCAN_PLAN.md)** — Architektur, UX, Phasen, offene Fragen
+- **[docs/WATCHLIST_SCAN_SCALING.md](docs/WATCHLIST_SCAN_SCALING.md)** — Rolling-Scan der Personen-Watchlist ohne API-Spam
+- **[docs/WATCHLIST_MONITORING.md](docs/WATCHLIST_MONITORING.md)** — Cron / Limits / Digest-E-Mail
+- **[docs/SHAB_DAILY_WATCHLIST.md](docs/SHAB_DAILY_WATCHLIST.md)** — Tägliche SHAB-Publikationen lokal speichern + gegen Watchlist matchen (Phase 1 MVP; Backfill später)
 
 ## Firmenanalyse UX (ausstehend)
 

@@ -1,89 +1,98 @@
 # Changelog
 
-All notable changes to **Lynx** are documented in this file.
+Alle wichtigen Änderungen an **Lynx** stehen hier.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Format nach [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+Versionierung nach [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+**Wo finden?** In der App unter **Changelog** (Account-Menü oder «Mehr») — Seite `/changelog`.  
+Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ## [Unreleased]
 
 ### Added
 
-- **Firmen-Watchlist** (`watched_companies`) mit Dedup UID→Name, Tab «Firmen», CSV-Export (Firmenname;Adresse)
-- **Bulk-Scan** (Admin): Paste-Namen → async Job (Default Suchweite 3) → Progress → Auswahl → Watchlist
-- «In Abklärung» nimmt Firma **und aktuelle Organe** automatisch auf die Watchlist (Tag entfernen lässt Watchlist unverändert)
-- Personen-CSV-Export (Name;Adresse/Wohnort)
-- Admin-Benutzerverwaltung: Rolle ändern, Soft-Delete (`active=false`) / Reaktivieren, Guards für letzten Admin und Self-Demote
-- Pflicht-2FA (TOTP + Backup-Codes) für alle Rollen: Enrollment nach Passwort, Login-Challenge, Admin-Reset für andere User
-- Konto-Seite `/account` (2FA-Status, Passwort ändern); `TOTP_ENCRYPTION_KEY` in `.env`
+- **Admin Inkognito**: Admins können im Account-Menü «Inkognito» einschalten. Dann erscheinen ihre Firmen-Suchen **nicht** in der Team-Historie.
+- **Benutzer endgültig löschen**: Nach dem Deaktivieren kann ein Admin den Benutzer komplett entfernen (nicht nur deaktivieren).
+- **SHAB-Tagesarchiv (Schweiz)**: Jede Nacht speichert Lynx die aktuellen Handelsregister-Meldungen des Tages. Steht jemand auf der Watchlist, landet der Treffer im **Posteingang**.
+- **Watchlist: Firmen und Personen**: Eigene Tabs für Firmen und Personen; Listen als CSV exportierbar (Name und Adresse).
+- **Bulk-Scan (Admin)**: Viele Firmennamen auf einmal einfügen → Lynx sucht sie → du wählst aus → auf die Watchlist.
+- **«In Abklärung» → Watchlist**: Wenn du eine Firma als «In Abklärung» markierst, kommen Firma **und aktuelle Organe** automatisch auf die Watchlist. (Markierung entfernen ändert die Watchlist nicht.)
+- **Priorisierte Überwachung nach Betrugsfall**: Bei einem Fall werden betroffene Personen/Firmen bevorzugt nachgeprüft — damit Nachfolge-Mandate nicht untergehen.
+- **E-Mail bei Watchlist-Treffern**: Wenn E-Mail (SMTP) eingerichtet ist, erhältst du Hinweise zu neuen Mandaten/Verknüpfungen (Sammelmail nach dem nächtlichen Scan oder nach «Liste fortsetzen»).
+- **Demo-Firma ohne Live-API**: Eine feste Demo-Firma zum Vorführen und Testen — ohne echte Register-Abfragen.
+- **Warnungen Adresse / Organe auch bei älteren Firmen**: Frische Änderungen an Sitz oder Organen werden auch bei schon länger bestehenden Firmen angezeigt (nicht nur bei Neugründungen).
+- **Benutzerverwaltung (Admin)**: Rolle ändern, deaktivieren / wieder aktivieren; Schutz, dass der letzte Admin nicht «weggeklickt» wird.
+- **Pflicht-2FA**: Alle Rollen brauchen Zwei-Faktor-Login (App-Code + Backup-Codes). Konto-Seite `/account` für Status und Passwort ändern. Admins können 2FA für andere zurücksetzen.
 
 ### Changed
 
-- Watchlist-UI: Tabs Firmen | Personen | Posteingang | Fälle; Bulk-Scan-Tab nur für Admin
-- Login vergibt volle Session erst nach 2FA-Verify oder abgeschlossener Enrollment
-- Firmenanalyse UI: Status (unvollständig / Cache / Next-Step) unter Graph-Toolbar statt über dem Graph; Warn-Pills kompakt unter Firm-Leiste
-- Firm-Aktionen: «Suche ändern», **In Abklärung** und Akte sichtbar; HR / Profiler unter **Mehr**
-- Organigramm-Toggle entfernt (nur Netzwerk-Graph)
-- Personen-Sidebar: Gender-Markierung dezent (m/w + Icon), Fussnote Heimatort entfernt
-- Graph-Pan in Chromium Edge: `touch-action: none` + explizites `dragView`
+- **Watchlist-Oberfläche**: Tabs Firmen | Personen | Posteingang | Fälle; Bulk-Scan nur für Admins.
+- **Login erst nach 2FA**: Die volle Sitzung gibt es erst nach dem zweiten Faktor (oder nach dem erstmaligen Einrichten).
+- **Firmenanalyse aufgeräumt**: Status (unvollständig / Cache / nächster Schritt) steht **unter** dem Graphen; Warnungen kompakt unter der Firm-Leiste. Organigramm-Schalter entfernt (nur noch Netzwerk-Graph). «In Abklärung» und Akte bleiben gut sichtbar; HR / Profiler unter **Mehr**.
+- Personen-Seitenleiste: Geschlecht dezent (m/w); Heimatort-Fussnote entfernt.
+- Graph-Verschieben in Microsoft Edge funktioniert wieder zuverlässig.
+
+### Fixed
+
+- Demo-Firma: Fehler behoben, wenn die Daten-Datei im Docker-Setup nicht gefunden wurde.
 
 ## [1.2.0] - 2026-08-12
 
 ### Added
 
-- **Suchweite 1–5** in der Firmenanalyse (UI statt reiner «Ebenen»): Phasen-Karten für Register (SW2), Mandate / Netzwerk erweitern (SW3+), Mini-CTA «Netzwerk erweitern»; SW3-Label «Weitere Firmen (Mandate)»
-- Firm-Leiste mit Name/UID-Klick zum Kopieren, Status und Aktionen; Tag **«In Abklärung»** (team-sichtbar, SQLite) — Badge in Autocomplete und Team-Suchen, unabhängig von der Fall-Akte
-- **Team-Suchhistorie** auf der Firmenanalyse-Startseite: eigene und Team-Suchen (API + SQLite), mit Benutzer und Zeit; «Eigene leeren» entfernt nur die eigenen Einträge
-- Statuskarte **unvollständige Personensuche / Identitätsbestätigung**: Moneyhouse-Treffer bestätigen oder ignorieren; `confirm-identity` baut das Netz **inkrementell** nach (ohne vollen Neu-Scan, wenn Graph/Cache vorliegt)
-- Moneyhouse-Personensuche als **Fill-in** für Mandate (Watchlist + Firmennetz SW3+), mit Seed-Firma als Soft-Gate (Boost / Soft-Accept); Firmenidentität immer über Zefix
-- SHAB-Personenparser für **italienische und französische** SOGC-Meldungen (Rollen/Nationalität, z. B. TI / Romandie)
-- Organigramm-Ansicht neben dem Graphen; Kopieren-Helfer für Netz-/Akte-Daten
-- Idle-Startseite Firmenanalyse (neutrale Tagline «Firmennetzwerke analysieren»)
-- Zeitleisten-Typen: Personen rein/raus, bereinigter SHAB-Volltext (ohne harte Mittelkürzung)
-- In-App Feedback / Wishlist (Floating-Formular, Pflege unter `/feedback`)
-- Admin-Planung unter `/admin/planning`
+- **Suchweite 1–5** in der Firmenanalyse (statt nur «Ebenen»): klarere Schritte für Register, Mandate und Netzwerk erweitern
+- Firm-Leiste mit Name/UID zum Kopieren; Tag **«In Abklärung»** (sichtbar fürs Team)
+- **Team-Suchhistorie** auf der Firmenanalyse-Startseite (eigene und Team-Suchen)
+- Statuskarte bei unvollständiger Personensuche: Moneyhouse-Treffer bestätigen oder ignorieren
+- Moneyhouse als Ergänzung für Personen/Mandate; Firmenidentität weiter über Zefix
+- SHAB-Personenparser für italienische und französische Meldungen (z. B. Tessin / Romandie)
+- Organigramm neben dem Graphen; Kopier-Helfer für Netz-/Akte-Daten
+- Ruhige Idle-Startseite («Firmennetzwerke analysieren»)
+- Zeitleiste: Personen rein/raus, lesbarere SHAB-Texte
+- In-App Feedback / Wishlist; Admin-Planung unter `/admin/planning`
 
 ### Changed
 
-- Mandats-Entdeckung: **Zefix/SHAB primär**, Moneyhouse nur Ergänzung (`MONEYHOUSE_PERSON_SEARCH`, Default an); Cache-Key v6
-- Idle-Start: Pulse-Shortcuts (offene Fälle / Watchlist / Schnelllinks) entfernt zugunsten ruhiger Such-Startseite
-- Personen-Identität im Graph: Merge über Namens-Fingerprint / Mittelname (kein Merge unterschiedlicher Vornamen); eine Kante Person↔Firma mit zusammengeführten Rollenlabels; Former-Status bleibt erhalten; Case-Flags robuster indiziert
-- SHAB-Timeline und Meldungen lesbarer (volle bereinigte Meldung, kompakte Personen-Chips)
-- Docker-Image: System-Chromium via apt statt Playwright-CDN-Download (geo-block auf manchen VPS-Netzen)
+- Mandats-Entdeckung: Zefix/SHAB zuerst, Moneyhouse nur Ergänzung
+- Idle-Start ohne Puls-Shortcuts — ruhiger Such-Start
+- Personen im Graph: klareres Zusammenführen von Namen/Rollen; ehemalige Mitglieder bleiben erkennbar
+- SHAB-Zeitleiste und Meldungen lesbarer
+- Docker: System-Chromium statt Download von extern (hilft auf manchen VPS)
 
 ### Fixed
 
-- Moneyhouse-Identität bei gängigen Nachnamen: bevorzugte Seed-Bestätigung über `relatedCompanies`; Soft-Gate wenn MH der Zefix-Seed-Firma hinterherhinkt
-- Deep-Analyse-Status zeigt Moneyhouse- und SHAB-Treffer getrennt
-- Lange Suchweite-5-Scans: Caddy-/Proxy- und Health-Timeouts erhöht (kein HTML-502 / Container-Neustart mitten im Scan)
+- Moneyhouse bei häufigen Nachnamen: bessere Zuordnung zur bekannten Firma
+- Deep-Analyse zeigt Moneyhouse- und SHAB-Treffer getrennt
+- Lange Suchweite-5-Scans: Timeouts erhöht (kein Abbruch mitten im Scan durch Proxy/Health-Check)
 
 ## [1.1.0] - 2026-07-31
 
 ### Added
 
-- In-App Changelog-Seite (`/changelog`) und Account-Menü-Link
+- In-App Changelog-Seite (`/changelog`) und Link im Account-Menü
 - Admin-Zugang über Account-Dropdown
-- L4/L5 Firmennetz-Disk-Cache (7 Tage, geteilt) inkl. «Neu laden» / Cache-Hinweis
+- L4/L5 Firmennetz-Cache (7 Tage, geteilt) inkl. «Neu laden»
 - Watchlist-Personenflags: «Unerwünschter Kunde» und «AML»
-- Firmenknoten im Beziehungsnetz öffnen Firmenanalyse in neuem Tab
+- Firmenknoten im Netz öffnen die Firmenanalyse in neuem Tab
 
 ### Changed
 
-- Ehemalige Personen im Graph kontrastreicher; ehemalige Mitglieder standardmässig eingeklappt
-- Branchen-Hinweis: Match auf Tätigkeitskern statt Handelsregister-Boilerplate
-- Session-Cookies: `Secure` nur wenn `DOMAIN` gesetzt (lokales HTTP)
+- Ehemalige Personen im Graph besser erkennbar; ehemalige Mitglieder standardmässig eingeklappt
+- Branchen-Hinweis: Fokus auf den Tätigkeitskern
+- Session-Cookies: `Secure` nur wenn `DOMAIN` gesetzt (lokales HTTP ok)
 
 ### Fixed
 
-- Changelog- und L4/L5-Cache-Verhalten nach Deployment/Neustart
-- Falsch-positive Branchenmeldung («100% der Fälle») bei abweichendem Firmenzweck
+- Changelog- und L4/L5-Cache nach Deployment/Neustart
+- Falsch-positive Branchenmeldung bei abweichendem Firmenzweck
 
 ## [1.0.0] - 2026-07-29
 
 ### Added
 
-- Erste veröffentlichte Lynx-Basis: Firmenanalyse, Fälle, Watchlist, Profiler, Website-Check
-- FastAPI + SQLite, rollenbasierte Anmeldung (Admin / Case Manager / Compliance)
-- Zefix-/SHAB-Netzwerk (Ebenen 1–5), Dokumentation/Akte, Compliance-Flows
-- VPS-taugliches Setup: Docker Compose, Caddy, gehärtete Production-Defaults
+- Erste Lynx-Basis: Firmenanalyse, Fälle, Watchlist, Profiler, Website-Check
+- Anmeldung mit Rollen (Admin / Case Manager / Compliance)
+- Zefix-/SHAB-Netzwerk, Dokumentation/Akte, Compliance-Abläufe
+- VPS-Setup: Docker Compose, Caddy, produktionsnahe Defaults
 - Deploy-Dokumentation (`deploy/README.md`, `deploy/HETZNER.md`)

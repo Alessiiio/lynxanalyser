@@ -298,7 +298,30 @@ async def open_case(
         session.add(case)
         await session.commit()
         await session.refresh(case)
-        return {**_case_dict(case, bank_checks=[]), "already_existed": False}
+        case_payload = {**_case_dict(case, bank_checks=[]), "already_existed": False}
+        case_name, case_uid = case.company_name, case.company_uid
+
+    # Auto-watch current organs so new mandates are caught before confirm
+    from app.hr_network.watch_intake import (
+        SCAN_PRIORITY_HIGH,
+        SOURCE_CASE_OPEN,
+        intake_from_fraud_company,
+    )
+
+    try:
+        intake = await intake_from_fraud_company(
+            name=case_name,
+            uid=case_uid,
+            source_reason=SOURCE_CASE_OPEN,
+            scan_priority=SCAN_PRIORITY_HIGH,
+            notes_prefix="Auto: Fall eröffnet",
+        )
+    except Exception as e:
+        logger.exception("Watch intake after case open failed")
+        intake = {"error": str(e), "enrolled": [], "enrolled_count": 0}
+
+    case_payload["watch_intake"] = intake
+    return case_payload
 
 
 async def update_hit_context(
@@ -367,10 +390,20 @@ async def confirm_fraud(
         name, uid = case.company_name, case.company_uid
 
     # Watchlist intake outside session
-    from app.hr_network.watch_intake import intake_from_fraud_company
+    from app.hr_network.watch_intake import (
+        SCAN_PRIORITY_HIGH,
+        SOURCE_FRAUD_LIST_OFFICER,
+        intake_from_fraud_company,
+    )
 
     try:
-        intake = await intake_from_fraud_company(name=name, uid=uid)
+        intake = await intake_from_fraud_company(
+            name=name,
+            uid=uid,
+            source_reason=SOURCE_FRAUD_LIST_OFFICER,
+            scan_priority=SCAN_PRIORITY_HIGH,
+            notes_prefix="Auto: Betrug bestätigt",
+        )
     except Exception as e:
         logger.exception("Watch intake after confirm failed")
         intake = {"error": str(e), "enrolled": [], "enrolled_count": 0}

@@ -5,7 +5,22 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, func, inspect, select, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -100,6 +115,8 @@ class WatchedPerson(Base):
     source_reason: Mapped[str] = mapped_column(String(64))
     # active | low_priority | cleared | confirmed_fraud
     status: Mapped[str] = mapped_column(String(32), default="active")
+    # high = fall/In-Abklärung — nightly scan before rolling queue; normal = rolling only
+    scan_priority: Mapped[str] = mapped_column(String(16), default="normal", index=True)
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -215,6 +232,84 @@ class WatchedPersonStatusHistory(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         index=True,
+    )
+
+
+class ShabDailyPublication(Base):
+    """Go-forward SHAB/SOGC archive (CH-wide daily ingest). Keyed by shab_id."""
+
+    __tablename__ = "shab_daily_publications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    shab_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    publication_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, index=True)
+    company_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    company_uid: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    company_ehraid: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    canton: Mapped[Optional[str]] = mapped_column(String(8), nullable=True, index=True)
+    registry_office_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mutation_types: Mapped[list] = mapped_column(JSON, default=list)
+    message: Mapped[str] = mapped_column(Text, default="")
+    person_names: Mapped[list] = mapped_column(JSON, default=list)
+    journal_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    journal_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        Index("ix_shab_daily_pub_date_canton", "publication_date", "canton"),
+    )
+
+
+class ShabDailyIngestRun(Base):
+    """One fetch/upsert attempt for a publication-date window."""
+
+    __tablename__ = "shab_daily_ingest_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    window_start: Mapped[str] = mapped_column(String(10))
+    window_end: Mapped[str] = mapped_column(String(10))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running|ok|error
+    pubs_fetched: Mapped[int] = mapped_column(Integer, default=0)
+    pubs_upserted: Mapped[int] = mapped_column(Integer, default=0)
+    pubs_inserted: Mapped[int] = mapped_column(Integer, default=0)
+    alerts_created: Mapped[int] = mapped_column(Integer, default=0)
+    pages_fetched: Mapped[int] = mapped_column(Integer, default=0)
+    ch_wide: Mapped[bool] = mapped_column(Boolean, default=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+
+
+class ShabDailyMatch(Base):
+    """Idempotent watchlist match log (shab_id × person)."""
+
+    __tablename__ = "shab_daily_matches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    shab_id: Mapped[str] = mapped_column(String(64), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("watched_persons.id"), index=True)
+    company_ehraid: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    company_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    matched_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    alert_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("shab_id", "person_id", name="uq_shab_daily_match_pub_person"),
     )
 
 
@@ -598,6 +693,31 @@ def _migrate_watched_person_columns(conn) -> None:
         conn.execute(
             text("ALTER TABLE watched_persons ADD COLUMN flag_aml BOOLEAN DEFAULT 0")
         )
+    if "scan_priority" not in existing:
+        conn.execute(
+            text(
+                "ALTER TABLE watched_persons ADD COLUMN scan_priority VARCHAR(16) DEFAULT 'normal'"
+            )
+        )
+        # Backfill: case / In-Abklärung / takeover officers are high scan priority
+        conn.execute(
+            text(
+                "UPDATE watched_persons SET scan_priority = 'high' "
+                "WHERE source_reason IN "
+                "('fraud_list_officer', 'under_investigation', "
+                "'shell_takeover_pattern', 'case_open')"
+            )
+        )
+        logger.info("Added watched_persons.scan_priority (+ backfill high sources)")
+    try:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_watched_persons_scan_priority "
+                "ON watched_persons (scan_priority)"
+            )
+        )
+    except Exception:
+        pass
 
 
 def _migrate_company_case_columns(conn) -> None:

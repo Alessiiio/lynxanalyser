@@ -2002,6 +2002,26 @@ button.nav-link.nav-role-admin {
   font-weight: 700;
 }
 
+.nav-incognito-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  white-space: normal;
+  line-height: 1.25;
+}
+.nav-incognito-item input {
+  flex-shrink: 0;
+  margin: 0;
+}
+.nav-account-trigger.is-incognito {
+  color: #94a3b8 !important;
+}
+
 /* Expert mode toggle */
 .expert-toggle {
   display: inline-flex;

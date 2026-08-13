@@ -157,6 +157,8 @@ async def test_in_abklaerung_enrolls_company_and_organs():
     names = {p["display_name"] for p in people["items"]}
     assert "Muster, Max" in names
     assert "Alt, Anna" not in names
+    muster = next(p for p in people["items"] if p["display_name"] == "Muster, Max")
+    assert muster.get("scan_priority") == "high"
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@
 
 | # | Entscheidung | Detail |
 |---|--------------|--------|
-| 1 | **Soft-Delete only** | `active=false` — kein Hard-Delete im MVP |
+| 1 | **Soft-Delete + Hard-Delete Cleanup** | Soft: `active=false`. Hard: `DELETE /api/users/{id}` nur für **inaktive** User (Admin-UI «Endgültig löschen») |
 | 2 | **Self-Demote erlaubt** | Admin → Nicht-Admin nur wenn **≥2 aktive Admins** (nach Demote bleibt ≥1) |
 | 3 | **2FA Self-Service** | Enrollment für **alle Rollen** (nicht nur Admin-UI) |
 | 4 | **2FA Pflicht ab Tag 1** | Nach Passwort: enroll oder TOTP/Backup **bevor** volle Session / App-Zugang |
@@ -73,10 +73,13 @@ Relevante Dateien: `app/auth.py`, `app/routes/auth.py`, `app/routes/deps.py`, `a
 
 **Soft vs Hard Delete:**
 
-- **Empfehlung MVP: Soft-Delete** = `active=False` (+ optional `deactivated_at`, `deactivated_by`).
+- **Soft-Delete (Standard):** `active=False` via `PATCH` / Deaktivieren in der Admin-UI.
   - Login und Session-Load greifen schon.
   - Username bleibt unique → Reaktivierung möglich; kein Orphan-Chaos bei `changed_by`-Strings.
-- **Hard-Delete:** nur wenn kein Audit-Bezug nötig; Username freigeben. Nicht im ersten Slice, ausser explizit gewünscht.
+- **Hard-Delete (Cleanup, 2026-08-13):** `DELETE /api/users/{id}` entfernt die Zeile endgültig.
+  - Nur wenn `active=false` (aktive User zuerst soft-deleten).
+  - Nicht selbst; Username wird freigegeben.
+  - Aktive Admins sind über die Active-Guard abgedeckt.
 
 ### A.3 API (Vorschlag)
 
@@ -85,7 +88,7 @@ Alle Endpoints: `require_role("admin")`, Origin-Check wie übrige mutierende `/a
 | Method | Path | Verhalten |
 |--------|------|-----------|
 | `PATCH` | `/api/users/{id}` | Body: `role?`, `active?`, `display_name?` — mit Guards |
-| `DELETE` | `/api/users/{id}` | MVP: Soft (`active=False`) **oder** Alias auf PATCH; Hard nur mit `?hard=1` später |
+| `DELETE` | `/api/users/{id}` | **Hard-Delete** inaktiver User (Cleanup); Soft weiter via `PATCH active=false` |
 | bestehend | `GET/POST /api/users`, Reset-Password | unverändert; Reset sollte bei deaktiviertem User 404/400 |
 
 Antworten: weiterhin `user_public_dict` (+ ggf. `totp_enabled` später, ohne Secrets).
@@ -98,6 +101,7 @@ In der bestehenden Benutzer-Sektion (`admin-user-card`):
 
 - Dropdown **Rolle** (sofort speichern oder «Speichern»-Button — konsistent zum Rest: eher expliziter Button).
 - Toggle / Button **Deaktivieren** / **Reaktivieren**.
+- Bei inaktiven Usern: **Endgültig löschen** (Hard-Delete, Confirm).
 - Bestätigungsdialog bei Deaktivieren (Username nennen).
 - Deaktivierte User visuell absetzen (bereits «· inaktiv» vorgesehen).
 - Keine neue Seite nötig.
@@ -284,7 +288,7 @@ Verbleibend optional (nicht blockierend):
 - WebAuthn
 - E-Mail-Versand von Invite/Backup-Codes
 - Feingranulare Permissions jenseits der drei Rollen
-- Hard-Delete / Env-Break-glass für 2FA
+- Env-Break-glass für 2FA
 - Automatische Planning-Board-Karten (siehe Zeiger in `PLANNING.md`)
 
 ---

@@ -12,7 +12,7 @@ import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Isolate DB / secrets before app modules bind the engine
@@ -56,7 +56,8 @@ from app.auth import (  # noqa: E402
     verify_and_consume_backup_code,
     verify_totp_code,
 )
-from app.database import User  # noqa: E402
+from app.database import CompanySearchHistory, User  # noqa: E402
+from app.routes.deps import is_admin_incognito  # noqa: E402
 from app.totp_crypto import decrypt_totp_secret, encrypt_totp_secret  # noqa: E402
 
 # Rebind engine to temp DB immediately
@@ -111,7 +112,12 @@ async def _add_user(
 @pytest_asyncio.fixture
 async def client():
     await db.init_db()
+    # Other test modules may have imported search_history before this file rebound the engine.
+    from app.hr_network import search_history as sh
+
+    sh.async_session = db.async_session
     async with db.async_session() as session:
+        await session.execute(delete(CompanySearchHistory))
         for u in (await session.execute(select(User))).scalars().all():
             await session.delete(u)
         await session.commit()
@@ -153,6 +159,20 @@ def test_backup_code_one_time_use():
     assert verify_and_consume_backup_code(user, codes[0]) is True
     assert verify_and_consume_backup_code(user, codes[0]) is False
     assert verify_and_consume_backup_code(user, codes[1]) is True
+
+
+def test_is_admin_incognito_requires_admin_and_header():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    req = MagicMock()
+    req.headers.get.return_value = "1"
+    assert is_admin_incognito(req, SimpleNamespace(role="admin")) is True
+    assert is_admin_incognito(req, SimpleNamespace(role="case_manager")) is False
+
+    req2 = MagicMock()
+    req2.headers.get.return_value = "0"
+    assert is_admin_incognito(req2, SimpleNamespace(role="admin")) is False
 
 
 # ── API: soft-delete / last-admin / self-demote / inactive login ──────────
@@ -302,3 +322,105 @@ async def test_admin_reset_2fa_other_user_not_self(client):
     await client.post("/api/logout")
     r = await client.post("/api/login", json={"username": "oth_r", "password": "password12345"})
     assert r.json().get("needs_enroll") is True
+
+
+# ── Hard-delete inactive users ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_rejects_active_user(client):
+    admin = await _add_user("adm_hd", "password12345", "admin", totp=True)
+    target = await _add_user("alive", "password12345", "case_manager", totp=True)
+    secret = admin._test_secret  # type: ignore[attr-defined]
+    await _login_full(client, "adm_hd", "password12345", secret=secret)
+
+    r = await client.delete(f"/api/users/{target.id}")
+    assert r.status_code == 400
+    assert "deaktivieren" in r.json()["detail"].lower() or "Soft" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_rejects_self(client):
+    admin = await _add_user("adm_self", "password12345", "admin", totp=True)
+    await _add_user("peer_cm", "password12345", "case_manager", totp=True)
+    secret = admin._test_secret  # type: ignore[attr-defined]
+    await _login_full(client, "adm_self", "password12345", secret=secret)
+
+    r = await client.delete(f"/api/users/{admin.id}")
+    assert r.status_code == 400
+    assert "selbst" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_inactive_ok_and_username_freed(client):
+    admin = await _add_user("adm_ok", "password12345", "admin", totp=True)
+    target = await _add_user("goner", "password12345", "case_manager", totp=True)
+    secret = admin._test_secret  # type: ignore[attr-defined]
+    await _login_full(client, "adm_ok", "password12345", secret=secret)
+
+    assert (await client.patch(f"/api/users/{target.id}", json={"active": False})).status_code == 200
+    r = await client.delete(f"/api/users/{target.id}")
+    assert r.status_code == 200, r.text
+    assert r.json().get("ok") is True
+    assert r.json().get("deleted") == "goner"
+
+    listed = await client.get("/api/users")
+    names = {u["username"] for u in listed.json()["users"]}
+    assert "goner" not in names
+
+    # Username can be recreated
+    create = await client.post(
+        "/api/users",
+        json={
+            "username": "goner",
+            "password": "password12345",
+            "display_name": "Goner",
+            "role": "case_manager",
+        },
+    )
+    assert create.status_code == 200, create.text
+
+
+@pytest.mark.asyncio
+async def test_incognito_skips_search_history_for_admin_only(client):
+    admin = await _add_user("adm_inc", "password12345", "admin", totp=True)
+    cm = await _add_user("cm_inc", "password12345", "case_manager", totp=True)
+    secret_a = admin._test_secret  # type: ignore[attr-defined]
+    secret_c = cm._test_secret  # type: ignore[attr-defined]
+
+    await _login_full(client, "adm_inc", "password12345", secret=secret_a)
+    r1 = await client.get(
+        "/api/hr-network",
+        params={"demo": "fraud"},
+        headers={"X-Lynx-Incognito": "1"},
+    )
+    assert r1.status_code == 200, r1.text
+    hist = await client.get("/api/hr-network/search-history")
+    assert hist.status_code == 200
+    items = hist.json().get("items") or []
+    assert not any(
+        (i.get("uid") or "").upper().replace(".", "").replace("-", "") == "CHE000000001"
+        or "DEMO-FRAUD" in (i.get("name") or "").upper()
+        for i in items
+    )
+
+    # Without header → logged
+    r2 = await client.get("/api/hr-network", params={"demo": "fraud"})
+    assert r2.status_code == 200, r2.text
+    hist2 = await client.get("/api/hr-network/search-history")
+    items2 = hist2.json().get("items") or []
+    assert any("DEMO-FRAUD" in (i.get("name") or "").upper() for i in items2)
+
+    # Non-admin header ignored → still logged
+    await client.post("/api/logout")
+    await _login_full(client, "cm_inc", "password12345", secret=secret_c)
+    await client.delete("/api/hr-network/search-history")
+    r3 = await client.get(
+        "/api/hr-network",
+        params={"company": "DEMO-FRAUD GmbH"},
+        headers={"X-Lynx-Incognito": "1"},
+    )
+    assert r3.status_code == 200, r3.text
+    hist3 = await client.get("/api/hr-network/search-history")
+    items3 = hist3.json().get("items") or []
+    assert any("DEMO-FRAUD" in (i.get("name") or "").upper() for i in items3)

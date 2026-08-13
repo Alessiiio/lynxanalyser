@@ -51,7 +51,12 @@
             <button type="button" class="btn-nav" id="refreshInboxBtn">Aktualisieren</button>
           </div>
         </div>
-        <p class="fraud-help">Klick öffnet die Personenakte als Case-Fenster.</p>
+        <p class="fraud-help">
+          Offene Alerts zu neuen Mandaten / Firmenverknüpfungen beobachteter Personen.
+          Auslöser: Nacht-Cron 04:15, «Liste fortsetzen», oder Mandat-Scan in der Personenakte.
+          Bei konfiguriertem SMTP: Digest-E-Mail an
+          <code>WATCHLIST_NOTIFY_EMAILS</code>.
+        </p>
         <div id="inboxList"></div>
       </div>
     </section>
@@ -88,9 +93,11 @@
             <a class="btn-nav" id="exportPersonsBtn" href="/api/watched-persons/export.csv?status=active,confirmed_fraud">CSV Export</a>
             <button type="button" class="btn-nav" id="mergeBtn">Merge</button>
             <button type="button" class="btn-nav" id="deletePersonsBtn">Löschen</button>
-            <button type="button" class="btn-nav" id="runMonitoringBtn">Monitoring</button>
+            <button type="button" class="btn-nav" id="runMonitoringBtn" title="Nächste Personen der Warteschlange prüfen (älteste / nie gescannte zuerst, Moneyhouse→Zefix)">Liste fortsetzen</button>
+            <button type="button" class="btn-nav hidden" id="runHighPriorityBtn" title="Nur high-prio (Fall / In Abklärung) jetzt prüfen — Admin">Priorisierte jetzt prüfen</button>
           </div>
         </div>
+        <p id="scanCoverageHint" class="fraud-help" aria-live="polite"></p>
         <div class="watch-filters">
           <input id="personSearch" class="watch-reason" placeholder="Name suchen…" />
           <select id="statusFilter" class="ca-select" aria-label="Status">
@@ -119,6 +126,18 @@
           <button type="button" class="btn-check" id="addPersonBtn">Hinzufügen</button>
         </div>
         <p id="watchMsg" class="fraud-help"></p>
+        <p class="fraud-help">
+          «Liste fortsetzen» scannt die nächsten Personen der Rolling-Warteschlange (Default 5;
+          Env <code>WATCHLIST_SCAN_MANUAL_LIMIT</code>). Nacht-Cron 04:15: zuerst alle
+          <strong>high-prio</strong> (Fall / In Abklärung, Cap
+          <code>WATCHLIST_SCAN_HIGH_PRIORITY_CAP</code>=50), danach Rolling-Rest
+          (<code>WATCHLIST_SCAN_BATCH</code>=25). Admin: «Priorisierte jetzt prüfen».
+          Neue Mandate vs. bekannte Seed-Links → Posteingang + Digest-E-Mail.
+          Zusätzlich (wenn <code>SHAB_DAILY_INGEST=1</code>): Cron 05:45 speichert die
+          CH-weite SHAB-Tagesausgabe lokal und matcht Watchlist-Personen
+          (<code>source=shab_daily</code>) — komplementär zu Moneyhouse.
+          Playbook: docs/WATCHLIST_FRAUD_FOLLOWUP.md · docs/SHAB_DAILY_WATCHLIST.md
+        </p>
       </div>
     </section>
 

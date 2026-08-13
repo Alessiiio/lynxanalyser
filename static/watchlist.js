@@ -37,6 +37,8 @@ async function loadMe() {
   currentUserRole = (data.user && data.user.role) || "";
   const bulkBtn = document.getElementById("bulkTabBtn");
   if (bulkBtn && currentUserRole === "admin") bulkBtn.classList.remove("hidden");
+  const highPrioBtn = document.getElementById("runHighPriorityBtn");
+  if (highPrioBtn && currentUserRole === "admin") highPrioBtn.classList.remove("hidden");
   if (data.settings && typeof applyAnonymizeMode === "function") {
     applyAnonymizeMode(!!data.settings.anonymize_mode, { silent: true });
   }
@@ -501,6 +503,20 @@ async function loadPersons() {
   document.getElementById("prevPageBtn").disabled = personOffset <= 0;
   document.getElementById("nextPageBtn").disabled = personOffset + PAGE_SIZE >= personTotal;
 
+  const covEl = document.getElementById("scanCoverageHint");
+  if (covEl) {
+    const cov = data.coverage;
+    const shab = data.shab_daily;
+    const parts = [];
+    if (cov && cov.hint) {
+      parts.push(`${cov.hint} · Nacht-Cron rollt die Liste weiter (siehe Hilfe unten).`);
+    }
+    if (shab && shab.hint) {
+      parts.push(shab.hint);
+    }
+    covEl.textContent = parts.join(" ");
+  }
+
   const el = document.getElementById("personList");
   if (!persons.length) {
     el.innerHTML = `<p class="fraud-help">Keine Personen.</p>`;
@@ -517,15 +533,22 @@ async function loadPersons() {
     const caseBadge = p.has_company_case
       ? `<span class="watch-case-link-badge" title="Mit Firmenakte">Akte #${esc(String(p.linked_case_id || ""))}</span>`
       : `<span class="watch-no-case-badge" title="Frühwarnung ohne Firmenakte — Akte eröffnen empfohlen">Ohne Akte</span>`;
+    const scanPrio = (p.scan_priority || "") === "high"
+      ? `<span class="watch-case-link-badge" title="Nächtlich zuerst (Fall / In Abklärung)">High-Scan</span>`
+      : "";
+    const lastScan = p.last_monitored_at
+      ? formatScanAge(p.last_monitored_at)
+      : "nie gescannt";
     return `<li class="watch-person-row${active}${p.probable_intermediary ? " is-intermediary-collapsed" : ""}${p.has_company_case ? "" : " is-no-case"}">
       <button type="button" class="watch-person-summary" data-select="${p.id}">
         <span class="fraud-side-item-title">${esc(d(p.display_name, "person"))}
-          <span class="fraud-speed-hint">${esc(p.status)}</span>${inter}${undesired}${aml}${caseBadge}
+          <span class="fraud-speed-hint">${esc(p.status)}</span>${inter}${undesired}${aml}${caseBadge}${scanPrio}
         </span>
         <span class="fraud-entry-meta">
           <span>${p.company_count || 0} Firmen</span>
           <span>${p.open_alert_count || 0} Alerts</span>
           <span>Prio ${p.priority_score ?? "—"}</span>
+          <span title="Letzter Monitoring-Scan">${esc(lastScan)}</span>
         </span>
       </button>
       <label class="watch-merge-label">
@@ -550,6 +573,17 @@ async function loadPersons() {
       else mergeSelected.delete(id);
     });
   });
+}
+
+function formatScanAge(iso) {
+  if (!iso) return "nie gescannt";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "Scan ?";
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0) return "heute gescannt";
+  if (days === 1) return "gestern gescannt";
+  if (days < 14) return `vor ${days} Tagen`;
+  return `Scan ${new Date(t).toLocaleDateString("de-CH")}`;
 }
 
 async function loadCases() {
@@ -914,9 +948,52 @@ document.getElementById("runMonitoringBtn")?.addEventListener("click", async () 
   const btn = document.getElementById("runMonitoringBtn");
   btn.disabled = true;
   try {
-    const r = await fetch("/api/watched-persons/run-monitoring?limit=5", { method: "POST" });
+    const r = await fetch("/api/watched-persons/run-monitoring", { method: "POST" });
     const d = await r.json();
-    setMsg(`Monitoring: ${d.scanned || 0} Personen, ${d.alerts || 0} Alerts`);
+    const emailBit =
+      d.email && d.email.sent
+        ? " · Digest-E-Mail gesendet"
+        : d.email && d.email.reason === "no_alerts"
+          ? " · keine neuen Funde (keine E-Mail)"
+          : d.email && d.email.reason === "smtp_unset"
+            ? " · E-Mail: SMTP nicht konfiguriert"
+            : d.alerts
+              ? " · E-Mail: siehe Server-Log / Empfänger"
+              : "";
+    const cov = d.coverage && d.coverage.hint ? ` · ${d.coverage.hint}` : "";
+    setMsg(
+      `Liste fortgesetzt: ${d.scanned || 0} Personen, ${d.new_links || 0} neue Firmen, ${d.alerts || 0} Alerts${emailBit}${cov}`
+    );
+    await Promise.all([loadPersons(), loadInbox()]);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("runHighPriorityBtn")?.addEventListener("click", async () => {
+  const btn = document.getElementById("runHighPriorityBtn");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/watched-persons/run-high-priority-monitoring", {
+      method: "POST",
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      setMsg(d.detail || "High-Prio-Scan fehlgeschlagen");
+      return;
+    }
+    const sel = d.selection || {};
+    const emailBit =
+      d.email && d.email.sent
+        ? " · Digest-E-Mail gesendet"
+        : d.email && d.email.reason === "no_alerts"
+          ? " · keine neuen Funde"
+          : "";
+    setMsg(
+      `Priorisierte geprüft: ${d.scanned || 0} (high ${sel.high_priority_selected ?? "—"}) · ` +
+        `${d.new_links || 0} neue Firmen · ${d.alerts || 0} Alerts${emailBit}`
+    );
     await Promise.all([loadPersons(), loadInbox()]);
   } finally {
     btn.disabled = false;

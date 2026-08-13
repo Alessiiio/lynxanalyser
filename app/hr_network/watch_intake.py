@@ -24,6 +24,38 @@ logger = logging.getLogger(__name__)
 _RECENT_JOIN_YEARS = 2.0
 _OLD_OFFICER_MIN_YEARS = 5.0
 
+SOURCE_CASE_OPEN = "case_open"
+SOURCE_FRAUD_LIST_OFFICER = "fraud_list_officer"
+SOURCE_UNDER_INVESTIGATION = "under_investigation"
+SOURCE_SHELL_TAKEOVER = "shell_takeover_pattern"
+
+# Nightly scan-first tier (see person_monitoring.select_monitoring_batch).
+HIGH_SCAN_PRIORITY_SOURCES = frozenset(
+    {
+        SOURCE_CASE_OPEN,
+        SOURCE_FRAUD_LIST_OFFICER,
+        SOURCE_UNDER_INVESTIGATION,
+        SOURCE_SHELL_TAKEOVER,
+    }
+)
+
+SCAN_PRIORITY_HIGH = "high"
+SCAN_PRIORITY_NORMAL = "normal"
+
+
+def default_scan_priority(source_reason: str | None) -> str:
+    if (source_reason or "") in HIGH_SCAN_PRIORITY_SOURCES:
+        return SCAN_PRIORITY_HIGH
+    return SCAN_PRIORITY_NORMAL
+
+
+def _escalate_scan_priority(current: str | None, requested: str | None) -> str:
+    """high wins; never downgrade high → normal on upsert."""
+    if (current or "") == SCAN_PRIORITY_HIGH or (requested or "") == SCAN_PRIORITY_HIGH:
+        return SCAN_PRIORITY_HIGH
+    return SCAN_PRIORITY_NORMAL
+
+
 
 def _parse_iso_date(value: str | None) -> date | None:
     if not value:
@@ -73,7 +105,9 @@ async def upsert_watched_person(
     source_reason: str,
     status: str,
     notes: str | None = None,
+    scan_priority: str | None = None,
 ) -> WatchedPerson:
+    wanted_prio = scan_priority or default_scan_priority(source_reason)
     async with async_session() as session:
         result = await session.execute(
             select(WatchedPerson).where(WatchedPerson.person_slug == person_slug)
@@ -83,13 +117,25 @@ async def upsert_watched_person(
             # Escalate low_priority → active if new stronger reason
             if existing.status == "low_priority" and status == "active":
                 existing.status = "active"
-            if source_reason and existing.source_reason != "fraud_list_officer":
-                if source_reason == "fraud_list_officer":
+            # Prefer stronger source labels (confirmed fraud > case open > soft tags)
+            _SOURCE_RANK = {
+                SOURCE_FRAUD_LIST_OFFICER: 0,
+                SOURCE_CASE_OPEN: 1,
+                SOURCE_UNDER_INVESTIGATION: 2,
+                SOURCE_SHELL_TAKEOVER: 3,
+            }
+            if source_reason:
+                cur_rank = _SOURCE_RANK.get(existing.source_reason, 99)
+                new_rank = _SOURCE_RANK.get(source_reason, 99)
+                if new_rank < cur_rank:
                     existing.source_reason = source_reason
             if residence and not existing.residence:
                 existing.residence = residence
             if notes and not existing.notes:
                 existing.notes = notes
+            existing.scan_priority = _escalate_scan_priority(
+                getattr(existing, "scan_priority", None), wanted_prio
+            )
             await session.commit()
             await session.refresh(existing)
             return existing
@@ -102,6 +148,7 @@ async def upsert_watched_person(
             source_company_name=source_company_name,
             source_reason=source_reason,
             status=status,
+            scan_priority=wanted_prio,
             notes=notes,
             added_at=datetime.now(timezone.utc),
         )
@@ -152,12 +199,17 @@ async def intake_from_fraud_company(
     name: str | None,
     uid: str | None,
     include_former: bool = False,
+    source_reason: str = SOURCE_FRAUD_LIST_OFFICER,
+    scan_priority: str = SCAN_PRIORITY_HIGH,
+    notes_prefix: str | None = None,
 ) -> dict[str, Any]:
     """
     Resolve company, prioritize recent officers, enroll onto watchlist.
 
     By default only *current* HR persons are enrolled. Former officers stay
     optional (manual Watch from Firmenanalyse / case checklist).
+
+    Used on case open (``case_open``) and confirm fraud (``fraud_list_officer``).
     """
     detail = await resolve_company_detail(name, uid)
     sogc = detail.get("sogcPub")
@@ -167,6 +219,9 @@ async def intake_from_fraud_company(
     company_name = detail.get("name") or name or "Unbekannt"
     company_uid = format_company_uid(detail)
     reference = date.today()
+    reason = (source_reason or SOURCE_FRAUD_LIST_OFFICER).strip() or SOURCE_FRAUD_LIST_OFFICER
+    prio = scan_priority or default_scan_priority(reason)
+    note_head = (notes_prefix or reason).strip()
 
     timeline = build_person_timeline(sogc)
     enrolled: list[dict[str, Any]] = []
@@ -204,9 +259,13 @@ async def intake_from_fraud_company(
             residence=person.get("residence"),
             source_company_ehraid=int(ehraid) if ehraid else None,
             source_company_name=company_name,
-            source_reason="fraud_list_officer",
+            source_reason=reason,
             status=status,
-            notes=f"first_seen={person.get('first_seen')} status={person.get('status')}",
+            scan_priority=prio,
+            notes=(
+                f"{note_head} first_seen={person.get('first_seen')} "
+                f"status={person.get('status')}"
+            ),
         )
         role = ", ".join(person.get("roles") or []) or None
         await ensure_seed_link(
@@ -275,8 +334,9 @@ async def intake_from_shell_takeover(
             residence=person.get("residence"),
             source_company_ehraid=int(ehraid) if ehraid else None,
             source_company_name=company_name,
-            source_reason="shell_takeover_pattern",
+            source_reason=SOURCE_SHELL_TAKEOVER,
             status="active",
+            scan_priority=SCAN_PRIORITY_HIGH,
             notes=f"shell_takeover confidence={pattern.get('confidence')}",
         )
         role = ", ".join(person.get("roles") or []) or None

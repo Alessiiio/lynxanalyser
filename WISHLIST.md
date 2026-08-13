@@ -7,6 +7,7 @@ Dieses Markdown wird beim Speichern über die App oder Skripte aktualisiert.
 
 - Benutzer löschen/Rollen anpassen + Login-2FA (TOTP/Backup-Codes) — siehe [docs/AUTH_ADMIN_2FA_PLAN.md](docs/AUTH_ADMIN_2FA_PLAN.md)
 - Bulk-Scan mehrerer Firmennamen → Auswahl → Watchlist (Firmen + Personen) + CSV Export DS — siehe [docs/WATCHLIST_BULK_SCAN_PLAN.md](docs/WATCHLIST_BULK_SCAN_PLAN.md)
+- Tägliche SHAB-Publikationsliste → lokal speichern + Watchlist-Personen matchen (neben Moneyhouse) — **Phase 1 MVP + leichtes Match** — siehe [docs/SHAB_DAILY_WATCHLIST.md](docs/SHAB_DAILY_WATCHLIST.md) (Monats-Backfill später)
 
 | ID | Typ | Status | Datum | Von | Titel |
 |----|-----|--------|-------|-----|-------|

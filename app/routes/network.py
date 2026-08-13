@@ -47,7 +47,9 @@ from app.hr_network.person_monitoring import (
     update_watched_person_case_notes,
     update_watched_person_flags,
     update_watched_person_status,
+    watchlist_scan_coverage,
 )
+from app.hr_network.shab_daily import run_shab_daily_ingest, shab_daily_status
 from app.investigation_dossier import build_investigation_dossier_pdf
 from app.profiler_export import build_profiler_screening_pdf
 from app.hr_network.person_search import search_person_in_sogc
@@ -79,7 +81,12 @@ from app.hr_network.watched_companies import (
 )
 from app.hr_network.shab_parser import _normalize_person_id
 from app.hr_network.service import build_hr_network, search_companies_preview
-from app.routes.deps import enforce_rate_limit, get_current_user, require_role
+from app.routes.deps import (
+    enforce_rate_limit,
+    get_current_user,
+    is_admin_incognito,
+    require_role,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -481,7 +488,7 @@ async def api_scan_watched_person(
 ):
     enforce_rate_limit(http_request)
     try:
-        return await scan_watched_person_incremental(
+        result = await scan_watched_person_incremental(
             person_id,
             canton=canton.strip().upper() or None,
             include_shab=include_shab,
@@ -491,6 +498,24 @@ async def api_scan_watched_person(
     except Exception as e:
         logger.exception("Manual person scan failed")
         raise HTTPException(status_code=502, detail=str(e)[:160]) from e
+
+    created = result.get("created_alerts") or []
+    if created:
+        from app.notify_email import notify_watchlist_new_hits
+
+        alerts = [
+            {
+                **a,
+                "person_name": result.get("display_name"),
+                "person_id": result.get("person_id"),
+            }
+            for a in created
+        ]
+        result["email"] = notify_watchlist_new_hits(
+            alerts,
+            source="manual_person_scan",
+        )
+    return result
 
 
 @router.get("/api/watched-persons/{person_id}")
@@ -645,9 +670,56 @@ async def api_ack_network_alert(alert_id: int, user: User = Depends(get_current_
 
 
 @router.post("/api/watched-persons/run-monitoring")
-async def api_run_monitoring(http_request: Request, limit: int = Query(10, ge=1, le=50)):
+async def api_run_monitoring(
+    http_request: Request,
+    limit: Optional[int] = Query(None, ge=1, le=50),
+):
+    """Continue rolling watchlist scan (oldest / never-scanned first). Digest e-mail only."""
+    import config
+
     enforce_rate_limit(http_request)
-    return await run_person_monitoring(limit=limit)
+    batch = limit if limit is not None else config.WATCHLIST_SCAN_MANUAL_LIMIT
+    # Manual continue stays rolling-only; high-prio is covered by nightly cron / admin button.
+    return await run_person_monitoring(limit=batch, include_high_priority=False)
+
+
+@router.post("/api/watched-persons/run-high-priority-monitoring")
+async def api_run_high_priority_monitoring(
+    http_request: Request,
+    user: User = Depends(require_role("admin")),
+    limit: Optional[int] = Query(None, ge=1, le=200),
+):
+    """Admin: scan high-priority watchlist persons now (Fall / In Abklärung)."""
+    import config
+
+    enforce_rate_limit(http_request)
+    cap = limit if limit is not None else config.WATCHLIST_SCAN_HIGH_PRIORITY_CAP
+    return await run_person_monitoring(
+        limit=0,
+        high_priority_only=True,
+        high_priority_cap=cap,
+        include_high_priority=True,
+    )
+
+
+@router.get("/api/watched-persons/monitoring-coverage")
+async def api_monitoring_coverage(user: User = Depends(get_current_user)):
+    return await watchlist_scan_coverage()
+
+
+@router.get("/api/shab-daily/status")
+async def api_shab_daily_status(_user: User = Depends(get_current_user)):
+    """Minimal SHAB day-archive health for watchlist / admin."""
+    return await shab_daily_status()
+
+
+@router.post("/api/shab-daily/run")
+async def api_shab_daily_run(
+    _user: User = Depends(require_role("admin")),
+    match: bool = Query(True, description="Watchlist-Match nach Ingest"),
+):
+    """Admin: SHAB-Tagesfenster (gestern–heute) jetzt abrufen + speichern."""
+    return await run_shab_daily_ingest(force=True, match=match)
 
 
 @router.get("/api/hr-network")
@@ -676,12 +748,13 @@ async def api_hr_network(
                 uid=uid_q or None,
             )
             firm = (result or {}).get("company") if isinstance(result, dict) else None
-            await log_company_search(
-                company_name=(firm or {}).get("name") or company_q or "DEMO-FRAUD GmbH",
-                company_uid=(firm or {}).get("uid") or uid_q or "CHE-000.000.001",
-                searched_by=user.display_name or user.username or "Team",
-                searched_by_username=user.username,
-            )
+            if not is_admin_incognito(http_request, user):
+                await log_company_search(
+                    company_name=(firm or {}).get("name") or company_q or "DEMO-FRAUD GmbH",
+                    company_uid=(firm or {}).get("uid") or uid_q or "CHE-000.000.001",
+                    searched_by=user.display_name or user.username or "Team",
+                    searched_by_username=user.username,
+                )
             return result
     except DemoFixtureError as e:
         logger.exception("Demo HR-network fixture failed")
@@ -701,21 +774,22 @@ async def api_hr_network(
         logger.exception("HR network lookup failed")
         raise HTTPException(status_code=502, detail=f"Zefix lookup failed: {str(e)[:120]}") from e
 
-    firm = (result or {}).get("company") if isinstance(result, dict) else None
-    if isinstance(firm, dict):
-        await log_company_search(
-            company_name=firm.get("name") or company_q,
-            company_uid=firm.get("uid") or uid_q,
-            searched_by=user.display_name or user.username or "Team",
-            searched_by_username=user.username,
-        )
-    else:
-        await log_company_search(
-            company_name=company_q,
-            company_uid=uid_q,
-            searched_by=user.display_name or user.username or "Team",
-            searched_by_username=user.username,
-        )
+    if not is_admin_incognito(http_request, user):
+        firm = (result or {}).get("company") if isinstance(result, dict) else None
+        if isinstance(firm, dict):
+            await log_company_search(
+                company_name=firm.get("name") or company_q,
+                company_uid=firm.get("uid") or uid_q,
+                searched_by=user.display_name or user.username or "Team",
+                searched_by_username=user.username,
+            )
+        else:
+            await log_company_search(
+                company_name=company_q,
+                company_uid=uid_q,
+                searched_by=user.display_name or user.username or "Team",
+                searched_by_username=user.username,
+            )
     return result
 
 

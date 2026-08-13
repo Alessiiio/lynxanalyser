@@ -96,6 +96,8 @@ async def health_detail(request: Request):
     user = await load_user_from_session(request)
     if not user or user.role != "admin":
         return JSONResponse({"detail": "Nicht angemeldet"}, status_code=401)
+    from app.notify_email import smtp_configured
+
     return {
         "status": "ok",
         "environment": config.ENVIRONMENT,
@@ -111,6 +113,12 @@ async def health_detail(request: Request):
         "cache_ttl_seconds": config.CACHE_TTL_SECONDS,
         "rate_limit_per_minute": config.RATE_LIMIT_PER_MINUTE,
         "https_only": config.HTTPS_ONLY,
+        "watchlist_email_configured": smtp_configured(),
+        "person_monitoring_cron": "daily 04:15",
+        "watchlist_scan_batch": config.WATCHLIST_SCAN_BATCH,
+        "watchlist_scan_delay_sec": config.WATCHLIST_SCAN_DELAY_SEC,
+        "watchlist_scan_manual_limit": config.WATCHLIST_SCAN_MANUAL_LIMIT,
+        "watchlist_scan_high_priority_cap": config.WATCHLIST_SCAN_HIGH_PRIORITY_CAP,
     }
 
 

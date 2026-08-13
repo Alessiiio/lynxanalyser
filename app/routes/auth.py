@@ -454,15 +454,37 @@ async def api_patch_user(
 
 
 @router.delete("/api/users/{user_id}")
-async def api_soft_delete_user(
+async def api_hard_delete_user(
     user_id: int,
-    request: Request,
     admin: User = Depends(require_role("admin")),
 ):
-    """Soft-delete alias (active=false)."""
-    return await api_patch_user(
-        user_id, PatchUserBody(active=False), request=request, admin=admin
-    )
+    """Hard-delete inactive users only (cleanup). Soft-delete via PATCH active=false first."""
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Du kannst dich nicht selbst endgültig löschen",
+        )
+    async with db.async_session() as session:
+        target = await session.get(User, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+        if target.active:
+            raise HTTPException(
+                status_code=400,
+                detail="Aktive Benutzer zuerst deaktivieren (Soft-Delete), dann endgültig löschen",
+            )
+        # Defense-in-depth: never hard-delete an active admin (active check above);
+        # if role=admin but inactive, cleanup is allowed.
+        if is_admin_role(target.role) and target.active:
+            raise HTTPException(
+                status_code=400,
+                detail="Aktiver Admin kann nicht endgültig gelöscht werden",
+            )
+        uname = target.username
+        await session.delete(target)
+        await session.commit()
+        logger.info("User hard-deleted by=%s target=%s", admin.username, uname)
+        return {"ok": True, "deleted": uname}
 
 
 @router.post("/api/me/password")

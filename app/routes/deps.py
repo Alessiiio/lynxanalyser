@@ -7,10 +7,13 @@ from typing import Callable
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 
-from app.auth import ALL_ROLES, normalize_role, user_public_dict
+from app.auth import ALL_ROLES, is_admin_role, normalize_role, user_public_dict
 from app.database import User
 from app import database as db
 from app.rate_limit import is_login_2fa_rate_limited, is_login_rate_limited, is_rate_limited
+
+# Admin-only: client may send this so Firmenanalyse searches are not team-logged.
+INCOGNITO_HEADER = "x-lynx-incognito"
 
 
 def client_ip(request: Request) -> str:
@@ -100,3 +103,11 @@ async def count_active_admins(session, *, exclude_user_id: int | None = None) ->
     if exclude_user_id is not None:
         rows = [u for u in rows if u.id != exclude_user_id]
     return len(rows)
+
+
+def is_admin_incognito(request: Request, user: User) -> bool:
+    """True only when caller is admin AND sends X-Lynx-Incognito: 1 (header ignored otherwise)."""
+    if not is_admin_role(getattr(user, "role", None)):
+        return False
+    raw = (request.headers.get(INCOGNITO_HEADER) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}

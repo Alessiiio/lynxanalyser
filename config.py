@@ -116,6 +116,56 @@ FORCE_RESET_SEED_PASSWORDS: bool = os.getenv(
     "FORCE_RESET_SEED_PASSWORDS", "0"
 ).strip().lower() in {"1", "true", "yes"}
 
+# Optional SMTP for Watchlist hit notifications (graceful skip if unset)
+SMTP_HOST: str = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587") or "587")
+SMTP_USER: str = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM: str = os.getenv("SMTP_FROM", "").strip()
+SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "",
+}
+# Comma-separated recipients for new watchlist mandate / company-link alerts
+_raw_notify = os.getenv("WATCHLIST_NOTIFY_EMAILS", "").strip()
+WATCHLIST_NOTIFY_EMAILS: list[str] = [
+    e.strip() for e in _raw_notify.split(",") if e.strip() and "@" in e.strip()
+]
+
+# Person watchlist rolling scan (Moneyhouse/Zefix-schonend; siehe docs/WATCHLIST_SCAN_SCALING.md)
+WATCHLIST_SCAN_BATCH: int = max(1, int(os.getenv("WATCHLIST_SCAN_BATCH", "25") or "25"))
+WATCHLIST_SCAN_DELAY_SEC: float = max(
+    0.0, float(os.getenv("WATCHLIST_SCAN_DELAY_SEC", "2") or "2")
+)
+WATCHLIST_SCAN_MANUAL_LIMIT: int = max(
+    1, min(50, int(os.getenv("WATCHLIST_SCAN_MANUAL_LIMIT", "5") or "5"))
+)
+# High-priority (Fall / In Abklärung): alle jede Nacht, dann Rolling-Rest
+WATCHLIST_SCAN_HIGH_PRIORITY_CAP: int = max(
+    1, min(200, int(os.getenv("WATCHLIST_SCAN_HIGH_PRIORITY_CAP", "50") or "50"))
+)
+
+# Daily CH-wide SHAB archive (ZefixREST) — complementary to Moneyhouse watchlist scans.
+# See docs/SHAB_DAILY_WATCHLIST.md. Default off so local/dev does not hit the API.
+SHAB_DAILY_INGEST: bool = os.getenv("SHAB_DAILY_INGEST", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+# After ingest, match parsed persons against watched_persons → NetworkAlert (source=shab_daily)
+SHAB_DAILY_MATCH: bool = os.getenv("SHAB_DAILY_MATCH", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "",
+}
+# 0 = unlimited (MVP). Phase-3 retention job later; keep raw ≥90d recommended.
+SHAB_DAILY_RETENTION_DAYS: int = max(
+    0, int(os.getenv("SHAB_DAILY_RETENTION_DAYS", "0") or "0")
+)
+
 if IS_PRODUCTION:
     for name, value in (
         ("SEED_ADMIN_PASSWORD", SEED_ADMIN_PASSWORD),

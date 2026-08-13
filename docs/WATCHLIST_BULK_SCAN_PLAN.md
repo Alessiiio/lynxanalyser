@@ -106,6 +106,8 @@ Beim Entfernen des Tags: **kein** Auto-Remove von der Watchlist.
 - Grössere Queues, Retry, Admin-Quota  
 - Evtl. unified entity-model  
 
+**Hinweis Personen-Monitoring (bereits vorhanden, siehe `docs/WATCHLIST_MONITORING.md` + `docs/WATCHLIST_SCAN_SCALING.md`):** täglicher Cron 04:15 mit Rolling-Batch + manueller «Liste fortsetzen»; optional SMTP-Digest bei neuen Funden.
+
 ---
 
 ## API (MVP)

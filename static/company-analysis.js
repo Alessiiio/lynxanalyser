@@ -1129,6 +1129,10 @@ function rememberSearchLocal(company) {
 }
 
 async function rememberSearch(company) {
+  // Admin Inkognito: neither local optimistic nor team history should show this search.
+  if (typeof isIncognitoMode === "function" && isIncognitoMode() && window.__lynxUser?.role === "admin") {
+    return;
+  }
   rememberSearchLocal(company);
   // Optimistic: bubble own entry to top while server dedupes/persists (log is server-side).
   if (company && Array.isArray(_recentTeamItems)) {
