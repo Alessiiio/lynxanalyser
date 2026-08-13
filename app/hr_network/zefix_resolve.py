@@ -60,6 +60,21 @@ def _pick_search_hit(query_name: str, results: list[dict]) -> dict:
 
 async def resolve_company_detail(name: str | None, uid: str | None) -> dict[str, Any]:
     """Resolve Zefix company detail by UID (preferred) or name search."""
+    # Offline demo firm — never hit live Zefix (fictional UID / name).
+    try:
+        from app.hr_network.demo_fixture import (
+            DemoFixtureError,
+            build_demo_company_detail,
+            is_demo_request,
+        )
+
+        if is_demo_request(name=name, uid=uid):
+            return build_demo_company_detail()
+    except DemoFixtureError:
+        raise
+    except Exception:
+        pass
+
     if uid:
         digits = uid_digits(uid)
         if len(digits) == 9:

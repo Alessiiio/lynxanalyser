@@ -151,7 +151,54 @@ async def get_company_case(case_id: int) -> dict[str, Any]:
             raise LookupError("Fall nicht gefunden")
         journal = await _load_journal(session, case.id)
         checks = await _load_checks(session, case.id)
+        detail = _case_dict(case, journal=journal, bank_checks=checks)
+
+    # Soft-repair: confirmed cases that only got the company row (e.g. demo
+    # intake failed via live Zefix) — backfill current organs once on load.
+    only_company = (
+        detail["bank_checks_total"] == 1
+        and (detail["bank_checks"][0].get("entity_type") == "company")
+    )
+    if detail["status"] in ("confirmed_fraud", "ready_for_report") and only_company:
+        try:
+            await _repair_person_checklist(case_id)
+            return await _get_company_case_raw(case_id)
+        except Exception:
+            logger.exception("Person checklist repair failed for case %s", case_id)
+    return detail
+
+
+async def _get_company_case_raw(case_id: int) -> dict[str, Any]:
+    async with async_session() as session:
+        case = await session.get(CompanyCase, case_id)
+        if not case:
+            raise LookupError("Fall nicht gefunden")
+        journal = await _load_journal(session, case.id)
+        checks = await _load_checks(session, case.id)
         return _case_dict(case, journal=journal, bank_checks=checks)
+
+
+async def _repair_person_checklist(case_id: int) -> None:
+    async with async_session() as session:
+        case = await session.get(CompanyCase, case_id)
+        if not case:
+            return
+        name, uid = case.company_name, case.company_uid
+
+    from app.hr_network.watch_intake import (
+        SCAN_PRIORITY_HIGH,
+        SOURCE_FRAUD_LIST_OFFICER,
+        intake_from_fraud_company,
+    )
+
+    intake = await intake_from_fraud_company(
+        name=name,
+        uid=uid,
+        source_reason=SOURCE_FRAUD_LIST_OFFICER,
+        scan_priority=SCAN_PRIORITY_HIGH,
+        notes_prefix="Auto: Checkliste nachgezogen",
+    )
+    await _seed_bank_checklist(case_id, intake=intake)
 
 
 async def _load_journal(session, case_id: int) -> list[dict]:
@@ -499,6 +546,7 @@ async def _seed_bank_checklist(case_id: int, *, intake: dict[str, Any]) -> None:
     - no other companies from person links (those explode the list)
 
     Former persons / extra firms can be added later via add_bank_check_item.
+    Backfills missing person rows if only the company was seeded earlier.
     """
     async with async_session() as session:
         case = await session.get(CompanyCase, case_id)
@@ -511,15 +559,15 @@ async def _seed_bank_checklist(case_id: int, *, intake: dict[str, Any]) -> None:
                 )
             ).scalars().all()
         )
-        if existing:
-            return
-
         seen: set[tuple[str, str]] = set()
+        for row in existing:
+            key = (row.entity_type, (row.entity_ref or row.entity_label or "").lower())
+            seen.add(key)
 
-        def add(entity_type: str, label: str, ref: str | None) -> None:
+        def add(entity_type: str, label: str, ref: str | None) -> bool:
             key = (entity_type, (ref or label).lower())
             if key in seen or not label:
-                return
+                return False
             seen.add(key)
             session.add(
                 CaseBankCheckItem(
@@ -530,18 +578,26 @@ async def _seed_bank_checklist(case_id: int, *, intake: dict[str, Any]) -> None:
                     status="pending",
                 )
             )
+            return True
 
-        add("company", case.company_name, case.company_uid or str(case.company_ehraid or ""))
+        added = 0
+        if not existing:
+            if add("company", case.company_name, case.company_uid or str(case.company_ehraid or "")):
+                added += 1
 
         for enr in intake.get("enrolled") or []:
-            # Former only appear when intake ran with include_former=True
+            # Former officers are added only via enroll_former_officers_for_case
+            if (enr.get("person_hr_status") or "current").lower() == "former":
+                continue
             if not _is_core_officer_roles(enr.get("roles") or []):
                 continue
             pid = enr.get("person_id")
             label = enr.get("display_name") or ""
-            add("person", label, str(pid) if pid else None)
+            if add("person", label, str(pid) if pid else None):
+                added += 1
 
-        await session.commit()
+        if added:
+            await session.commit()
 
 
 _CORE_ROLE_RE = re.compile(
@@ -928,6 +984,50 @@ async def action_reported_case(
         case.compliance_actioned_by = actioned_by
         case.compliance_actioned_at = datetime.now(timezone.utc)
         case.compliance_note = note[:1024]
+        await session.commit()
+    return await get_company_case(case_id)
+
+
+async def close_documented_case(
+    case_id: int,
+    *,
+    by: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """
+    Interner Abschluss nach vollständiger Dokumentation (ohne Reporting/Compliance).
+    Journal-Notiz ist optional.
+    """
+    detail = await get_company_case(case_id)
+    if detail["status"] not in ("confirmed_fraud", "ready_for_report"):
+        raise ValueError("Akte kann nur nach Bestätigung und Dokumentation geschlossen werden")
+    if not detail.get("documentation_complete"):
+        pending = detail.get("bank_checks_pending") or 0
+        raise ValueError(
+            f"Dokumentation unvollständig ({pending} Checklisten-Einträge offen "
+            "oder Sicherung fehlt)"
+        )
+
+    note = (note or "").strip()
+    journal_text = "[Geschlossen] Interne Dokumentation abgeschlossen — Akte geschlossen."
+    if note:
+        journal_text = f"{journal_text} {note[:3800]}"
+
+    async with async_session() as session:
+        case = await session.get(CompanyCase, case_id)
+        if not case:
+            raise LookupError("Fall nicht gefunden")
+        if case.status not in ("confirmed_fraud", "ready_for_report"):
+            raise ValueError("Akte kann nur nach Bestätigung und Dokumentation geschlossen werden")
+        case.status = "closed"
+        session.add(
+            CaseJournalEntry(
+                case_id=case.id,
+                author=by,
+                created_at=datetime.now(timezone.utc),
+                text=journal_text[:4000],
+            )
+        )
         await session.commit()
     return await get_company_case(case_id)
 

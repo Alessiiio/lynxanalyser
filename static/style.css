@@ -5674,6 +5674,8 @@ body.profiler-open { overflow: hidden; }
 .ca-idle-mark,
 .ca-idle-name,
 .ca-idle-tagline,
+.ca-idle-greeting,
+.ca-idle-stats,
 .ca-idle-demo {
   position: relative;
   z-index: 1;
@@ -5709,6 +5711,43 @@ body.profiler-open { overflow: hidden; }
   letter-spacing: 0.02em;
   line-height: 1.15;
   color: var(--c-text);
+}
+.ca-idle-greeting {
+  margin: 0.55rem auto 0;
+  max-width: 28ch;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+.ca-idle-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem 1.1rem;
+  margin: 0.75rem auto 0;
+  max-width: 36rem;
+}
+.ca-idle-stat {
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #7dd3fc;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.ca-idle-stat:hover {
+  color: #e0f2fe;
+  border-bottom-color: rgba(125, 211, 252, 0.45);
+}
+.ca-idle-stat-alert {
+  color: #fdba74;
+}
+.ca-idle-stat-alert:hover {
+  color: #ffedd5;
+  border-bottom-color: rgba(253, 186, 116, 0.5);
 }
 .ca-idle-demo {
   margin: 1rem 0 0;

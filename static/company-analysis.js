@@ -1252,9 +1252,84 @@ function setIdleHome(on) {
   if (on) {
     page?.classList.remove("is-transitioning", "is-analyzing");
     caResults?.classList.remove("ca-results-enter");
+    refreshIdleHomeContext();
   }
   syncRecentVisibility();
 }
+
+/** First name from display_name (e.g. «Alessio Pennella» → «Alessio»). */
+function idleFirstName(displayName) {
+  const raw = String(displayName || "").trim();
+  if (!raw) return "";
+  return raw.split(/\s+/)[0] || "";
+}
+
+function renderIdleGreeting(user) {
+  const el = document.getElementById("caIdleGreeting");
+  if (!el) return;
+  const u = user || window.__lynxUser;
+  const label = u
+    ? (typeof anon === "function" ? anon(u.display_name || u.username || "", "user") : (u.display_name || u.username || ""))
+    : "";
+  const first = idleFirstName(label);
+  if (!first) {
+    el.textContent = "";
+    el.classList.add("hidden");
+    return;
+  }
+  el.textContent = `Hallo, ${first}`;
+  el.classList.remove("hidden");
+}
+
+async function refreshIdleHomeStats() {
+  const wrap = document.getElementById("caIdleStats");
+  const watchEl = document.getElementById("caIdleWatchCount");
+  const alertEl = document.getElementById("caIdleAlertCount");
+  if (!wrap || !watchEl || !alertEl) return;
+
+  try {
+    const [personsResp, alertsResp] = await Promise.all([
+      fetch("/api/watched-persons?limit=1"),
+      fetch("/api/network-alerts?acknowledged=false"),
+    ]);
+    if (!personsResp.ok || !alertsResp.ok) {
+      wrap.classList.add("hidden");
+      return;
+    }
+    const personsData = await personsResp.json();
+    const alertsData = await alertsResp.json();
+    const personTotal = Number(personsData.total) || 0;
+    const alertTotal = Array.isArray(alertsData.alerts) ? alertsData.alerts.length : 0;
+
+    watchEl.textContent =
+      personTotal === 1
+        ? "1 Person auf der Watchlist"
+        : `${personTotal} Personen auf der Watchlist`;
+    wrap.classList.remove("hidden");
+
+    if (alertTotal > 0) {
+      alertEl.textContent =
+        alertTotal === 1 ? "1 offener Alert" : `${alertTotal} offene Alerts`;
+      alertEl.classList.remove("hidden");
+    } else {
+      alertEl.textContent = "";
+      alertEl.classList.add("hidden");
+    }
+  } catch (_) {
+    wrap.classList.add("hidden");
+  }
+}
+
+function refreshIdleHomeContext() {
+  renderIdleGreeting(window.__lynxUser);
+  refreshIdleHomeStats();
+}
+
+const _prevLynxUserReady = window.onLynxUserReady;
+window.onLynxUserReady = function onLynxUserReady(user) {
+  if (typeof _prevLynxUserReady === "function") _prevLynxUserReady(user);
+  renderIdleGreeting(user);
+};
 
 function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;

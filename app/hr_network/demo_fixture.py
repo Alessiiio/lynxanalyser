@@ -258,6 +258,22 @@ def _person_search_stats(level: int) -> dict[str, Any]:
     }
 
 
+def build_demo_company_detail() -> dict[str, Any]:
+    """Zefix-shaped company detail for watch intake / resolve (offline).
+
+    Includes ``persons_table`` so callers that cannot parse informal demo SHAB
+    text can still enroll current/former organs.
+    """
+    raw = _raw_fixture()
+    company = copy.deepcopy(raw.get("company") or {})
+    company["demo_only"] = True
+    # Informal demo messages are not SHAB-parser-compatible; keep empty sogcPub
+    # and rely on persons_table for organ enrollment.
+    company["sogcPub"] = []
+    company["persons_table"] = copy.deepcopy(raw.get("persons_table") or [])
+    return company
+
+
 def build_demo_fraud_network(level: int = 2) -> dict[str, Any]:
     """Fraud-network shaped payload for the requested depth (no external APIs)."""
     raw = _raw_fixture()

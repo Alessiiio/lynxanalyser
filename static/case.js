@@ -156,7 +156,11 @@ function docsWizardSteps(c) {
       id: "journal",
       kind: "journal",
       short: "Journal",
-      done: (c.journal || []).length > 0,
+      // Journal is optional — done when checklist/Sicherung fertig or already closed
+      done: (c.journal || []).length > 0
+        || !!c.documentation_complete
+        || c.status === "closed"
+        || c.status === "ready_for_report",
     },
   ];
   return steps;
@@ -390,22 +394,34 @@ function renderDocsWizard(c) {
       `}`;
   } else {
     const journal = c.journal || [];
+    const canClose = !!c.documentation_complete
+      && ["confirmed_fraud", "ready_for_report"].includes(c.status);
+    const alreadyClosed = c.status === "closed";
     body = `
       <div class="docs-wiz-icon" aria-hidden="true">${wizardIcon("journal")}</div>
       <p class="docs-wiz-kicker">${esc(progressLabel)} · Interne Dokumentation</p>
       <h3 class="docs-wiz-title">Was wurde abgeklärt?</h3>
-      <p class="docs-wiz-lead">Kurz das Ergebnis der internen Prüfung festhalten — für Prävention und Nachvollziehbarkeit.</p>
+      <p class="docs-wiz-lead">Optional: Kurznotiz zum Ergebnis der internen Prüfung — hilft bei Prävention und Nachvollziehbarkeit, ist aber keine Pflicht.</p>
       ${journal.length ? `
         <ul class="docs-wiz-journal">${journal.map((e) => `
           <li>
             <div class="docs-wiz-journal-meta">${esc(e.author)} · ${esc(formatDateTimeDisplay(e.created_at))}</div>
             <div>${esc(e.text)}</div>
           </li>`).join("")}</ul>
-      ` : `<p class="fraud-help">Noch keine Journal-Einträge.</p>`}
+      ` : `<p class="fraud-help">Noch keine Journal-Einträge (optional).</p>`}
+      ${alreadyClosed ? `
+        <div class="docs-wiz-done-box">
+          <span class="docs-wiz-done-badge">Geschlossen</span>
+          <p>Akte ist abgeschlossen.</p>
+        </div>
+        <div class="docs-wiz-actions">
+          <button type="button" class="btn-nav docs-wiz-btn" data-wiz-prev>Zurück</button>
+        </div>
+      ` : `
       <div class="docs-wiz-fields">
-        <label class="docs-wiz-field-label" for="wizJournalText">Neuer Eintrag</label>
+        <label class="docs-wiz-field-label" for="wizJournalText">Neuer Eintrag (optional)</label>
         <textarea id="wizJournalText" class="fraud-net-textarea docs-wiz-input" rows="4"
-          placeholder="Abklärungsergebnis…" maxlength="4000"></textarea>
+          placeholder="Abklärungsergebnis (freiwillig)…" maxlength="4000"></textarea>
       </div>
       <div class="docs-wiz-add-check">
         <p class="docs-wiz-field-label">Checkliste erweitern (optional)</p>
@@ -421,10 +437,20 @@ function renderDocsWizard(c) {
       </div>
       <div class="docs-wiz-actions">
         <button type="button" class="btn-nav docs-wiz-btn" data-wiz-prev>Zurück</button>
-        <button type="button" class="btn-case-equal btn-case-confirm docs-wiz-btn" data-wiz-save-journal>
+        <button type="button" class="btn-nav docs-wiz-btn" data-wiz-save-journal>
           Eintrag speichern
         </button>
-      </div>`;
+        ${canClose ? `
+          <button type="button" class="btn-case-equal btn-case-confirm docs-wiz-btn" data-wiz-close-case>
+            Akte abschliessen
+          </button>
+        ` : `
+          <button type="button" class="btn-case-equal btn-case-confirm docs-wiz-btn" disabled
+            title="Zuerst Sicherung und alle Checklisten-Einträge erledigen">
+            Akte abschliessen
+          </button>
+        `}
+      </div>`}`;
   }
 
   stage.innerHTML = `<article class="docs-wiz-card">${body}</article>`;
@@ -481,7 +507,8 @@ function renderDocsWizard(c) {
     const id = ev.currentTarget.getAttribute("data-wiz-save-check");
     await saveBankCheckFromWizard(id, true);
   });
-  stage.querySelector("[data-wiz-save-journal]")?.addEventListener("click", () => saveJournalFromWizard(false));
+  stage.querySelector("[data-wiz-save-journal]")?.addEventListener("click", () => saveJournalFromWizard());
+  stage.querySelector("[data-wiz-close-case]")?.addEventListener("click", () => closeCaseFromWizard());
   stage.querySelector("[data-wiz-add-check]")?.addEventListener("click", addBankCheckFromWizard);
 }
 
@@ -564,7 +591,11 @@ async function saveBankCheckFromWizard(itemId, advance) {
 async function saveJournalFromWizard() {
   const text = document.getElementById("wizJournalText")?.value?.trim() || "";
   if (!text) {
-    setMsg("Bitte Text eingeben");
+    setMsg("Kein Text — Journal ist optional. Zum Abschluss «Akte abschliessen» nutzen.");
+    return;
+  }
+  if (text.length < 3) {
+    setMsg("Eintrag zu kurz (mind. 3 Zeichen) — oder leer lassen und Akte abschliessen.");
     return;
   }
   const r = await fetch(`/api/company-cases/${CASE_ID}/journal`, {
@@ -579,6 +610,50 @@ async function saveJournalFromWizard() {
   }
   renderCase(data);
   setMsg("Journal-Eintrag hinzugefügt");
+}
+
+async function closeCaseFromWizard() {
+  const note = document.getElementById("wizJournalText")?.value?.trim() || "";
+  const go = confirm(
+    "Akte abschliessen?\n\n"
+    + "Dokumentation ist erfasst. Die Akte wird intern geschlossen "
+    + "(ohne Reporting/Compliance)."
+  );
+  if (!go) return;
+  const closeBtn = document.querySelector("[data-wiz-close-case]");
+  if (closeBtn) closeBtn.disabled = true;
+  try {
+    // Optional: save journal text first if user typed something
+    if (note.length >= 3) {
+      const jr = await fetch(`/api/company-cases/${CASE_ID}/journal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: note }),
+      });
+      if (!jr.ok) {
+        const jdata = await jr.json().catch(() => ({}));
+        setMsg(formatDetail(jdata.detail) || "Journal speichern fehlgeschlagen");
+        if (closeBtn) closeBtn.disabled = false;
+        return;
+      }
+    }
+    const r = await fetch(`/api/company-cases/${CASE_ID}/close`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: "" }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      setMsg(formatDetail(data.detail) || "Abschluss fehlgeschlagen");
+      if (closeBtn) closeBtn.disabled = false;
+      return;
+    }
+    renderCase(data);
+    setMsg("Akte geschlossen");
+  } catch (err) {
+    setMsg(err.message || "Abschluss fehlgeschlagen");
+    if (closeBtn) closeBtn.disabled = false;
+  }
 }
 
 async function addBankCheckFromWizard() {
@@ -685,8 +760,12 @@ function renderCase(c) {
     hint.textContent = "Noch keine Checklisten-Einträge (nach Bestätigung werden sie erzeugt).";
   } else if (c.payment_blocked == null) {
     hint.textContent = "Checkliste Personen/Firma fertig — Sicherung noch offen.";
+  } else if (c.status === "closed") {
+    hint.textContent = "Akte geschlossen — Dokumentation für interne Prävention abgeschlossen.";
+  } else if (c.documentation_complete) {
+    hint.textContent = "Dokumentation vollständig — «Akte abschliessen» im Journal-Schritt.";
   } else {
-    hint.textContent = "Dokumentation vollständig — Daten für interne Prävention erfasst.";
+    hint.textContent = "Dokumentation läuft — offene Checklisten-Einträge abarbeiten.";
   }
 
   if (!docsPanel.classList.contains("hidden")) {

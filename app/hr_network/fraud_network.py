@@ -1050,6 +1050,25 @@ async def build_fraud_network(
     ``identity_overrides`` locks or skips Moneyhouse person identity for named
     organ persons (accept with moneyhouse_person_key, or ignore).
     """
+    # Offline demo firm — short-circuit before Zefix credentials / live APIs.
+    if ad_hoc_company and (ad_hoc_company.get("name") or ad_hoc_company.get("uid")):
+        try:
+            from app.hr_network.demo_fixture import (
+                DemoFixtureError,
+                build_demo_fraud_network,
+                is_demo_request,
+            )
+
+            if is_demo_request(
+                name=(ad_hoc_company.get("name") or None),
+                uid=(ad_hoc_company.get("uid") or None),
+            ):
+                return build_demo_fraud_network(level=level)
+        except DemoFixtureError:
+            raise
+        except Exception:
+            pass
+
     if not config.ZEFIX_USERNAME or not config.ZEFIX_PASSWORD:
         raise PermissionError("Zefix-Zugangsdaten fehlen")
 

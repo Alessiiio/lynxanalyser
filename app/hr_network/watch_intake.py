@@ -211,6 +211,33 @@ async def intake_from_fraud_company(
 
     Used on case open (``case_open``) and confirm fraud (``fraud_list_officer``).
     """
+    # Demo fixture: persons_table (SHAB demo text is not parser-compatible).
+    try:
+        from app.hr_network.demo_fixture import (
+            DemoFixtureError,
+            build_demo_company_detail,
+            is_demo_request,
+        )
+
+        if is_demo_request(name=name, uid=uid):
+            detail = build_demo_company_detail()
+            return await _intake_from_person_rows(
+                company_name=detail.get("name") or name or "Unbekannt",
+                company_uid=format_company_uid(detail) or uid,
+                ehraid=detail.get("ehraid"),
+                persons=list(detail.get("persons_table") or []),
+                include_former=include_former,
+                source_reason=source_reason,
+                scan_priority=scan_priority,
+                notes_prefix=notes_prefix,
+                company_age=None,
+                company_first_seen=None,
+            )
+    except DemoFixtureError:
+        raise
+    except Exception as e:
+        logger.info("Demo intake short-circuit skipped: %s", e)
+
     detail = await resolve_company_detail(name, uid)
     sogc = detail.get("sogcPub")
     age = company_age_years(sogc)
@@ -218,14 +245,29 @@ async def intake_from_fraud_company(
     ehraid = detail.get("ehraid")
     company_name = detail.get("name") or name or "Unbekannt"
     company_uid = format_company_uid(detail)
-    reference = date.today()
     reason = (source_reason or SOURCE_FRAUD_LIST_OFFICER).strip() or SOURCE_FRAUD_LIST_OFFICER
     prio = scan_priority or default_scan_priority(reason)
     note_head = (notes_prefix or reason).strip()
 
     timeline = build_person_timeline(sogc)
+    # Fallback when sogcPub empty/unparseable but persons_table present (e.g. demos)
+    if not timeline and detail.get("persons_table"):
+        return await _intake_from_person_rows(
+            company_name=company_name,
+            company_uid=company_uid,
+            ehraid=ehraid,
+            persons=list(detail.get("persons_table") or []),
+            include_former=include_former,
+            source_reason=reason,
+            scan_priority=prio,
+            notes_prefix=note_head,
+            company_age=age,
+            company_first_seen=oldest.isoformat() if oldest else None,
+        )
+
     enrolled: list[dict[str, Any]] = []
     skipped_former: list[dict[str, Any]] = []
+    reference = date.today()
 
     for person in timeline:
         slug = person.get("id")
@@ -291,6 +333,116 @@ async def intake_from_fraud_company(
         "ehraid": ehraid,
         "company_age_years": age,
         "company_first_seen": oldest.isoformat() if oldest else None,
+        "enrolled": enrolled,
+        "enrolled_count": len(enrolled),
+        "skipped_former": skipped_former,
+        "skipped_former_count": len(skipped_former),
+        "include_former": include_former,
+    }
+
+
+async def _intake_from_person_rows(
+    *,
+    company_name: str,
+    company_uid: str | None,
+    ehraid: Any,
+    persons: list[dict[str, Any]],
+    include_former: bool,
+    source_reason: str,
+    scan_priority: str,
+    notes_prefix: str | None,
+    company_age: float | None,
+    company_first_seen: str | None,
+) -> dict[str, Any]:
+    """Enroll from a persons_table-like list (demo fixture / network payload)."""
+    reason = (source_reason or SOURCE_FRAUD_LIST_OFFICER).strip() or SOURCE_FRAUD_LIST_OFFICER
+    prio = scan_priority or default_scan_priority(reason)
+    note_head = (notes_prefix or reason).strip()
+    reference = date.today()
+    enrolled: list[dict[str, Any]] = []
+    skipped_former: list[dict[str, Any]] = []
+    ehraid_int = int(ehraid) if ehraid is not None else None
+
+    for person in persons:
+        if not isinstance(person, dict):
+            continue
+        display = (person.get("name") or person.get("display_name") or "").strip()
+        slug = (
+            person.get("person_id")
+            or person.get("id")
+            or person.get("person_slug")
+            or ""
+        )
+        slug = str(slug).strip().removeprefix("person:")
+        if not display:
+            continue
+        if not slug:
+            from app.hr_network.shab_parser import _normalize_person_id
+
+            slug = _normalize_person_id(display)
+        if not slug:
+            continue
+
+        hr_status = (person.get("status") or person.get("person_hr_status") or "current")
+        hr_status = str(hr_status).strip().lower() or "current"
+        roles = list(person.get("roles") or [])
+
+        if hr_status == "former" and not include_former:
+            skipped_former.append({
+                "person_slug": slug,
+                "display_name": display,
+                "person_hr_status": "former",
+                "roles": roles,
+                "exited_date": person.get("exited_date"),
+            })
+            continue
+
+        first_seen = person.get("first_seen") or person.get("source_date")
+        status = _priority_for_person(
+            first_seen=first_seen,
+            company_age=company_age,
+            reference=reference,
+        )
+        if hr_status == "former":
+            exited = _parse_iso_date(person.get("exited_date"))
+            if exited and (reference - exited).days > 365 * 3:
+                status = "low_priority"
+
+        wp = await upsert_watched_person(
+            person_slug=slug,
+            display_name=display,
+            residence=person.get("residence"),
+            source_company_ehraid=ehraid_int,
+            source_company_name=company_name,
+            source_reason=reason,
+            status=status,
+            scan_priority=prio,
+            notes=f"{note_head} first_seen={first_seen} status={hr_status}",
+        )
+        role = ", ".join(roles) or None
+        await ensure_seed_link(
+            person_id=wp.id,
+            company_ehraid=ehraid_int,
+            company_name=company_name,
+            company_uid=company_uid,
+            role=role,
+        )
+        enrolled.append({
+            "person_id": wp.id,
+            "person_slug": slug,
+            "display_name": display,
+            "watch_status": status,
+            "person_hr_status": hr_status,
+            "roles": roles,
+            "first_seen": first_seen,
+        })
+
+    return {
+        "company_name": company_name,
+        "company_uid": company_uid,
+        "ehraid": ehraid_int,
+        "company_age_years": company_age,
+        "company_first_seen": company_first_seen,
         "enrolled": enrolled,
         "enrolled_count": len(enrolled),
         "skipped_former": skipped_former,

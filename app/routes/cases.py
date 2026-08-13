@@ -17,6 +17,7 @@ from app.hr_network.company_cases import (
     add_journal_entry,
     branch_signal,
     clear_case,
+    close_documented_case,
     confirm_fraud,
     delete_company_case,
     enroll_former_officers_for_case,
@@ -85,6 +86,10 @@ class AddBankCheckBody(BaseModel):
 
 class ActionBody(BaseModel):
     compliance_note: str = Field(..., min_length=3, max_length=1024)
+
+
+class CloseCaseBody(BaseModel):
+    note: str = Field("", max_length=2000)
 
 
 @router.get("/cases")
@@ -354,6 +359,23 @@ async def api_download_report(case_id: int, _user: User = Depends(get_current_us
         media_type="application/pdf",
         filename=f"case_{case_id}.pdf",
     )
+
+
+@router.post("/api/company-cases/{case_id}/close")
+async def api_close_documented(
+    case_id: int,
+    body: CloseCaseBody,
+    user: User = Depends(require_role("case_manager", "admin")),
+):
+    """Interner Abschluss nach Dokumentation (ohne Reporting/Compliance)."""
+    try:
+        return await close_documented_case(
+            case_id, by=user.username, note=body.note or ""
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/api/company-cases/{case_id}/action")

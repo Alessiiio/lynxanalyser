@@ -7,6 +7,7 @@ import pytest
 from app.hr_network import demo_fixture as df
 from app.hr_network.demo_fixture import (
     DemoFixtureError,
+    build_demo_company_detail,
     build_demo_fraud_network,
     build_demo_hr_network,
     demo_search_hits,
@@ -79,3 +80,25 @@ def test_hr_and_level_subsets():
     assert len(l5["nodes"]) > len(l3["nodes"])
     assert any(n.get("label") == "Jonas Fiktiv" for n in l5["nodes"])
     assert l5["stats"]["person_search"]["method"] == "demo-fixture"
+
+
+def test_build_demo_company_detail_has_persons_table():
+    detail = build_demo_company_detail()
+    assert detail.get("demo_only") is True
+    assert detail.get("uid") == "CHE-000.000.001"
+    assert detail.get("name") == "DEMO-FRAUD GmbH"
+    persons = detail.get("persons_table") or []
+    assert any(
+        (p.get("name") == "Max Muster" and (p.get("status") or "").lower() == "current")
+        for p in persons
+    )
+    assert any((p.get("status") or "").lower() == "former" for p in persons)
+
+
+@pytest.mark.asyncio
+async def test_resolve_company_detail_demo_short_circuit():
+    from app.hr_network.zefix_resolve import resolve_company_detail
+
+    detail = await resolve_company_detail("DEMO-FRAUD GmbH", "CHE-000.000.001")
+    assert detail.get("demo_only") is True
+    assert len(detail.get("persons_table") or []) >= 1

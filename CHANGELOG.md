@@ -12,6 +12,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Added
 
+- **Startseite (Idle)**: Dezente Begrüssung «Hallo, {Vorname}» sowie Watchlist-Anzahl (und offene Alerts, falls vorhanden) — klickbar, ohne Dashboard.
 - **Akte: Als Verdächtig markieren**: In der Bestätigung Tag «In Abklärung», Firma + Organe auf die Watchlist, Akte wird geschlossen.
 - **Akte öffnen → Firmen-Watchlist**: Beim Eröffnen landet die Firma (nicht nur Organe) auf der Firmen-Watchlist.
 - **L5 im Hintergrund**: Fehlt der Cache für Suchweite 5, startet Lynx den Scan beim Akte-Öffnen async — die Akte ist sofort nutzbar.
@@ -38,6 +39,9 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 - Graph-Verschieben in Microsoft Edge funktioniert wieder zuverlässig.
 
 ### Fixed
+
+- **Akte abschliessen**: Nach vollständiger Dokumentation gibt es im Journal-Schritt «Akte abschliessen» (intern `closed`, ohne Reporting/Compliance). Journal-Kommentar ist optional.
+- **Demo-Akte Personen-Checkliste**: Bei DEMO-FRAUD fehlten Organe in der Erfassung, weil der Intake Live-Zefix nutzte. Jetzt kommen aktuelle Organe (z. B. Max Muster) zuverlässig in Watchlist und Checkliste.
 
 - Demo-Firma: Fehler behoben, wenn die Daten-Datei im Docker-Setup nicht gefunden wurde.
 
