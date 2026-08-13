@@ -31,13 +31,13 @@
     <section class="fraud-panel">
       <div class="fraud-panel-head">
         <h2>Filter</h2>
-        <select id="statusFilter" class="ca-select">
+        <select id="statusFilter" class="ca-select" aria-label="Statusfilter">
+          <option value="" selected>Alle</option>
           <option value="under_review">In Prüfung</option>
           <option value="confirmed_fraud,ready_for_report">Bestätigt / Doku</option>
           <option value="reported">Gemeldet</option>
           <option value="closed">Geschlossen</option>
           <option value="cleared">Kein Betrug</option>
-          <option value="">Alle</option>
         </select>
       </div>
       <div id="casesList"></div>

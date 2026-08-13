@@ -39,6 +39,21 @@
       <li class="fraud-step hidden" data-step="closed" hidden aria-hidden="true"><span>5</span> Compliance</li>
     </ol>
 
+    <div id="panelNetworkL5" class="case-l5-banner hidden" role="status" aria-live="polite">
+      <div class="case-l5-banner-main">
+        <strong id="l5BannerTitle">Netzwerk Suchweite 5</strong>
+        <p class="fraud-help" id="l5BannerText"></p>
+      </div>
+      <div id="l5HitsBox" class="case-l5-hits hidden">
+        <p class="fraud-help">Neue Hinweise aus dem Netzwerk — auswählen und auf Watchlist / Checkliste übernehmen:</p>
+        <ul id="l5HitsList" class="case-l5-hits-list"></ul>
+        <div class="fraud-inline-actions case-l5-hits-actions">
+          <button type="button" class="btn-case-equal btn-case-confirm" id="l5ApplyHitsBtn" style="width:auto;min-width:12rem">Ausgewählte übernehmen</button>
+          <button type="button" class="btn-nav" id="l5DismissHitsBtn">Später</button>
+        </div>
+      </div>
+    </div>
+
     <p id="caseMsg" class="fraud-help"></p>
 
     <section class="fraud-panel case-context-panel" id="panelHitContext">

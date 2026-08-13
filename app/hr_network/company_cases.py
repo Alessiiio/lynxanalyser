@@ -253,9 +253,50 @@ async def find_open_case_for_company(
     ehraid: int | None = None,
     name: str | None = None,
 ) -> dict[str, Any] | None:
-    """Return an open team case for this company if one exists."""
+    """Return an open team case for this company if one exists (not closed/cleared)."""
+    return await _find_case_for_company(
+        uid=uid, ehraid=ehraid, name=name, statuses=OPEN_STATUSES
+    )
+
+
+async def find_case_for_company(
+    *,
+    uid: str | None = None,
+    ehraid: int | None = None,
+    name: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Best matching case for UI flags: prefer open, else most recent closed/cleared.
+    Used by Firmenanalyse lookup so geschlossene Akten weiterhin sichtbar bleiben.
+    """
+    open_hit = await _find_case_for_company(
+        uid=uid, ehraid=ehraid, name=name, statuses=OPEN_STATUSES
+    )
+    if open_hit:
+        return open_hit
+    return await _find_case_for_company(
+        uid=uid,
+        ehraid=ehraid,
+        name=name,
+        statuses=None,
+        prefer_newest=True,
+    )
+
+
+async def _find_case_for_company(
+    *,
+    uid: str | None = None,
+    ehraid: int | None = None,
+    name: str | None = None,
+    statuses: tuple[str, ...] | None = OPEN_STATUSES,
+    prefer_newest: bool = False,
+) -> dict[str, Any] | None:
     async with async_session() as session:
-        q = select(CompanyCase).where(CompanyCase.status.in_(OPEN_STATUSES))
+        q = select(CompanyCase)
+        if statuses is not None:
+            q = q.where(CompanyCase.status.in_(statuses))
+        if prefer_newest:
+            q = q.order_by(CompanyCase.opened_at.desc())
         cases = list((await session.execute(q)).scalars().all())
         uid_digits = re.sub(r"\D", "", uid or "")
         name_n = (name or "").strip().lower()
@@ -394,8 +435,24 @@ async def open_case(
     return case_payload
 
 
+# In-flight L5 jobs keyed by firm identity (uid digits or name).
+_L5_RUNNING: set[str] = set()
+
+
+def _l5_identity_key(*, name: str | None, uid: str | None) -> str:
+    digits = re.sub(r"\D", "", uid or "")
+    if digits:
+        return f"uid:{digits}"
+    return f"name:{(name or '').strip().lower()}"
+
+
 def _kickoff_l5_background(*, name: str | None, uid: str | None) -> dict[str, Any]:
     """If L5 cache missing, start deep analyze in background (non-blocking)."""
+    from app.hr_network.demo_fixture import (
+        DemoFixtureError,
+        build_demo_fraud_network,
+        is_demo_request,
+    )
     from app.hr_network.fraud_network_cache import (
         cache_status_for_company,
         load_cached_for_company,
@@ -407,16 +464,33 @@ def _kickoff_l5_background(*, name: str | None, uid: str | None) -> dict[str, An
     if not n and not u:
         return {"l5_cached": False, "l5_started": False, "reason": "no_company"}
 
+    identity = _l5_identity_key(name=n, uid=u)
+
+    # Offline demo: L5 is instant from fixture (also store so status polls hit cache).
+    try:
+        if is_demo_request(name=n, uid=u):
+            payload = build_demo_fraud_network(level=5)
+            store_cached_for_company(
+                level=5, company_name=n, company_uid=u, payload=payload
+            )
+            _L5_RUNNING.discard(identity)
+            return {"l5_cached": True, "l5_started": False, "demo_only": True}
+    except DemoFixtureError:
+        logger.exception("Demo L5 fixture failed for case kickoff")
+
     status = cache_status_for_company(company_name=n, company_uid=u)
     l5 = (status.get("levels") or {}).get("5") or {}
     if l5.get("cached"):
+        _L5_RUNNING.discard(identity)
         return {"l5_cached": True, "l5_started": False}
+
+    if identity in _L5_RUNNING:
+        return {"l5_cached": False, "l5_started": True, "already_running": True}
 
     async def _run() -> None:
         from app.hr_network.fraud_network import build_fraud_network
 
         try:
-            # Re-check cache in case another job finished first
             hit, _key = load_cached_for_company(
                 level=5, company_name=n, company_uid=u
             )
@@ -437,9 +511,12 @@ def _kickoff_l5_background(*, name: str | None, uid: str | None) -> dict[str, An
                 logger.info("Background L5 cached for %s / %s", n, u)
         except Exception:
             logger.exception("Background L5 after case open failed for %s / %s", n, u)
+        finally:
+            _L5_RUNNING.discard(identity)
 
     try:
         loop = asyncio.get_running_loop()
+        _L5_RUNNING.add(identity)
         loop.create_task(_run())
     except RuntimeError:
         logger.warning("No running loop — L5 background kick skipped")
@@ -797,8 +874,8 @@ async def add_bank_check_item(
         case = await session.get(CompanyCase, case_id)
         if not case:
             raise LookupError("Fall nicht gefunden")
-        if case.status not in ("confirmed_fraud", "ready_for_report"):
-            raise ValueError("Checkliste nur bei bestätigten Fällen erweiterbar")
+        if case.status not in ("under_review", "confirmed_fraud", "ready_for_report"):
+            raise ValueError("Checkliste nur bei offenen Akten erweiterbar")
 
         session.add(
             CaseBankCheckItem(
@@ -1108,3 +1185,272 @@ async def branch_signal(*, months: int = 6, limit: int = 8) -> dict[str, Any]:
             if k != "(ohne Zweckangabe)" or n > 0
         ],
     }
+
+
+def _seed_uid_digits(uid: str | None) -> str:
+    return re.sub(r"\D", "", uid or "")
+
+
+def _extract_l5_hits(payload: dict[str, Any], case: dict[str, Any]) -> list[dict[str, Any]]:
+    """Persons/companies from L5 not already on the case bank checklist."""
+    checks = case.get("bank_checks") or []
+    seen: set[tuple[str, str]] = set()
+    for row in checks:
+        et = row.get("entity_type") or ""
+        label = (row.get("entity_label") or "").strip().lower()
+        ref = (row.get("entity_ref") or "").strip().lower()
+        if label:
+            seen.add((et, label))
+        if ref:
+            seen.add((et, ref))
+
+    seed_uid = _seed_uid_digits(case.get("company_uid"))
+    seed_name = (case.get("company_name") or "").strip().lower()
+    hits: list[dict[str, Any]] = []
+    hit_keys: set[tuple[str, str]] = set()
+
+    def add_hit(kind: str, label: str, *, ref: str | None = None, roles: list | None = None,
+                status: str | None = None, hint: str = "") -> None:
+        lab = (label or "").strip()
+        if not lab:
+            return
+        key_label = (kind, lab.lower())
+        key_ref = (kind, (ref or "").strip().lower()) if ref else None
+        if key_label in seen or key_label in hit_keys:
+            return
+        if key_ref and (key_ref in seen or key_ref in hit_keys):
+            return
+        hit_keys.add(key_label)
+        if key_ref:
+            hit_keys.add(key_ref)
+        hits.append({
+            "kind": kind,
+            "label": lab,
+            "ref": (ref or "").strip() or None,
+            "roles": list(roles or []),
+            "status": status or "",
+            "hint": hint,
+        })
+
+    for p in payload.get("persons_table") or []:
+        name = (p.get("name") or p.get("display_name") or "").strip()
+        pid = p.get("person_id") or p.get("id")
+        hr = (p.get("status") or "current").lower()
+        hint = "Ehemaliges Organ" if hr == "former" else "Person aus Netzwerk L5"
+        add_hit(
+            "person",
+            name,
+            ref=str(pid) if pid else None,
+            roles=p.get("roles") or [],
+            status=hr,
+            hint=hint,
+        )
+
+    # Node fallback for persons not listed in persons_table
+    for node in payload.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        ntype = (node.get("type") or "").lower()
+        label = (node.get("label") or node.get("name") or "").strip()
+        if ntype == "person":
+            nid = (node.get("id") or "").removeprefix("person:")
+            add_hit(
+                "person",
+                label,
+                ref=nid or None,
+                roles=node.get("roles") or [],
+                status=(node.get("status") or "").lower(),
+                hint="Person aus Netzwerk L5",
+            )
+        elif ntype == "company":
+            cuid = node.get("uid") or ""
+            digits = _seed_uid_digits(cuid)
+            if digits and digits == seed_uid:
+                continue
+            if label.strip().lower() == seed_name:
+                continue
+            add_hit(
+                "company",
+                label,
+                ref=cuid or None,
+                hint="Verbundene Firma (L5)",
+            )
+
+    # Prefer network expansion over already-known seed officers: cap for UI
+    return hits[:40]
+
+
+async def get_case_network_l5(
+    case_id: int,
+    *,
+    kick: bool = True,
+) -> dict[str, Any]:
+    """
+    L5 status for the case firm: running | ready | missing.
+    When ready, includes interesting hits not yet on the checklist.
+    """
+    from app.hr_network.demo_fixture import (
+        DemoFixtureError,
+        build_demo_fraud_network,
+        is_demo_request,
+    )
+    from app.hr_network.fraud_network_cache import (
+        cached_at_iso,
+        load_cached_for_company,
+    )
+
+    case = await get_company_case(case_id)
+    name = case.get("company_name")
+    uid = case.get("company_uid")
+    identity = _l5_identity_key(name=name, uid=uid)
+
+    try:
+        if is_demo_request(name=name, uid=uid):
+            payload = build_demo_fraud_network(level=5)
+            from app.hr_network.fraud_network_cache import store_cached_for_company
+
+            store_cached_for_company(
+                level=5, company_name=name, company_uid=uid, payload=payload
+            )
+            hits = _extract_l5_hits(payload, case)
+            return {
+                "status": "ready",
+                "demo_only": True,
+                "l5_cached": True,
+                "l5_started": False,
+                "hits": hits,
+                "hit_count": len(hits),
+                "company_name": name,
+                "company_uid": uid,
+            }
+    except DemoFixtureError as e:
+        logger.warning("Demo L5 status failed: %s", e)
+
+    hit, key = load_cached_for_company(level=5, company_name=name, company_uid=uid)
+    if hit is not None:
+        _L5_RUNNING.discard(identity)
+        hits = _extract_l5_hits(hit, case)
+        return {
+            "status": "ready",
+            "demo_only": False,
+            "l5_cached": True,
+            "l5_started": False,
+            "cached_at": cached_at_iso(key) if key else None,
+            "hits": hits,
+            "hit_count": len(hits),
+            "company_name": name,
+            "company_uid": uid,
+        }
+
+    started = False
+    if kick:
+        meta = _kickoff_l5_background(name=name, uid=uid)
+        started = bool(meta.get("l5_started"))
+        if meta.get("l5_cached"):
+            # Race: became ready during kick
+            return await get_case_network_l5(case_id, kick=False)
+
+    running = identity in _L5_RUNNING or started
+    return {
+        "status": "running" if running else "missing",
+        "demo_only": False,
+        "l5_cached": False,
+        "l5_started": running,
+        "hits": [],
+        "hit_count": 0,
+        "company_name": name,
+        "company_uid": uid,
+    }
+
+
+async def apply_case_network_l5_hits(
+    case_id: int,
+    *,
+    items: list[dict[str, Any]],
+    by: str,
+) -> dict[str, Any]:
+    """Enroll selected L5 hits onto Watchlist + bank checklist (user-confirmed)."""
+    from app.hr_network.shab_parser import _normalize_person_id
+    from app.hr_network.watch_intake import (
+        SCAN_PRIORITY_HIGH,
+        SOURCE_CASE_OPEN,
+        ensure_seed_link,
+        upsert_watched_person,
+    )
+    from app.hr_network.watched_companies import (
+        SOURCE_CASE_OPEN as COMPANY_SOURCE_CASE_OPEN,
+        upsert_watched_company,
+    )
+
+    case = await get_company_case(case_id)
+    if case.get("status") in ("closed", "cleared"):
+        raise ValueError("Geschlossene Akte — keine neuen Treffer mehr aufnehmbar")
+
+    applied: list[dict[str, Any]] = []
+    for raw in items or []:
+        kind = (raw.get("kind") or "").strip().lower()
+        label = (raw.get("label") or "").strip()
+        if not label or kind not in ("person", "company"):
+            continue
+        ref = (raw.get("ref") or "").strip() or None
+        roles = raw.get("roles") or []
+        role_str = ", ".join(str(r) for r in roles if r)[:200] or None
+
+        if kind == "person":
+            slug = ref or _normalize_person_id(label)
+            if not slug:
+                continue
+            wp = await upsert_watched_person(
+                person_slug=slug[:128],
+                display_name=label[:512],
+                residence=None,
+                source_company_ehraid=case.get("company_ehraid"),
+                source_company_name=case.get("company_name"),
+                source_reason=SOURCE_CASE_OPEN,
+                status="active",
+                notes=f"L5-Treffer Akte #{case_id} (von {by})",
+                scan_priority=SCAN_PRIORITY_HIGH,
+            )
+            try:
+                await ensure_seed_link(
+                    person_id=wp.id,
+                    company_ehraid=case.get("company_ehraid"),
+                    company_name=case.get("company_name") or label,
+                    company_uid=case.get("company_uid"),
+                    role=role_str,
+                )
+            except Exception:
+                logger.exception("ensure_seed_link after L5 hit failed")
+            await add_bank_check_item(
+                case_id,
+                entity_type="person",
+                entity_label=label,
+                entity_ref=str(wp.id),
+            )
+            applied.append({"kind": "person", "label": label, "person_id": wp.id})
+        else:
+            uid_val = None
+            if ref and re.search(r"CHE|\d{8,}", ref, re.I):
+                uid_val = ref
+            await upsert_watched_company(
+                company_name=label,
+                company_uid=uid_val,
+                source_reason=COMPANY_SOURCE_CASE_OPEN,
+                added_by=by,
+                notes=f"L5-Treffer Akte #{case_id}",
+            )
+            await add_bank_check_item(
+                case_id,
+                entity_type="company",
+                entity_label=label,
+                entity_ref=uid_val,
+            )
+            applied.append({"kind": "company", "label": label, "ref": uid_val})
+
+    result = await get_company_case(case_id)
+    # Refresh L5 hits after apply
+    network = await get_case_network_l5(case_id, kick=False)
+    result["network_l5"] = network
+    result["applied_hits"] = applied
+    result["applied_count"] = len(applied)
+    return result

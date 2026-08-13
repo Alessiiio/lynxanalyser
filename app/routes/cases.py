@@ -15,14 +15,17 @@ from app.hr_network.company_cases import (
     action_reported_case,
     add_bank_check_item,
     add_journal_entry,
+    apply_case_network_l5_hits,
     branch_signal,
     clear_case,
     close_documented_case,
     confirm_fraud,
     delete_company_case,
     enroll_former_officers_for_case,
+    find_case_for_company,
     find_open_case_for_company,
     generate_case_report,
+    get_case_network_l5,
     get_case_report_path,
     get_company_case,
     list_company_cases,
@@ -92,6 +95,10 @@ class CloseCaseBody(BaseModel):
     note: str = Field("", max_length=2000)
 
 
+class NetworkL5ApplyBody(BaseModel):
+    items: list[dict] = Field(default_factory=list)
+
+
 @router.get("/cases")
 async def cases_list_page(_user: User = Depends(get_current_user)):
     return FileResponse("static/cases.html")
@@ -125,7 +132,8 @@ async def api_lookup_case(
     name: Optional[str] = None,
     _user: User = Depends(get_current_user),
 ):
-    hit = await find_open_case_for_company(uid=uid, ehraid=ehraid, name=name)
+    """Any matching case for UI flags (open preferred, else latest closed)."""
+    hit = await find_case_for_company(uid=uid, ehraid=ehraid, name=name)
     return {"case": hit}
 
 
@@ -371,6 +379,36 @@ async def api_close_documented(
     try:
         return await close_documented_case(
             case_id, by=user.username, note=body.note or ""
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/api/company-cases/{case_id}/network-l5")
+async def api_case_network_l5(
+    case_id: int,
+    kick: bool = Query(True),
+    _user: User = Depends(get_current_user),
+):
+    """L5 background status + interesting hits not yet on the checklist."""
+    try:
+        return await get_case_network_l5(case_id, kick=kick)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/api/company-cases/{case_id}/network-l5/apply")
+async def api_case_network_l5_apply(
+    case_id: int,
+    body: NetworkL5ApplyBody,
+    user: User = Depends(require_role("case_manager", "admin")),
+):
+    """Selected L5 hits → Watchlist + Checkliste (nach Bestätigung durch User)."""
+    try:
+        return await apply_case_network_l5_hits(
+            case_id, items=body.items or [], by=user.username
         )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

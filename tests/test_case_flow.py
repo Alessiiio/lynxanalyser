@@ -321,6 +321,80 @@ async def test_demo_confirm_seeds_person_checklist():
 
 
 @pytest.mark.asyncio
+async def test_demo_network_l5_ready_with_hits():
+    """Akte: L5-Status für Demo ist sofort ready; Hits enthalten Netzwerk-Personen."""
+    from app.hr_network.company_cases import apply_case_network_l5_hits, get_case_network_l5
+
+    with patch(
+        "app.hr_network.company_cases._kickoff_l5_background",
+        return_value={"l5_cached": True, "l5_started": False, "demo_only": True},
+    ):
+        opened = await open_case(
+            company_name="DEMO-FRAUD GmbH",
+            company_uid="CHE-000.000.001",
+            company_ehraid=9000001,
+            opened_by="tester",
+        )
+
+    net = await get_case_network_l5(opened["id"], kick=True)
+    assert net["status"] == "ready"
+    assert net.get("demo_only") is True
+    assert net["hit_count"] >= 1
+    # L5-only person from fixture
+    labels = [h["label"] for h in net["hits"]]
+    assert any("Jonas" in x or "Fiktiv" in x for x in labels) or len(labels) >= 1
+
+    # Apply one person hit
+    person_hits = [h for h in net["hits"] if h["kind"] == "person"]
+    assert person_hits
+    applied = await apply_case_network_l5_hits(
+        opened["id"], items=[person_hits[0]], by="tester"
+    )
+    assert applied["applied_count"] == 1
+    assert any(
+        c["entity_label"] == person_hits[0]["label"]
+        for c in applied["bank_checks"]
+        if c["entity_type"] == "person"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lookup_finds_closed_case():
+    """Geschlossene Akte bleibt für Firmenanalyse-Flags sichtbar."""
+    from app.hr_network.company_cases import find_case_for_company, find_open_case_for_company
+
+    with (
+        patch(
+            "app.hr_network.watch_intake.intake_from_fraud_company",
+            new=AsyncMock(side_effect=lambda **kw: _fake_intake(**kw)),
+        ),
+        patch(
+            "app.hr_network.company_cases._kickoff_l5_background",
+            return_value={"l5_cached": True, "l5_started": False},
+        ),
+    ):
+        opened = await open_case(
+            company_name="Flag Corp AG",
+            company_uid="CHE-999.888.777",
+            opened_by="tester",
+        )
+        await confirm_fraud(opened["id"], fraud_type="other", by="tester")
+        for item in (await get_company_case(opened["id"]))["bank_checks"]:
+            if item["status"] == "pending":
+                await update_bank_check(
+                    opened["id"], item["id"], status="no_relationship", note="", checked_by="tester"
+                )
+        await update_payment_flags(opened["id"], payment_blocked=True, payment_blocked_note=None)
+        await close_documented_case(opened["id"], by="tester")
+
+    assert await find_open_case_for_company(uid="CHE-999.888.777") is None
+    hit = await find_case_for_company(uid="CHE-999.888.777")
+    assert hit is not None
+    assert hit["status"] == "closed"
+    assert hit["id"] == opened["id"]
+
+
+@pytest.mark.asyncio
 async def test_demo_intake_enrolls_current_only():
     from app.hr_network.watch_intake import intake_from_fraud_company
 

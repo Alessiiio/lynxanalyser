@@ -28,6 +28,10 @@ let currentCase = null;
 let docsWizardIndex = 0;
 /** @type {boolean | null} */
 let wizPaymentChoice = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let l5PollTimer = null;
+/** @type {boolean} */
+let l5HitsDismissed = false;
 
 function esc(s) {
   return String(s ?? "")
@@ -46,6 +50,135 @@ function formatDetail(detail) {
 function setMsg(t) {
   document.getElementById("caseMsg").textContent = t || "";
 }
+
+function stopL5Poll() {
+  if (l5PollTimer) {
+    clearInterval(l5PollTimer);
+    l5PollTimer = null;
+  }
+}
+
+function renderNetworkL5(data) {
+  const panel = document.getElementById("panelNetworkL5");
+  const title = document.getElementById("l5BannerTitle");
+  const text = document.getElementById("l5BannerText");
+  const hitsBox = document.getElementById("l5HitsBox");
+  const hitsList = document.getElementById("l5HitsList");
+  if (!panel || !title || !text) return;
+
+  const status = data?.status || "";
+  const closed = currentCase && (currentCase.status === "closed" || currentCase.status === "cleared");
+
+  if (!status || status === "missing" || closed) {
+    if (status !== "running") {
+      panel.classList.add("hidden");
+      hitsBox?.classList.add("hidden");
+    }
+    if (closed) stopL5Poll();
+    if (status === "missing" && !closed) {
+      // still show nothing unless we were told via query that a scan started
+    }
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  panel.classList.toggle("is-running", status === "running");
+  panel.classList.toggle("is-ready", status === "ready");
+
+  if (status === "running") {
+    title.textContent = "Netzwerk Suchweite 5 läuft";
+    text.textContent = "Im Hintergrund werden weitere Personen und Firmen gesucht — du kannst die Akte parallel ausfüllen.";
+    hitsBox?.classList.add("hidden");
+    return;
+  }
+
+  // ready
+  const hits = Array.isArray(data.hits) ? data.hits : [];
+  title.textContent = "Netzwerk Suchweite 5 bereit";
+  if (!hits.length || l5HitsDismissed) {
+    text.textContent = hits.length
+      ? "Hinweis ausgeblendet — Treffer bleiben im Netzwerk-Cache."
+      : "Keine zusätzlichen Treffer gegenüber der bisherigen Checkliste.";
+    hitsBox?.classList.add("hidden");
+    stopL5Poll();
+    return;
+  }
+
+  text.textContent = `${hits.length} neue Hinweise — optional auf Watchlist und Checkliste übernehmen.`;
+  hitsBox?.classList.remove("hidden");
+  if (hitsList) {
+    hitsList.innerHTML = hits.map((h, i) => {
+      const kindLabel = h.kind === "company" ? "Firma" : "Person";
+      const meta = [h.hint, (h.roles || []).slice(0, 2).join(", ")].filter(Boolean).join(" · ");
+      return `<li class="case-l5-hit">
+        <label>
+          <input type="checkbox" class="l5-hit-cb" data-idx="${i}" checked>
+          <span class="case-l5-hit-kind">${esc(kindLabel)}</span>
+          <span class="case-l5-hit-label">${esc(h.label)}</span>
+          ${meta ? `<span class="case-l5-hit-meta">${esc(meta)}</span>` : ""}
+        </label>
+      </li>`;
+    }).join("");
+    hitsList._l5Hits = hits;
+  }
+  stopL5Poll();
+}
+
+async function fetchNetworkL5({ kick = true } = {}) {
+  const r = await fetch(`/api/company-cases/${CASE_ID}/network-l5?kick=${kick ? "true" : "false"}`);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) return null;
+  renderNetworkL5(data);
+  return data;
+}
+
+function startL5PollIfNeeded(initial) {
+  stopL5Poll();
+  const status = initial?.status;
+  if (status === "running" || status === "missing") {
+    l5PollTimer = setInterval(() => {
+      fetchNetworkL5({ kick: true });
+    }, 4000);
+  }
+}
+
+async function applySelectedL5Hits() {
+  const hitsList = document.getElementById("l5HitsList");
+  const all = hitsList?._l5Hits || [];
+  const selected = [];
+  hitsList?.querySelectorAll(".l5-hit-cb:checked").forEach((cb) => {
+    const idx = Number(cb.dataset.idx);
+    if (all[idx]) selected.push(all[idx]);
+  });
+  if (!selected.length) {
+    setMsg("Mindestens einen Treffer auswählen");
+    return;
+  }
+  const r = await fetch(`/api/company-cases/${CASE_ID}/network-l5/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items: selected }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    setMsg(formatDetail(data.detail) || "Übernehmen fehlgeschlagen");
+    return;
+  }
+  setMsg(`${data.applied_count || 0} Treffer auf Watchlist / Checkliste übernommen`);
+  const keepIdx = docsWizardIndex;
+  renderCase(data);
+  docsWizardIndex = keepIdx;
+  renderDocsWizard(currentCase);
+  if (data.network_l5) renderNetworkL5(data.network_l5);
+}
+
+document.getElementById("l5ApplyHitsBtn")?.addEventListener("click", () => applySelectedL5Hits());
+document.getElementById("l5DismissHitsBtn")?.addEventListener("click", () => {
+  l5HitsDismissed = true;
+  document.getElementById("l5HitsBox")?.classList.add("hidden");
+  const text = document.getElementById("l5BannerText");
+  if (text) text.textContent = "Hinweis ausgeblendet — du kannst die Akte weiter ausfüllen.";
+});
 
 function isSuspiciousClose(c) {
   return (c.journal || []).some((e) => String(e.text || "").includes("[In Abklärung]"));
@@ -806,6 +939,17 @@ async function loadCase() {
   const firstOpen = steps.findIndex((s) => !s.done);
   if (firstOpen >= 0) docsWizardIndex = firstOpen;
   renderCase(data);
+
+  const params = new URLSearchParams(location.search);
+  const l5Hint = params.get("l5");
+  // Always check status (kick if missing); query param only influences first paint
+  if (l5Hint === "running") {
+    renderNetworkL5({ status: "running", hits: [] });
+  } else if (l5Hint === "ready") {
+    renderNetworkL5({ status: "ready", hits: [], hit_count: 0 });
+  }
+  const net = await fetchNetworkL5({ kick: true });
+  if (net) startL5PollIfNeeded(net);
 }
 
 document.getElementById("confirmFraudBtn")?.addEventListener("click", async () => {

@@ -3738,6 +3738,81 @@ body.scanning .scan-loader {
   border-left: 3px solid rgba(148, 163, 184, 0.45);
   padding-left: 0.55rem;
 }
+.case-l5-banner {
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(14, 116, 144, 0.18);
+  border-radius: 6px;
+}
+.case-l5-banner.is-running {
+  border-color: rgba(251, 146, 60, 0.45);
+  background: rgba(154, 52, 18, 0.2);
+}
+.case-l5-banner.is-ready {
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(6, 95, 70, 0.18);
+}
+.case-l5-banner-main strong {
+  display: block;
+  font-family: Rajdhani, sans-serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.2rem;
+}
+.case-l5-banner-main .fraud-help {
+  margin: 0;
+}
+.case-l5-hits {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+}
+.case-l5-hits-list {
+  list-style: none;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  max-height: 14rem;
+  overflow: auto;
+}
+.case-l5-hit label {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 0.15rem 0.55rem;
+  align-items: start;
+  padding: 0.4rem 0.5rem;
+  background: rgba(15, 23, 42, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.case-l5-hit input {
+  grid-row: 1 / span 2;
+  margin-top: 0.2rem;
+}
+.case-l5-hit-kind {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+.case-l5-hit-label {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+.case-l5-hit-meta {
+  grid-column: 3;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+.case-l5-hits-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
 #downloadReportBtn {
   text-decoration: none;
   text-align: center;
@@ -5935,6 +6010,28 @@ body.profiler-open { overflow: hidden; }
   border: 1px solid rgba(249, 115, 22, 0.45);
   background: rgba(234, 88, 12, 0.14);
   white-space: nowrap;
+}
+.ca-case-chip-sm {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  background: rgba(190, 18, 60, 0.16);
+  white-space: nowrap;
+}
+.ca-recent-item.is-on-case {
+  border-color: rgba(244, 63, 94, 0.35);
+}
+.ca-suggest-badge.is-on-case {
+  color: #fecdd3;
+  border-color: rgba(244, 63, 94, 0.45);
+  background: rgba(190, 18, 60, 0.2);
 }
 .ca-recent-meta {
   display: inline-flex;

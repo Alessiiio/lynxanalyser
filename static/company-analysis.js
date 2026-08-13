@@ -220,6 +220,8 @@ let currentCaseHit = null;
 let currentCompanyTag = null;
 /** Team tag index for search/recent highlights: { byUidDigits, byName, rows }. */
 let _companyTagIndex = { byUid: new Map(), byName: new Map(), loaded: false };
+/** @type {{ byUid: Map<string, object>, byName: Map<string, object>, loaded: boolean }} */
+let _companyCaseIndex = { byUid: new Map(), byName: new Map(), loaded: false };
 let branchSignal = null;
 /** Locked Moneyhouse identities for this analysis session (accept/ignore). */
 let sessionIdentityOverrides = [];
@@ -949,6 +951,50 @@ function findIndexedCompanyTag(uid, name) {
   return null;
 }
 
+function findIndexedCompanyCase(uid, name) {
+  if (!_companyCaseIndex.loaded) return null;
+  const d = companyUidDigits(uid);
+  if (d && _companyCaseIndex.byUid.has(d)) return _companyCaseIndex.byUid.get(d);
+  const nk = companyNameKey(name);
+  if (nk && _companyCaseIndex.byName.has(nk)) return _companyCaseIndex.byName.get(nk);
+  return null;
+}
+
+function caseChipLabel(c) {
+  if (!c) return "Akte";
+  const st = c.status || "";
+  if (st === "under_review") return "In Prüfung";
+  if (st === "closed" || st === "cleared") return "Akte";
+  if (st === "confirmed_fraud" || st === "ready_for_report") return "Fraud-Fall";
+  if (st === "reported") return "Gemeldet";
+  return "Akte";
+}
+
+async function loadCompanyCasesFromServer() {
+  try {
+    const resp = await fetch("/api/company-cases");
+    if (!resp.ok) throw new Error(String(resp.status));
+    const data = await resp.json();
+    const byUid = new Map();
+    const byName = new Map();
+    for (const c of data.cases || []) {
+      const d = companyUidDigits(c.company_uid);
+      const nk = companyNameKey(c.company_name);
+      if (d && !byUid.has(d)) byUid.set(d, c);
+      if (nk && !byName.has(nk)) byName.set(nk, c);
+    }
+    _companyCaseIndex = { byUid, byName, loaded: true };
+  } catch (_) {
+    if (!_companyCaseIndex.loaded) {
+      _companyCaseIndex = { byUid: new Map(), byName: new Map(), loaded: false };
+    }
+  }
+  if (currentCompany && !currentCaseHit) {
+    currentCaseHit = findIndexedCompanyCase(currentCompany.uid, currentCompany.name);
+  }
+  renderRecentSearches();
+}
+
 async function loadCompanyTagsFromServer() {
   try {
     const resp = await fetch("/api/company-tags?tag=under_investigation");
@@ -1411,15 +1457,19 @@ function renderRecentSearches() {
   }
   list.innerHTML = items.map((e) => {
     const tagged = !!findIndexedCompanyTag(e.uid, e.name);
+    const caseHit = findIndexedCompanyCase(e.uid, e.name);
     const tagBadge = tagged
       ? `<span class="ca-tag-chip-sm" title="Team-Markierung">In Abklärung</span>`
       : "";
+    const caseBadge = caseHit
+      ? `<span class="ca-case-chip-sm" title="Firmenakte #${caseHit.id || ""}">${escHtml(caseChipLabel(caseHit))}</span>`
+      : "";
     return `
     <li>
-      <button type="button" class="ca-recent-item${tagged ? " is-in-klaerung" : ""}" data-name="${escHtml(e.name || "")}" data-uid="${escHtml(e.uid || "")}">
+      <button type="button" class="ca-recent-item${tagged ? " is-in-klaerung" : ""}${caseHit ? " is-on-case" : ""}" data-name="${escHtml(e.name || "")}" data-uid="${escHtml(e.uid || "")}">
         <span class="ca-recent-name-row">
           <span class="ca-recent-name">${escHtml(e.name || e.uid || "—")}</span>
-          ${tagBadge}
+          ${tagBadge}${caseBadge}
         </span>
         <span class="ca-recent-meta">
           ${e.uid ? `<span class="ca-recent-uid">${escHtml(e.uid)}</span>` : ""}
@@ -1462,10 +1512,15 @@ async function fetchSuggestions(q) {
       if (tagged) {
         badge += `<span class="ca-suggest-badge is-in-klaerung">In Abklärung</span>`;
       }
+      const caseHit = findIndexedCompanyCase(r.uid, r.name);
+      if (caseHit) {
+        badge += `<span class="ca-suggest-badge is-on-case">${escHtml(caseChipLabel(caseHit))}</span>`;
+      }
       const cls = [
         cancelled ? "is-cancelled" : "",
         being ? "is-liquidating" : "",
         tagged ? "is-in-klaerung" : "",
+        caseHit ? "is-on-case" : "",
       ].filter(Boolean).join(" ");
       return `<li><button type="button" class="${cls}" data-name="${escHtml(r.name || "")}" data-uid="${escHtml(r.uid || "")}">
         <span class="ca-suggest-main">
@@ -1724,7 +1779,11 @@ async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false }
       const caseLine =
         st === "under_review"
           ? `Bereits in Prüfung (Akte #${currentCaseHit.id}, ${currentCaseHit.opened_by || ""})`
-          : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`;
+          : st === "closed"
+            ? `Akte vorhanden und geschlossen (#${currentCaseHit.id})`
+            : st === "cleared"
+              ? `Akte geschlossen — kein Betrug (#${currentCaseHit.id})`
+              : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`;
       if (!baseWarnings.includes(caseLine)) baseWarnings.unshift(caseLine);
     }
     renderWarnings(baseWarnings);
@@ -2067,7 +2126,11 @@ function renderSearchResults(data) {
     warnings.unshift(
       st === "under_review"
         ? `Bereits in Prüfung (Akte #${currentCaseHit.id}, ${currentCaseHit.opened_by || ""})`
-        : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`
+        : st === "closed"
+          ? `Akte vorhanden und geschlossen (#${currentCaseHit.id})`
+          : st === "cleared"
+            ? `Akte geschlossen — kein Betrug (#${currentCaseHit.id})`
+            : `Bestätigter Fraud-Fall (Akte #${currentCaseHit.id || currentCaseHit.case_id})`
     );
   }
   // Soft MH identity + incomplete-search context (also sticky banner below)
@@ -2873,11 +2936,13 @@ function renderFirmBar(company, data) {
   const formShort = shortenLegalForm(company.legal_form);
   const onCase = !!currentCaseHit;
   const caseStatus = currentCaseHit?.status || "";
+  const caseClosed = caseStatus === "closed" || caseStatus === "cleared";
   const onTag = !!currentCompanyTag;
   const hr = safeHttpUrl(company.cantonal_excerpt_url);
   const metaCount = [company.uid, seat, formShort, data.publication_count != null].filter(Boolean).length;
 
   card.classList.toggle("is-on-fraudlist", onCase && caseStatus !== "under_review");
+  card.classList.toggle("is-case-closed", onCase && caseClosed);
   card.classList.toggle("is-in-klaerung", onTag);
   const firmNameRaw = String(company.name || "").trim();
   const firmNameShow =
@@ -2895,6 +2960,17 @@ function renderFirmBar(company, data) {
   const caseSoftNote = onCase && onTag
     ? `<p class="ca-firm-tag-note">Markierung parallel zur Akte möglich.</p>`
     : "";
+  const caseBadgeLabel = !onCase
+    ? ""
+    : caseStatus === "under_review"
+      ? "In Prüfung"
+      : caseStatus === "cleared"
+        ? "Akte · kein Betrug"
+        : caseStatus === "closed"
+          ? "Akte geschlossen"
+          : caseStatus === "reported"
+            ? "Gemeldet"
+            : "Fraud-Fall";
   card.innerHTML = `
     <div class="ca-firm-top">
       <div class="ca-firm-identity">
@@ -2905,7 +2981,7 @@ function renderFirmBar(company, data) {
             ? `<span class="ca-tag-badge" title="Team-Markierung${currentCompanyTag.set_by ? ` · ${escHtml(currentCompanyTag.set_by)}` : ""}">In Abklärung</span>`
             : ""}
           ${onCase
-            ? `<span class="ca-fraudlist-badge" title="Firmenakte">${caseStatus === "under_review" ? "In Prüfung" : "Fraud-Fall"}${currentCaseHit.id ? ` #${currentCaseHit.id}` : ""}</span>`
+            ? `<span class="ca-fraudlist-badge" title="Firmenakte">${escHtml(caseBadgeLabel)}${currentCaseHit.id ? ` #${currentCaseHit.id}` : ""}</span>`
             : ""}
         </div>
       </div>
@@ -2913,6 +2989,9 @@ function renderFirmBar(company, data) {
         <div class="ca-firm-tools">
           <button type="button" class="ca-tool-link" id="caChangeSearchBtn" title="Andere Firma suchen">Suche ändern</button>
           <button type="button" class="ca-tool-link ca-tag-toggle${onTag ? " is-active" : ""}" id="caTagToggleBtn" title="${escHtml(tagToggleTitle)}" aria-pressed="${onTag ? "true" : "false"}">${escHtml(tagToggleLabel)}</button>
+          ${onCase && caseClosed
+            ? `<button type="button" class="ca-tool-link" id="openCaseBtn" title="Neue Akte für einen weiteren Vorfall">Neue Akte</button>`
+            : ""}
           <details class="ca-firm-more">
             <summary class="ca-tool-link ca-firm-more-summary" title="Weitere Aktionen">Mehr</summary>
             <div class="ca-firm-more-menu" role="menu">
@@ -3785,7 +3864,13 @@ async function openCompanyCase() {
   if (lastAnalysis) renderSearchResults(lastAnalysis);
   else if (currentCompany) renderFirmBar(currentCompany, lastAnalysis || {});
   loadOpenTeamCases();
-  if (data.id) location.href = `/cases/${data.id}`;
+  if (data.id) {
+    const l5 = data.l5 || {};
+    let q = "";
+    if (l5.l5_started) q = "?l5=running";
+    else if (l5.l5_cached) q = "?l5=ready";
+    location.href = `/cases/${data.id}${q}`;
+  }
 }
 
 /* ── Graph ── */
@@ -4307,6 +4392,8 @@ if (demoKey === "fraud" || demoKey === "demo-fraud" || demoKey === "demo_fraud")
   pendingUid = params.get("uid") || "";
   quickAnalyze();
 }
+loadCompanyTagsFromServer();
+loadCompanyCasesFromServer();
 loadOpenTeamCases();
 loadBranchSignal();
 

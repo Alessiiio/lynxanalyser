@@ -16,6 +16,8 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 - **Akte: Als Verdächtig markieren**: In der Bestätigung Tag «In Abklärung», Firma + Organe auf die Watchlist, Akte wird geschlossen.
 - **Akte öffnen → Firmen-Watchlist**: Beim Eröffnen landet die Firma (nicht nur Organe) auf der Firmen-Watchlist.
 - **L5 im Hintergrund**: Fehlt der Cache für Suchweite 5, startet Lynx den Scan beim Akte-Öffnen async — die Akte ist sofort nutzbar.
+- **Akte: L5-Status + neue Treffer**: Nach dem Redirect zeigt die Akte, ob Suchweite 5 läuft oder fertig ist. Fertige neue Personen/Firmen kannst du gezielt auf Watchlist und Checkliste übernehmen.
+- **Geschlossene Akte bleibt sichtbar**: In der Firmenanalyse (Badge, Hinweis, Team-Suchen) erscheint eine Firma weiterhin als Akte — auch wenn der Fall geschlossen ist.
 - **Admin Inkognito**: Admins können im Account-Menü «Inkognito» einschalten. Dann erscheinen ihre Firmen-Suchen **nicht** in der Team-Historie.
 - **Benutzer endgültig löschen**: Nach dem Deaktivieren kann ein Admin den Benutzer komplett entfernen (nicht nur deaktivieren).
 - **SHAB-Tagesarchiv (Schweiz)**: Jede Nacht speichert Lynx die aktuellen Handelsregister-Meldungen des Tages. Steht jemand auf der Watchlist, landet der Treffer im **Posteingang**.
