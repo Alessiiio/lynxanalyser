@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
 import re
@@ -142,6 +144,46 @@ async def list_company_cases(
             checks = await _load_checks(session, case.id)
             out.append(_case_dict(case, bank_checks=checks))
         return out
+
+
+async def export_fraud_companies_csv(*, include_cleared: bool = False) -> str:
+    """
+    DS-Export: bestätigte Fraudfirmen (Fraudfall aktiv).
+    Spalten für Namematching / Fraudfilter.
+    """
+    statuses = list(ACTIVE_FRAUD_STATUSES)
+    if include_cleared:
+        statuses.append("cleared")
+    cases = await list_company_cases(
+        status=",".join(statuses),
+        limit=5000,
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", lineterminator="\n")
+    writer.writerow(
+        [
+            "Firmenname",
+            "UID",
+            "Betrugsart",
+            "Status",
+            "Eröffnet",
+            "Bestätigt",
+            "Eröffnet_von",
+        ]
+    )
+    for c in cases:
+        writer.writerow(
+            [
+                c.get("company_name") or "",
+                c.get("company_uid") or "",
+                c.get("fraud_type") or "",
+                c.get("status") or "",
+                (c.get("opened_at") or "")[:19],
+                (c.get("confirmed_at") or "")[:19],
+                c.get("opened_by") or "",
+            ]
+        )
+    return buf.getvalue()
 
 
 async def get_company_case(case_id: int) -> dict[str, Any]:

@@ -143,6 +143,8 @@ async def account_page(user: User = Depends(get_current_user)):
 
 @router.post("/api/login")
 async def api_login(request: Request, body: LoginBody):
+    from app.audit_log import record_audit
+
     enforce_login_rate_limit(request)
     username = body.username.strip().lower()
     async with db.async_session() as session:
@@ -155,6 +157,13 @@ async def api_login(request: Request, body: LoginBody):
             user.password_hash if user and user.active else None,
         )
         if not user or not user.active or not password_ok:
+            await record_audit(
+                action="login_fail",
+                success=False,
+                actor_username=username or None,
+                detail="invalid_credentials",
+                request=request,
+            )
             raise HTTPException(status_code=401, detail="Ungültige Anmeldedaten")
 
         if user.totp_enabled:
@@ -205,8 +214,18 @@ async def api_login_2fa(request: Request, body: Login2FABody):
                 ok = verify_totp_code(secret, code)
 
         if not ok:
+            from app.audit_log import record_audit
+
             failures = int(request.session.get("pending_2fa_failures") or 0) + 1
             request.session["pending_2fa_failures"] = failures
+            await record_audit(
+                action="2fa_fail",
+                success=False,
+                actor_username=user.username,
+                actor_display=user.display_name,
+                detail=f"failures={failures}",
+                request=request,
+            )
             if failures >= MAX_2FA_FAILURES:
                 request.session.clear()
                 raise HTTPException(
@@ -215,7 +234,17 @@ async def api_login_2fa(request: Request, body: Login2FABody):
                 )
             raise HTTPException(status_code=401, detail="Ungültiger Code")
 
+        from app.audit_log import record_audit
+
         grant_full_session(request, user)
+        await record_audit(
+            action="login_ok",
+            success=True,
+            actor_username=user.username,
+            actor_display=user.display_name,
+            detail="2fa",
+            request=request,
+        )
         return {
             "user": user_public_dict(user),
             "redirect": landing_path_for_role(user.role),
@@ -242,6 +271,15 @@ async def login_form(
 
 @router.post("/api/logout")
 async def api_logout(request: Request):
+    from app.audit_log import record_audit
+
+    uname = request.session.get("username")
+    await record_audit(
+        action="logout",
+        success=True,
+        actor_username=uname,
+        request=request,
+    )
     request.session.clear()
     return {"ok": True}
 

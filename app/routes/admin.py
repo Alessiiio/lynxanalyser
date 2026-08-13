@@ -1,16 +1,26 @@
-"""Admin panel: app settings + diagnostics + feature planning notes."""
+"""Admin hub: settings, exports, audit, diagnostics, planning."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 
 import config
-from app.database import User
+from app.audit_log import export_audit_csv, list_audit_events, record_audit
+from app.database import CompanyCase, NetworkAlert, User, WatchedCompany, WatchedPerson, async_session
+from app.hr_network.company_cases import ACTIVE_FRAUD_STATUSES, export_fraud_companies_csv
+from app.hr_network.person_monitoring import list_watched_persons
+from app.hr_network.watched_companies import (
+    export_companies_csv,
+    export_persons_csv,
+    list_watched_companies,
+)
 from app.planning_store import (
     PRIORITY_DE,
     STATUS_DE,
@@ -53,6 +63,14 @@ class PlanningPatch(BaseModel):
     meta: Optional[dict[str, Any]] = None
 
 
+def _csv_response(content: str, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/admin")
 async def admin_page(_user: User = Depends(require_role("admin"))):
     return FileResponse(_STATIC / "admin.html")
@@ -64,6 +82,162 @@ async def admin_planning_page(_user: User = Depends(require_role("admin"))):
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Planungsseite fehlt")
     return FileResponse(path)
+
+
+@router.get("/api/admin/overview")
+async def api_admin_overview(_user: User = Depends(require_role("admin"))):
+    async with async_session() as session:
+        fraud_n = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(CompanyCase)
+                    .where(CompanyCase.status.in_(ACTIVE_FRAUD_STATUSES))
+                )
+            ).scalar_one()
+            or 0
+        )
+        persons_n = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(WatchedPerson)
+                    .where(WatchedPerson.status != "cleared")
+                )
+            ).scalar_one()
+            or 0
+        )
+        companies_n = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(WatchedCompany)
+                    .where(WatchedCompany.status == "active")
+                )
+            ).scalar_one()
+            or 0
+        )
+        alerts_n = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(NetworkAlert)
+                    .where(NetworkAlert.acknowledged.is_(False))
+                )
+            ).scalar_one()
+            or 0
+        )
+    return {
+        "fraud_cases_active": fraud_n,
+        "watched_persons": persons_n,
+        "watched_companies": companies_n,
+        "open_alerts": alerts_n,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+@router.get("/api/admin/exports/fraud-companies.csv")
+async def api_export_fraud_companies(
+    request: Request,
+    user: User = Depends(require_role("admin")),
+):
+    csv_text = await export_fraud_companies_csv()
+    await record_audit(
+        action="export_fraud_companies",
+        actor_username=user.username,
+        actor_display=user.display_name,
+        detail=f"bytes={len(csv_text.encode('utf-8'))}",
+        request=request,
+    )
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(csv_text, f"lynx_fraud_companies_{day}.csv")
+
+
+@router.get("/api/admin/exports/watched-persons.csv")
+async def api_export_watched_persons_admin(
+    request: Request,
+    user: User = Depends(require_role("admin")),
+):
+    items: list = []
+    offset = 0
+    while True:
+        data = await list_watched_persons(limit=200, offset=offset)
+        batch = data.get("items") or []
+        items.extend(batch)
+        if len(batch) < 200:
+            break
+        offset += 200
+        if offset > 10000:
+            break
+    csv_text = export_persons_csv(items)
+    await record_audit(
+        action="export_watched_persons",
+        actor_username=user.username,
+        actor_display=user.display_name,
+        detail=f"count={len(items)}",
+        request=request,
+    )
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(csv_text, f"lynx_watchlist_persons_{day}.csv")
+
+
+@router.get("/api/admin/exports/watched-companies.csv")
+async def api_export_watched_companies_admin(
+    request: Request,
+    user: User = Depends(require_role("admin")),
+):
+    # status=None → alle (active + cleared); API-Limit max 500/Seite
+    items: list = []
+    offset = 0
+    page_size = 500
+    while True:
+        data = await list_watched_companies(status=None, limit=page_size, offset=offset)
+        batch = data.get("items") or []
+        items.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+        if offset > 10000:
+            break
+    csv_text = export_companies_csv(items)
+    await record_audit(
+        action="export_watched_companies",
+        actor_username=user.username,
+        actor_display=user.display_name,
+        detail=f"count={len(items)}",
+        request=request,
+    )
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(csv_text, f"lynx_watchlist_companies_{day}.csv")
+
+
+@router.get("/api/admin/audit")
+async def api_admin_audit(
+    action: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    _user: User = Depends(require_role("admin")),
+):
+    return await list_audit_events(action=action, limit=limit, offset=offset)
+
+
+@router.get("/api/admin/audit/export.csv")
+async def api_admin_audit_export(
+    request: Request,
+    action: Optional[str] = Query(None),
+    user: User = Depends(require_role("admin")),
+):
+    data = await list_audit_events(action=action, limit=500, offset=0)
+    csv_text = export_audit_csv(data.get("items") or [])
+    await record_audit(
+        action="export_audit",
+        actor_username=user.username,
+        actor_display=user.display_name,
+        detail=f"count={len(data.get('items') or [])}",
+        request=request,
+    )
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(csv_text, f"lynx_audit_{day}.csv")
 
 
 @router.get("/api/admin/settings")
@@ -100,10 +274,15 @@ async def api_patch_admin_settings(
         updated["anonymize_mode"] = await set_setting(
             "anonymize_mode", bool(body.anonymize_mode), updated_by=by
         )
+        await record_audit(
+            action="setting_change",
+            actor_username=user.username,
+            actor_display=user.display_name,
+            target="anonymize_mode",
+            detail=str(bool(body.anonymize_mode)),
+            request=http_request,
+        )
     return {"settings": await get_public_settings(), "updated": updated}
-
-
-# ── Feature planning (admin-only mini board) ─────────────────────────────
 
 
 @router.get("/api/admin/planning")

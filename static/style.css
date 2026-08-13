@@ -31,7 +31,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ============================================================
-   DESIGN SYSTEM v1 (siehe DESIGN_SYSTEM.md) — additiv, ersetzt
+   DESIGN SYSTEM v1 (siehe docs/DESIGN_SYSTEM.md) — additiv, ersetzt
    bestehende Klassen nicht. Für neue UI diese Basis nutzen statt
    neue btn-*/badge-*/card-* Varianten zu erfinden.
    ============================================================ */
@@ -48,6 +48,7 @@
   border: 1px solid var(--c-border);
   background: var(--c-card);
   color: var(--c-text);
+  text-decoration: none;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -2154,6 +2155,156 @@ body.anonymize-mode {
 .lynx-anon-banner strong { font-weight: 700; }
 
 .admin-panel { margin-bottom: 1rem; }
+
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 1rem;
+  padding: 0.2rem 0 0.75rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.admin-tab {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.admin-tab:hover {
+  color: var(--c-text);
+  background: var(--c-primary-light);
+}
+.admin-tab.is-active {
+  color: var(--c-primary);
+  border-color: var(--c-border);
+  background: var(--c-card);
+  box-shadow: inset 0 -2px 0 var(--c-primary);
+}
+.admin-tab-panel[hidden] { display: none !important; }
+.admin-tab-panel.is-active { display: block; }
+
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+.admin-stat {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--c-border);
+  background: linear-gradient(160deg, var(--c-card) 0%, rgba(10, 14, 20, 0.85) 100%);
+}
+.admin-stat-label {
+  font-size: 0.78rem;
+  color: var(--c-muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.admin-stat strong {
+  font-family: var(--font-mono);
+  font-size: 1.45rem;
+  font-weight: 500;
+  color: var(--c-primary);
+  line-height: 1.1;
+}
+
+.admin-export-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.admin-export-card {
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+  padding: 0.85rem 1rem;
+}
+.admin-export-card h3 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--c-text);
+  margin: 0;
+}
+.admin-export-card .btn {
+  justify-self: start;
+  margin-top: 0.25rem;
+}
+
+.admin-ops-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+}
+
+.admin-audit-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.admin-audit-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  max-height: min(60vh, 36rem);
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+.admin-audit-row {
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 212, 255, 0.12);
+  background: rgba(18, 26, 36, 0.7);
+}
+.admin-audit-row.is-fail {
+  border-color: rgba(255, 77, 109, 0.35);
+  background: var(--c-red-light);
+}
+.admin-audit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: baseline;
+  font-size: 0.8rem;
+  color: var(--c-muted);
+  margin-bottom: 0.2rem;
+}
+.admin-audit-action {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--c-primary);
+}
+.admin-audit-fail {
+  color: var(--c-red);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+.admin-audit-body {
+  font-size: 0.9rem;
+  color: var(--c-text);
+}
+.admin-audit-detail {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--c-muted);
+  word-break: break-word;
+}
+
 .admin-toggle-row {
   display: flex;
   gap: 0.75rem;
@@ -2163,7 +2314,7 @@ body.anonymize-mode {
 }
 .admin-toggle-row input {
   margin-top: 0.25rem;
-  accent-color: #2dd4bf;
+  accent-color: var(--c-primary);
   width: 1.1rem;
   height: 1.1rem;
 }
@@ -2182,8 +2333,8 @@ body.anonymize-mode {
   gap: 0.5rem;
   font-size: 0.88rem;
 }
-.admin-runtime-row dt { color: #94a3b8; margin: 0; }
-.admin-runtime-row dd { margin: 0; color: #e2e8f0; }
+.admin-runtime-row dt { color: var(--c-muted); margin: 0; }
+.admin-runtime-row dd { margin: 0; color: var(--c-text); }
 .admin-user-list {
   list-style: none;
   margin: 0 0 1rem;
@@ -2198,9 +2349,6 @@ body.anonymize-mode {
   gap: 0.5rem;
   align-items: flex-start;
   padding: 0.55rem 0.7rem;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(15, 23, 42, 0.45);
 }
 .admin-user-card .fraud-help { display: block; margin-top: 0.15rem; }
 .admin-user-inactive {
@@ -2233,7 +2381,13 @@ body.anonymize-mode {
   flex-wrap: wrap;
   gap: 0.45rem;
 }
-.admin-msg-err { color: #fca5a5 !important; }
+.admin-msg-err { color: var(--c-red) !important; }
+
+@media (max-width: 640px) {
+  .admin-tabs { gap: 0.25rem; }
+  .admin-tab { padding: 0.35rem 0.65rem; font-size: 0.88rem; }
+  .admin-stat strong { font-size: 1.25rem; }
+}
 
 /* Admin planning board */
 .plan-panel { margin-bottom: 1rem; }

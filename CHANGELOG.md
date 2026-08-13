@@ -12,6 +12,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Added
 
+- **Admin-Hub (`/admin`)**: Ein zentraler Admin-Bereich mit Tabs (Übersicht, Exporte, Betrieb, Benutzer, Audit, System). CSV-Exporte für Fraudfirmen und Watchlist, Audit-Log mit Filter/Export, Betriebs-Jobs und Einstellungen an einem Ort.
 - **Startseite (Idle)**: Dezente Begrüssung «Hallo, {Vorname}» sowie Watchlist-Anzahl (und offene Alerts, falls vorhanden) — klickbar, ohne Dashboard.
 - **Akte: Als Verdächtig markieren**: In der Bestätigung Tag «In Abklärung», Firma + Organe auf die Watchlist, Akte wird geschlossen.
 - **Akte öffnen → Firmen-Watchlist**: Beim Eröffnen landet die Firma (nicht nur Organe) auf der Firmen-Watchlist.
@@ -35,6 +36,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Changed
 
+- **Design System dokumentiert**: `docs/DESIGN_SYSTEM.md` als Referenz für Buttons (`.btn`), Badges und Cards; Admin-Hub nutzt diese kanonischen Klassen statt `btn-nav` / `btn-case-*`.
 - **Akte-Flow vereinfacht**: Stepper nur noch In Prüfung → Bestätigung → Dokumentation; Reporting/Compliance ausgeblendet (Backend bleibt). Zahlungshit nur bei Bestätigung. Sicherung mit Ja/Nein. Namen kopieren statt PDF. Banner «Nächster Schritt» entfernt.
 - **Watchlist-Oberfläche**: Tabs Firmen | Personen | Posteingang | Fälle; Bulk-Scan nur für Admins.
 - **Login erst nach 2FA**: Die volle Sitzung gibt es erst nach dem zweiten Faktor (oder nach dem erstmaligen Einrichten).

@@ -1,5 +1,7 @@
-/** Admin panel — settings + users. */
+/** Admin hub — tabs: Übersicht | Exporte | Betrieb | Benutzer | Audit | System. */
 (function () {
+  const TAB_IDS = ["overview", "exports", "ops", "users", "audit", "system"];
+
   function esc(s) {
     return typeof escHtml === "function"
       ? escHtml(s)
@@ -26,10 +28,163 @@
     el.classList.toggle("admin-msg-err", !!isErr);
   }
 
+  function opsMsg(text, isErr) {
+    const el = document.getElementById("opsMsg");
+    if (!el) return;
+    el.textContent = text || "";
+    el.classList.toggle("admin-msg-err", !!isErr);
+  }
+
   function isAdmin() {
     return window.__lynxUser?.role === "admin";
   }
 
+  function tabFromLocation() {
+    const hash = (location.hash || "").replace(/^#/, "").trim().toLowerCase();
+    if (TAB_IDS.includes(hash)) return hash;
+    try {
+      const q = new URLSearchParams(location.search).get("tab");
+      if (q && TAB_IDS.includes(q.toLowerCase())) return q.toLowerCase();
+    } catch (_) {
+      /* ignore */
+    }
+    return "overview";
+  }
+
+  function setActiveTab(tabId, { pushHash = true } = {}) {
+    const id = TAB_IDS.includes(tabId) ? tabId : "overview";
+    document.querySelectorAll(".admin-tab").forEach((btn) => {
+      const on = btn.dataset.tab === id;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".admin-tab-panel").forEach((panel) => {
+      const on = panel.dataset.panel === id;
+      panel.classList.toggle("is-active", on);
+      if (on) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "");
+    });
+    if (pushHash) {
+      const next = `#${id}`;
+      if (location.hash !== next) {
+        history.replaceState(null, "", next);
+      }
+    }
+    if (id === "overview") loadOverview();
+    if (id === "users") loadUsers();
+    if (id === "audit") loadAudit();
+    if (id === "system") loadSystem();
+  }
+
+  function wireTabs() {
+    document.getElementById("adminTabs")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-tab]");
+      if (!btn) return;
+      setActiveTab(btn.dataset.tab);
+    });
+    document.querySelectorAll("[data-goto]").forEach((el) => {
+      el.addEventListener("click", () => setActiveTab(el.dataset.goto));
+    });
+    window.addEventListener("hashchange", () => {
+      setActiveTab(tabFromLocation(), { pushHash: false });
+    });
+  }
+
+  /* ——— Übersicht ——— */
+  async function loadOverview() {
+    const fraud = document.getElementById("statFraud");
+    const persons = document.getElementById("statPersons");
+    const companies = document.getElementById("statCompanies");
+    const alerts = document.getElementById("statAlerts");
+    try {
+      const resp = await fetch("/api/admin/overview");
+      if (resp.status === 401 || resp.status === 403) {
+        msg("Nur Admins — Weiterleitung…", true);
+        setTimeout(() => {
+          location.href = "/";
+        }, 700);
+        return;
+      }
+      if (!resp.ok) throw new Error("Übersicht laden fehlgeschlagen");
+      const data = await resp.json();
+      if (fraud) fraud.textContent = String(data.fraud_cases_active ?? "—");
+      if (persons) persons.textContent = String(data.watched_persons ?? "—");
+      if (companies) companies.textContent = String(data.watched_companies ?? "—");
+      if (alerts) alerts.textContent = String(data.open_alerts ?? "—");
+    } catch (err) {
+      msg(err.message || "Übersicht Fehler", true);
+    }
+  }
+
+  /* ——— Exporte ——— */
+  function wireExports() {
+    document.querySelectorAll(".admin-export-card a[href*='/api/admin/exports/']").forEach((a) => {
+      a.addEventListener("click", () => {
+        msg("Export startet… (Audit wird geloggt)");
+      });
+    });
+  }
+
+  /* ——— Betrieb ——— */
+  function wireOps() {
+    document.getElementById("opsHighScan")?.addEventListener("click", async () => {
+      const btn = document.getElementById("opsHighScan");
+      if (btn) btn.disabled = true;
+      opsMsg("Priorisierte Prüfung läuft…");
+      try {
+        const r = await fetch("/api/watched-persons/run-high-priority-monitoring", {
+          method: "POST",
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(detailMsg(d) || `HTTP ${r.status}`);
+        const sel = d.selection || {};
+        const emailBit =
+          d.email && d.email.sent
+            ? " · Digest-E-Mail gesendet"
+            : d.email && d.email.reason === "no_alerts"
+              ? " · keine neuen Funde"
+              : "";
+        opsMsg(
+          `Priorisierte geprüft: ${d.scanned || 0} (high ${sel.high_priority_selected ?? "—"}) · ` +
+            `${d.new_links || 0} neue Firmen · ${d.alerts || 0} Alerts${emailBit}`
+        );
+      } catch (err) {
+        opsMsg(err.message || "High-Prio-Scan fehlgeschlagen", true);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+
+    document.getElementById("opsShabDaily")?.addEventListener("click", async () => {
+      const btn = document.getElementById("opsShabDaily");
+      if (btn) btn.disabled = true;
+      opsMsg("SHAB-Tagesarchiv wird geholt…");
+      try {
+        const r = await fetch("/api/shab-daily/run", { method: "POST" });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(detailMsg(d) || `HTTP ${r.status}`);
+        if (d.skipped) {
+          opsMsg(`SHAB übersprungen: ${d.reason || d.hint || "deaktiviert"}`);
+          return;
+        }
+        if (d.error) throw new Error(d.error);
+        const fetched = d.fetched ?? d.upsert?.upserted;
+        const alerts = d.match?.alerts;
+        opsMsg(
+          `SHAB-Lauf fertig` +
+            (d.window_start && d.window_end ? ` · ${d.window_start}–${d.window_end}` : "") +
+            (fetched != null ? ` · ${fetched} Publikationen` : "") +
+            (alerts != null ? ` · ${alerts} Alerts` : "")
+        );
+      } catch (err) {
+        opsMsg(err.message || "SHAB-Lauf fehlgeschlagen", true);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
+  /* ——— System ——— */
   async function loadSettings() {
     const resp = await fetch("/api/admin/settings");
     if (resp.status === 403 || resp.status === 401) {
@@ -112,6 +267,85 @@
     };
   }
 
+  async function loadSystem() {
+    try {
+      const data = await loadSettings();
+      if (!data) return;
+      wireAnonToggle(data.settings || {}, data.meta || {});
+      renderRuntime(data.runtime);
+    } catch (err) {
+      msg(err.message || "System laden fehlgeschlagen", true);
+    }
+  }
+
+  /* ——— Audit ——— */
+  async function loadAudit() {
+    const list = document.getElementById("auditList");
+    const filter = document.getElementById("auditActionFilter");
+    const exportLink = document.getElementById("auditExportCsv");
+    if (!list) return;
+    const action = (filter?.value || "").trim();
+    if (exportLink) {
+      exportLink.href = action
+        ? `/api/admin/audit/export.csv?action=${encodeURIComponent(action)}`
+        : "/api/admin/audit/export.csv";
+    }
+    list.innerHTML = `<p class="fraud-help">Lade…</p>`;
+    try {
+      const qs = new URLSearchParams({ limit: "100" });
+      if (action) qs.set("action", action);
+      const resp = await fetch(`/api/admin/audit?${qs}`);
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(detailMsg(data) || `HTTP ${resp.status}`);
+      const items = data.items || [];
+      if (!items.length) {
+        list.innerHTML = `<p class="fraud-help">Keine Einträge.</p>`;
+        return;
+      }
+      list.innerHTML = items
+        .map((ev) => {
+          const ok = ev.success !== false;
+          const when =
+            typeof formatDateTimeDisplay === "function"
+              ? formatDateTimeDisplay(ev.created_at)
+              : ev.created_at || "—";
+          const who = ev.actor_display || ev.actor_username || "—";
+          const target = ev.target ? ` · ${esc(ev.target)}` : "";
+          const detail = ev.detail ? `<span class="admin-audit-detail">${esc(ev.detail)}</span>` : "";
+          return `<article class="admin-audit-row${ok ? "" : " is-fail"}">
+            <div class="admin-audit-meta">
+              <time datetime="${esc(ev.created_at || "")}">${esc(when)}</time>
+              <span class="admin-audit-action">${esc(ev.action || "")}</span>
+              ${ok ? "" : '<span class="admin-audit-fail">fehlgeschlagen</span>'}
+            </div>
+            <div class="admin-audit-body">
+              <strong>${esc(who)}</strong>${target}
+              ${ev.ip ? `<span class="fraud-help"> · ${esc(ev.ip)}</span>` : ""}
+              ${detail}
+            </div>
+          </article>`;
+        })
+        .join("");
+      if (data.total != null && data.total > items.length) {
+        list.insertAdjacentHTML(
+          "beforeend",
+          `<p class="fraud-help">Zeige ${items.length} von ${data.total} — CSV für mehr.</p>`
+        );
+      }
+    } catch (err) {
+      list.innerHTML = `<p class="fraud-help admin-msg-err">${esc(err.message || "Audit laden fehlgeschlagen")}</p>`;
+    }
+  }
+
+  function wireAudit() {
+    document.getElementById("auditRefresh")?.addEventListener("click", loadAudit);
+    document.getElementById("auditActionFilter")?.addEventListener("change", loadAudit);
+    document.getElementById("auditExportCsv")?.addEventListener("click", () => {
+      msg("Audit-Export startet…");
+    });
+  }
+
+  /* ——— Benutzer (CRUD) ——— */
   const ROLE_OPTIONS = [
     ["case_manager", "Case Manager"],
     ["compliance", "Compliance"],
@@ -149,7 +383,7 @@
             `<option value="${v}"${u.role === v ? " selected" : ""}>${esc(lab)}</option>`
         ).join("");
         const totpBit = u.totp_enabled ? "2FA an" : "2FA aus";
-        return `<li class="admin-user-card${inactive ? " admin-user-inactive" : ""}" data-user-id="${u.id}">
+        return `<li class="card admin-user-card${inactive ? " admin-user-inactive" : ""}" data-user-id="${u.id}">
           <div class="admin-user-main">
             <strong>${esc(u.display_name || u.username)}</strong>
             <span class="fraud-help">${esc(u.username)} · <span class="${roleClass}">${esc(u.role_label || u.role)}</span>${inactive ? " · inaktiv" : ""} · ${totpBit}</span>
@@ -159,15 +393,15 @@
             </label>
           </div>
           <div class="admin-user-actions">
-            <button type="button" class="btn-nav" data-save-role="${u.id}" ${inactive ? "disabled" : ""}>Rolle speichern</button>
+            <button type="button" class="btn btn-sm" data-save-role="${u.id}" ${inactive ? "disabled" : ""}>Rolle speichern</button>
             ${
               inactive
-                ? `<button type="button" class="btn-nav" data-reactivate="${u.id}" data-name="${esc(u.username)}">Reaktivieren</button>
-            <button type="button" class="btn-nav btn-danger-quiet" data-hard-delete="${u.id}" data-name="${esc(u.username)}" ${u.id === meId ? "disabled" : ""}>Endgültig löschen</button>`
-                : `<button type="button" class="btn-nav" data-deactivate="${u.id}" data-name="${esc(u.username)}">Deaktivieren</button>`
+                ? `<button type="button" class="btn btn-sm" data-reactivate="${u.id}" data-name="${esc(u.username)}">Reaktivieren</button>
+            <button type="button" class="btn btn-sm btn-danger" data-hard-delete="${u.id}" data-name="${esc(u.username)}" ${u.id === meId ? "disabled" : ""}>Endgültig löschen</button>`
+                : `<button type="button" class="btn btn-sm" data-deactivate="${u.id}" data-name="${esc(u.username)}">Deaktivieren</button>`
             }
-            <button type="button" class="btn-nav" data-reset="${u.id}" data-name="${esc(u.username)}" ${inactive ? "disabled" : ""}>Passwort reset</button>
-            <button type="button" class="btn-nav" data-reset-2fa="${u.id}" data-name="${esc(u.username)}" ${u.id === meId || inactive || !u.totp_enabled ? "disabled" : ""}>2FA reset</button>
+            <button type="button" class="btn btn-sm" data-reset="${u.id}" data-name="${esc(u.username)}" ${inactive ? "disabled" : ""}>Passwort reset</button>
+            <button type="button" class="btn btn-sm" data-reset-2fa="${u.id}" data-name="${esc(u.username)}" ${u.id === meId || inactive || !u.totp_enabled ? "disabled" : ""}>2FA reset</button>
           </div>
         </li>`;
       })
@@ -310,17 +544,13 @@
       }, 600);
       return;
     }
-    try {
-      const data = await loadSettings();
-      if (!data) return;
-      wireAnonToggle(data.settings || {}, data.meta || {});
-      renderRuntime(data.runtime);
-      await loadUsers();
-      wireCreateUser();
-      document.getElementById("adminRefreshUsers")?.addEventListener("click", loadUsers);
-    } catch (err) {
-      msg(err.message || "Admin-Panel Fehler", true);
-    }
+    wireTabs();
+    wireExports();
+    wireOps();
+    wireAudit();
+    wireCreateUser();
+    document.getElementById("adminRefreshUsers")?.addEventListener("click", loadUsers);
+    setActiveTab(tabFromLocation(), { pushHash: true });
   }
 
   const prev = window.onLynxUserReady;

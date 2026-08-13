@@ -512,6 +512,31 @@ class BulkScanItem(Base):
     error_message: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
 
+class AuditEvent(Base):
+    """Admin-readable audit trail (logins, user admin, exports, …)."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    # login_ok | login_fail | logout | 2fa_ok | 2fa_fail | user_* | export_* | setting_* | …
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    actor_username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    actor_display: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    target: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    detail: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    __table_args__ = (
+        Index("ix_audit_events_action_at", "action", "created_at"),
+    )
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(_drop_legacy_bank_tables)
