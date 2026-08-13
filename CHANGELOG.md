@@ -36,6 +36,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Changed
 
+- **Firmenanalyse Idle-Optik**: Begrüssung und Metrik-Pills in einer Zeile; Suche als Fokus (stärkerer Rahmen, solid «Analysieren»); Abstände enger, Block vertikal zentriert.
 - **Firmenanalyse Idle-Home**: Marketing-Hero entfernt; Begrüssung kompakt, darunter zwei klickbare Karten (Offene Alerts → Posteingang, Watchlist → Personen). Demo-Firma nur noch mit `?demo=1` (bleibt über `localStorage` sichtbar).
 - **Navigation**: Nur noch ein Trenner vor dem Account-Menü; Admin-Rolle als neutrales Badge statt rot.
 - **Design System dokumentiert**: `docs/DESIGN_SYSTEM.md` als Referenz für Buttons (`.btn`), Badges und Cards (additiv; bestehende Lynx-Klassen bleiben gültig).

@@ -146,6 +146,8 @@ Alle anderen Pill/Chip/Tag-Klassen (`verdict-pill-*`, `watch-meta-pill--*`, `ca-
 .card-hover:hover { background: var(--c-card-hover); }
 ```
 
+**Compact metric pills** (additiv zu `.card-stat`, in `style.css`): `.card-stat-pill` — inline Icon + Wert + Label, `border-radius: var(--radius-pill)`. Modifier: `.card-stat-pill--alert` (`--c-orange`), `.card-stat-pill--watch` (`--c-primary`).
+
 Bestehende Panels (`fraud-panel`, `ca-suchweite-card`, `admin-panel`, `check-card`, …) behalten ihre inhaltsspezifischen Zusatzklassen für Innenaufbau, sollten aber `.card` als Basis referenzieren statt Padding/Radius/Shadow erneut zu definieren.
 
 ---

@@ -1332,7 +1332,6 @@ async function refreshIdleHomeStats() {
   const wrap = document.getElementById("caIdleStats");
   const watchEl = document.getElementById("caIdleWatchCount");
   const alertEl = document.getElementById("caIdleAlertCount");
-  const alertCard = document.getElementById("caIdleAlertCard");
   if (!wrap || !watchEl || !alertEl) return;
 
   try {
@@ -1351,7 +1350,6 @@ async function refreshIdleHomeStats() {
 
     watchEl.textContent = String(personTotal);
     alertEl.textContent = String(alertTotal);
-    alertCard?.classList.toggle("card-stat--warn", alertTotal > 0);
     wrap.classList.remove("hidden");
   } catch (_) {
     wrap.classList.add("hidden");
