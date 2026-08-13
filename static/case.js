@@ -5,16 +5,19 @@ const CASE_ID = Number(location.pathname.split("/").pop());
 const STATUS_LABELS = {
   under_review: "In Prüfung",
   confirmed_fraud: "Betrug bestätigt",
-  ready_for_report: "Report bereit",
+  ready_for_report: "Dokumentation fertig",
   reported: "Gemeldet",
-  closed: "Geschlossen (Compliance)",
-  cleared: "Kein Betrug",
+  closed: "Geschlossen",
+  cleared: "Geschlossen",
 };
 
 const ENTITY_LABELS = {
   company: "Firma",
   person: "Person",
 };
+
+const COPY_ICON_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const COPY_CHECK_SVG = `<svg class="ca-copy-svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`;
 
 function d(value, kind) {
   return typeof anon === "function" ? anon(value, kind) : value;
@@ -23,6 +26,8 @@ function d(value, kind) {
 let currentCase = null;
 /** @type {number} */
 let docsWizardIndex = 0;
+/** @type {boolean | null} */
+let wizPaymentChoice = null;
 
 function esc(s) {
   return String(s ?? "")
@@ -34,7 +39,7 @@ function esc(s) {
 
 function formatDetail(detail) {
   if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+  if (Array.isArray(detail)) return detail.map((x) => x.msg || JSON.stringify(x)).join("; ");
   return detail ? String(detail) : "";
 }
 
@@ -42,34 +47,36 @@ function setMsg(t) {
   document.getElementById("caseMsg").textContent = t || "";
 }
 
+function isSuspiciousClose(c) {
+  return (c.journal || []).some((e) => String(e.text || "").includes("[In Abklärung]"));
+}
+
 function updateStepper(status) {
-  const order = ["review", "confirm", "docs", "report", "closed"];
+  // Visible steps only: review → confirm → docs (Reporting/Compliance on hold)
+  const order = ["review", "confirm", "docs"];
   let active = "review";
   if (status === "cleared") active = "confirm";
   else if (status === "under_review") active = "confirm";
-  else if (status === "confirmed_fraud") active = "docs";
-  else if (status === "ready_for_report") active = "report";
-  else if (status === "reported") active = "closed";
-  else if (status === "closed") active = "closed";
+  else if (
+    status === "confirmed_fraud"
+    || status === "ready_for_report"
+    || status === "reported"
+    || status === "closed"
+  ) {
+    active = "docs";
+  }
 
   const activeIdx = order.indexOf(active);
   document.querySelectorAll("#caseStepper .fraud-step").forEach((el) => {
+    if (el.classList.contains("hidden") || el.hidden) return;
     const idx = order.indexOf(el.dataset.step);
+    if (idx < 0) return;
     el.classList.toggle("is-active", idx === activeIdx);
-    el.classList.toggle("is-done", idx < activeIdx || status === "closed" || (status === "cleared" && idx <= 1));
+    el.classList.toggle(
+      "is-done",
+      idx < activeIdx || status === "closed" || (status === "cleared" && idx <= 1)
+    );
   });
-}
-
-function setNextStep(text) {
-  const el = document.getElementById("caseNextStep");
-  if (!el) return;
-  if (!text) {
-    el.classList.add("hidden");
-    el.textContent = "";
-    return;
-  }
-  el.textContent = text;
-  el.classList.remove("hidden");
 }
 
 function hitContextBits(c) {
@@ -95,7 +102,13 @@ function setHitContextCollapsed(collapsed) {
 }
 
 function renderHitContext(c) {
-  const editable = ["under_review", "confirmed_fraud", "ready_for_report"].includes(c.status);
+  const panel = document.getElementById("panelHitContext");
+  // Zahlungshit nur im Bestätigungsschritt (under_review)
+  const show = c.status === "under_review";
+  panel?.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  const editable = true;
   const form = document.getElementById("hitContextForm");
   const saveBtn = document.getElementById("saveHitContextBtn");
   const readonly = document.getElementById("hitContextReadonly");
@@ -111,23 +124,16 @@ function renderHitContext(c) {
 
   const bits = hitContextBits(c);
   if (summary) {
-    summary.textContent = bits.length ? bits.join(" · ") : (hasHitContext(c) ? "Erfasst" : "Noch leer — optional ausfüllen");
+    summary.textContent = bits.length
+      ? bits.join(" · ")
+      : (hasHitContext(c) ? "Erfasst" : "Noch leer — optional ausfüllen");
   }
 
   form?.classList.toggle("hidden", !editable);
   saveBtn?.parentElement?.classList.toggle("hidden", !editable);
   saveBtn?.classList.toggle("hidden", !editable);
-  if (!editable) {
-    if (readonly) {
-      readonly.textContent = bits.length ? bits.join(" · ") : "Kein Zahlungs-Hit erfasst.";
-      readonly.classList.remove("hidden");
-    }
-    setHitContextCollapsed(true);
-  } else {
-    readonly?.classList.add("hidden");
-    // Done → collapsed; empty → open for entry
-    setHitContextCollapsed(hasHitContext(c));
-  }
+  readonly?.classList.add("hidden");
+  setHitContextCollapsed(hasHitContext(c));
 }
 
 function docsWizardSteps(c) {
@@ -137,7 +143,7 @@ function docsWizardSteps(c) {
       id: "payment",
       kind: "payment",
       short: "Sicherung",
-      done: !!c.payment_blocked || !!(c.payment_blocked_note || "").trim(),
+      done: c.payment_blocked != null,
     },
     ...items.map((item) => ({
       id: `check-${item.id}`,
@@ -167,6 +173,96 @@ function wizardIcon(kind, entityType) {
     return `<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M24 8a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM10 38c0-7.2 6.3-12 14-12s14 4.8 14 12v2H10v-2zm2 .2c.6-5 5.6-8.2 12-8.2s11.4 3.2 12 8.2H12z"/></svg>`;
   }
   return `<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M8 40V16l16-10 16 10v24H8zm2-2h28V17.2L24 8.4 10 17.2V38zm6-4h16v2H16v-2zm0-6h16v2H16v-2zm0-6h10v2H16v-2z"/></svg>`;
+}
+
+function copyBtnHtml(text, title = "Kopieren") {
+  const t = String(text || "").trim();
+  if (!t) return "";
+  return `<button type="button" class="ca-copy-btn" data-copy="${esc(t)}" title="${esc(title)}" aria-label="${esc(title)}">${COPY_ICON_SVG}</button>`;
+}
+
+function showCopyBubble(btn, label) {
+  document.querySelectorAll(".ca-copy-bubble").forEach((el) => el.remove());
+  const bubble = document.createElement("span");
+  bubble.className = "ca-copy-bubble ca-copy-bubble--fixed";
+  bubble.setAttribute("role", "status");
+  bubble.textContent = label || "Kopiert";
+  document.body.appendChild(bubble);
+  const r = btn?.getBoundingClientRect?.();
+  if (r && r.width) {
+    bubble.style.left = `${Math.round(r.left + r.width / 2)}px`;
+    bubble.style.top = `${Math.round(r.top)}px`;
+  } else {
+    bubble.style.left = "50%";
+    bubble.style.top = "18%";
+  }
+  requestAnimationFrame(() => bubble.classList.add("is-on"));
+  clearTimeout(bubble._hide);
+  bubble._hide = setTimeout(() => {
+    bubble.classList.remove("is-on");
+    setTimeout(() => bubble.remove(), 180);
+  }, 1600);
+}
+
+function flashCopySuccess(btn, preview) {
+  if (btn) {
+    btn.classList.add("is-copied");
+    const prevTitle = btn.getAttribute("title") || "Kopieren";
+    const hadIconOnly = btn.classList.contains("ca-copy-btn");
+    if (hadIconOnly) {
+      if (!btn.dataset.copyIconHtml) btn.dataset.copyIconHtml = btn.innerHTML;
+      btn.innerHTML = COPY_CHECK_SVG;
+    }
+    btn.setAttribute("title", "Kopiert");
+    clearTimeout(btn._copyFlash);
+    btn._copyFlash = setTimeout(() => {
+      btn.classList.remove("is-copied");
+      btn.setAttribute("title", prevTitle === "Kopiert" ? "Kopieren" : prevTitle);
+      if (hadIconOnly && btn.dataset.copyIconHtml) {
+        btn.innerHTML = btn.dataset.copyIconHtml;
+      }
+    }, 1400);
+  }
+  const short = preview.length > 40 ? `${preview.slice(0, 37)}…` : preview;
+  showCopyBubble(btn, `Kopiert · ${short}`);
+}
+
+async function copyTextToClipboard(text, btn) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  try {
+    if (navigator.clipboard?.writeText && window.isSecureContext !== false) {
+      await navigator.clipboard.writeText(t);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = t;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    flashCopySuccess(btn, t);
+    return true;
+  } catch (_) {
+    setMsg("Kopieren fehlgeschlagen");
+    return false;
+  }
+}
+
+function bindCopyButtons(root) {
+  root?.querySelectorAll("[data-copy]").forEach((btn) => {
+    if (btn._copyBound) return;
+    btn._copyBound = true;
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const payload = (btn.dataset.copy != null ? btn.dataset.copy : btn.getAttribute("data-copy")) || "";
+      copyTextToClipboard(payload, btn);
+    });
+  });
 }
 
 function renderDocsWizard(c) {
@@ -205,17 +301,27 @@ function renderDocsWizard(c) {
 
   let body = "";
   if (step.kind === "payment") {
+    const selTrue = wizPaymentChoice === true || (wizPaymentChoice == null && c.payment_blocked === true);
+    const selFalse = wizPaymentChoice === false || (wizPaymentChoice == null && c.payment_blocked === false);
+    if (wizPaymentChoice == null && c.payment_blocked != null) {
+      wizPaymentChoice = !!c.payment_blocked;
+    }
     body = `
       <div class="docs-wiz-icon" aria-hidden="true">${wizardIcon("payment")}</div>
       <p class="docs-wiz-kicker">${esc(progressLabel)} · Sicherungsmassnahme</p>
       <h3 class="docs-wiz-title">Wurde die Zahlung blockiert?</h3>
-      <p class="docs-wiz-lead">Halte fest, ob die Kernbank die Zahlung gestoppt hat — ohne Kundendaten, nur interne Referenz.</p>
+      <div class="docs-wiz-answer-row" role="group" aria-label="Sicherung">
+        <button type="button" class="docs-wiz-answer is-yes${selTrue ? " is-selected" : ""}" data-wiz-payment="true">
+          <span class="docs-wiz-answer-ico" aria-hidden="true">✓</span>
+          <span class="docs-wiz-answer-label">Ja, wurde blockiert</span>
+        </button>
+        <button type="button" class="docs-wiz-answer is-no${selFalse ? " is-selected" : ""}" data-wiz-payment="false">
+          <span class="docs-wiz-answer-ico" aria-hidden="true">✕</span>
+          <span class="docs-wiz-answer-label">Nein, konnte ausgeführt werden</span>
+        </button>
+      </div>
       <div class="docs-wiz-fields">
-        <label class="docs-wiz-check">
-          <input type="checkbox" id="wizPaymentBlocked" ${c.payment_blocked ? "checked" : ""}>
-          <span>Ja — Zahlung ist blockiert</span>
-        </label>
-        <label class="docs-wiz-field-label" for="wizPaymentNote">Kernbanken-Referenz</label>
+        <label class="docs-wiz-field-label" for="wizPaymentNote">Kernbanken-Referenz (optional)</label>
         <input type="text" id="wizPaymentNote" class="watch-reason docs-wiz-input"
           placeholder="z. B. Ticket-/Fallnummer (keine Kundendaten)"
           maxlength="512" value="${esc(c.payment_blocked_note || "")}">
@@ -230,15 +336,16 @@ function renderDocsWizard(c) {
     const item = step.item;
     const typeLabel = ENTITY_LABELS[item.entity_type] || item.entity_type;
     const pending = item.status === "pending";
-    const subject = d(item.entity_label, item.entity_type === "person" ? "person" : "company");
+    const subjectRaw = item.entity_label || "";
+    const subject = d(subjectRaw, item.entity_type === "person" ? "person" : "company");
     body = `
       <div class="docs-wiz-icon" aria-hidden="true">${wizardIcon("bank_check", item.entity_type)}</div>
       <h3 class="docs-wiz-title">Kundenbeziehung?</h3>
-      <p class="docs-wiz-subject"><strong>${esc(subject)}</strong> · ${esc(typeLabel)}</p>
-      <div class="docs-wiz-lookup">
-        <p>PDF mit Namen zum Abgleich in den Kernbanksystemen.</p>
-        <button type="button" class="btn-nav docs-wiz-btn" data-wiz-lookup-pdf>PDF Abgleichsliste</button>
+      <div class="docs-wiz-copy-row">
+        <p class="docs-wiz-subject"><strong>${esc(subject)}</strong> · ${esc(typeLabel)}</p>
+        ${copyBtnHtml(subjectRaw, "Namen kopieren")}
       </div>
+      <p class="docs-wiz-copy-hint">Namen per Klick kopieren und in den Kernbanksystemen abgleichen.</p>
       ${pending ? `
         <div class="docs-wiz-answer-row" role="group" aria-label="Ergebnis">
           <button type="button" class="docs-wiz-answer is-yes" data-wiz-answer="relationship_found">
@@ -285,9 +392,9 @@ function renderDocsWizard(c) {
     const journal = c.journal || [];
     body = `
       <div class="docs-wiz-icon" aria-hidden="true">${wizardIcon("journal")}</div>
-      <p class="docs-wiz-kicker">${esc(progressLabel)} · Abklärung</p>
+      <p class="docs-wiz-kicker">${esc(progressLabel)} · Interne Dokumentation</p>
       <h3 class="docs-wiz-title">Was wurde abgeklärt?</h3>
-      <p class="docs-wiz-lead">Kurz das Ergebnis des Kundengesprächs oder der internen Prüfung festhalten — für Compliance und Report.</p>
+      <p class="docs-wiz-lead">Kurz das Ergebnis der internen Prüfung festhalten — für Prävention und Nachvollziehbarkeit.</p>
       ${journal.length ? `
         <ul class="docs-wiz-journal">${journal.map((e) => `
           <li>
@@ -317,13 +424,11 @@ function renderDocsWizard(c) {
         <button type="button" class="btn-case-equal btn-case-confirm docs-wiz-btn" data-wiz-save-journal>
           Eintrag speichern
         </button>
-        ${isLast && (c.documentation_complete || journal.length) ? `
-          <button type="button" class="btn-nav docs-wiz-btn" data-wiz-to-report>Zum Reporting →</button>
-        ` : ""}
       </div>`;
   }
 
   stage.innerHTML = `<article class="docs-wiz-card">${body}</article>`;
+  bindCopyButtons(stage);
 
   stage.querySelector("[data-wiz-prev]")?.addEventListener("click", () => {
     docsWizardIndex = Math.max(0, docsWizardIndex - 1);
@@ -333,11 +438,16 @@ function renderDocsWizard(c) {
     docsWizardIndex = Math.min(steps.length - 1, docsWizardIndex + 1);
     renderDocsWizard(currentCase);
   });
-  stage.querySelector("[data-wiz-to-report]")?.addEventListener("click", () => {
-    document.getElementById("panelReport")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  stage.querySelectorAll("[data-wiz-payment]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const v = btn.getAttribute("data-wiz-payment");
+      wizPaymentChoice = v === "true";
+      stage.querySelectorAll("[data-wiz-payment]").forEach((b) => {
+        b.classList.toggle("is-selected", b === btn);
+      });
+    });
   });
   stage.querySelector("[data-wiz-save-payment]")?.addEventListener("click", () => savePaymentFromWizard(true));
-  stage.querySelector("[data-wiz-lookup-pdf]")?.addEventListener("click", () => downloadLookupSheet());
   stage.querySelector("[data-wiz-toggle-note]")?.addEventListener("click", () => {
     const wrap = document.getElementById("wizCheckNoteWrap");
     const toggle = document.getElementById("wizCheckNoteToggle");
@@ -375,50 +485,28 @@ function renderDocsWizard(c) {
   stage.querySelector("[data-wiz-add-check]")?.addEventListener("click", addBankCheckFromWizard);
 }
 
-async function downloadLookupSheet() {
-  try {
-    const resp = await fetch(`/api/company-cases/${CASE_ID}/lookup-sheet`, {
-      credentials: "same-origin",
-    });
-    if (!resp.ok) {
-      let detail = `HTTP ${resp.status}`;
-      try {
-        const err = await resp.json();
-        detail = formatDetail(err.detail) || detail;
-      } catch (_) { /* ignore */ }
-      setMsg(`PDF fehlgeschlagen: ${detail}`);
-      return;
-    }
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `abgleich_akte_${CASE_ID}.pdf`;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  } catch (err) {
-    setMsg(err.message || "PDF fehlgeschlagen");
-  }
-}
-
 async function savePaymentFromWizard(advance) {
-  const blocked = !!document.getElementById("wizPaymentBlocked")?.checked;
+  if (wizPaymentChoice == null && currentCase?.payment_blocked == null) {
+    setMsg("Bitte wählen: blockiert oder ausgeführt");
+    return;
+  }
+  const blocked = wizPaymentChoice != null
+    ? wizPaymentChoice
+    : !!currentCase.payment_blocked;
   const note = document.getElementById("wizPaymentNote")?.value || null;
   const r = await fetch(`/api/company-cases/${CASE_ID}/payment`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ payment_blocked: blocked, payment_blocked_note: note }),
   });
-  const d = await r.json();
+  const data = await r.json();
   if (!r.ok) {
-    setMsg(formatDetail(d.detail) || "Fehler");
+    setMsg(formatDetail(data.detail) || "Fehler");
     return;
   }
+  wizPaymentChoice = blocked;
   if (advance) docsWizardIndex += 1;
-  renderCase(d);
+  renderCase(data);
   setMsg("Sicherungsmassnahmen gespeichert");
 }
 
@@ -453,19 +541,19 @@ async function saveBankCheckFromWizard(itemId, advance) {
       credentials: "same-origin",
       body: JSON.stringify({ status, note }),
     });
-    let d = {};
+    let data = {};
     try {
-      d = await r.json();
+      data = await r.json();
     } catch (_) {
-      d = {};
+      data = {};
     }
     if (!r.ok) {
-      showErr(formatDetail(d.detail) || `Speichern fehlgeschlagen (${r.status})`);
+      showErr(formatDetail(data.detail) || `Speichern fehlgeschlagen (${r.status})`);
       if (saveBtn) saveBtn.disabled = false;
       return;
     }
     if (advance) docsWizardIndex += 1;
-    renderCase(d);
+    renderCase(data);
     setMsg("Checklisten-Eintrag gespeichert");
   } catch (err) {
     showErr(err.message || "Speichern fehlgeschlagen");
@@ -484,12 +572,12 @@ async function saveJournalFromWizard() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
-  const d = await r.json();
+  const data = await r.json();
   if (!r.ok) {
-    setMsg(formatDetail(d.detail) || "Fehler");
+    setMsg(formatDetail(data.detail) || "Fehler");
     return;
   }
-  renderCase(d);
+  renderCase(data);
   setMsg("Journal-Eintrag hinzugefügt");
 }
 
@@ -505,24 +593,52 @@ async function addBankCheckFromWizard() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ entity_type, entity_label }),
   });
-  const d = await r.json();
+  const data = await r.json();
   if (!r.ok) {
-    setMsg(formatDetail(d.detail) || "Hinzufügen fehlgeschlagen");
+    setMsg(formatDetail(data.detail) || "Hinzufügen fehlgeschlagen");
     return;
   }
-  // Jump to the new pending check (last steps before journal)
-  const steps = docsWizardSteps(d);
+  const steps = docsWizardSteps(data);
   const idx = steps.findIndex((s) => s.kind === "bank_check" && s.item && !s.done);
   docsWizardIndex = idx >= 0 ? idx : Math.max(0, steps.length - 2);
-  renderCase(d);
+  renderCase(data);
   setMsg("Checklisten-Eintrag hinzugefügt");
+}
+
+async function maybeEnrollFormer(caseData) {
+  const skipped = caseData?.watch_intake?.skipped_former_count || 0;
+  const names = (caseData?.watch_intake?.skipped_former || [])
+    .map((p) => p.display_name)
+    .filter(Boolean)
+    .slice(0, 8);
+  if (!skipped) return caseData;
+  const listHint = names.length ? `\n\n${names.join(", ")}${skipped > names.length ? " …" : ""}` : "";
+  const go = confirm(
+    `${skipped} ehemalige Organ(e) gefunden.${listHint}\n\nAuch auf Watchlist und Checkliste aufnehmen?`
+  );
+  if (!go) return caseData;
+  const r = await fetch(`/api/company-cases/${CASE_ID}/enroll-former`, { method: "POST" });
+  const data = await r.json();
+  if (!r.ok) {
+    setMsg(formatDetail(data.detail) || "Ehemalige konnten nicht aufgenommen werden");
+    return caseData;
+  }
+  const n = data.former_intake?.checklist_added ?? 0;
+  setMsg(`Ehemalige aufgenommen — ${n} Checklisten-Einträge ergänzt`);
+  return data;
 }
 
 function renderCase(c) {
   currentCase = c;
   document.getElementById("caseTitle").textContent = d(c.company_name, "company") || "Akte";
+  let statusLabel = STATUS_LABELS[c.status] || c.status;
+  if (c.status === "cleared" && isSuspiciousClose(c)) {
+    statusLabel = "In Abklärung (geschlossen)";
+  } else if (c.status === "cleared") {
+    statusLabel = "Kein Betrug";
+  }
   document.getElementById("caseSub").textContent =
-    `${STATUS_LABELS[c.status] || c.status}` +
+    `${statusLabel}` +
     (c.company_uid ? ` · ${d(c.company_uid, "uid")}` : "") +
     ` · eröffnet von ${d(c.opened_by, "user")}`;
 
@@ -530,46 +646,22 @@ function renderCase(c) {
     const days = Math.floor((Date.now() - Date.parse(c.opened_at)) / 86400000);
     if (days >= 3 && !Number.isNaN(days)) {
       setMsg(`Hinweis: Akte seit ${days} Tagen in Prüfung — bitte bestätigen oder schliessen.`);
-    } else {
-      setMsg("");
     }
   }
 
   updateStepper(c.status);
-
-  if (c.status === "under_review") {
-    setNextStep("Nächster Schritt: Kundengespräch führen → Betrugsart wählen → bestätigen oder schliessen.");
-  } else if (c.status === "confirmed_fraud") {
-    setNextStep("Nächster Schritt: Dokumentation — Zahlung sichern, Bankbeziehungen prüfen, Journal.");
-  } else if (c.status === "ready_for_report") {
-    setNextStep("Nächster Schritt: Report erzeugen und an Compliance übergeben.");
-  } else if (c.status === "reported") {
-    setNextStep("Nächster Schritt: Compliance schliesst den Fall mit Notiz (Actioned).");
-  } else if (c.status === "closed" || c.status === "cleared") {
-    setNextStep("Fall abgeschlossen — Akte bleibt für das Team einsehbar (Audit).");
-  } else {
-    setNextStep("");
-  }
-
   renderHitContext(c);
 
   const confirmPanel = document.getElementById("panelConfirm");
   const docsPanel = document.getElementById("panelDocs");
-  const reportPanel = document.getElementById("panelReport");
-  const compliancePanel = document.getElementById("panelCompliance");
   confirmPanel.classList.toggle("hidden", c.status !== "under_review");
   docsPanel.classList.toggle(
     "hidden",
     !["confirmed_fraud", "ready_for_report", "reported", "closed"].includes(c.status)
   );
-  reportPanel.classList.toggle(
-    "hidden",
-    !["confirmed_fraud", "ready_for_report", "reported", "closed"].includes(c.status)
-  );
-  compliancePanel.classList.toggle(
-    "hidden",
-    !["reported", "closed"].includes(c.status)
-  );
+  // Reporting / Compliance stay hidden (on hold)
+  document.getElementById("panelReport")?.classList.add("hidden");
+  document.getElementById("panelCompliance")?.classList.add("hidden");
 
   if (c.fraud_type) {
     const sel = document.getElementById("fraudType");
@@ -580,6 +672,7 @@ function renderCase(c) {
   const payNote = document.getElementById("paymentNote");
   if (payCb) payCb.checked = !!c.payment_blocked;
   if (payNote) payNote.value = c.payment_blocked_note || "";
+  if (c.payment_blocked != null) wizPaymentChoice = !!c.payment_blocked;
 
   const done = c.bank_checks_done || 0;
   const total = c.bank_checks_total || 0;
@@ -590,79 +683,31 @@ function renderCase(c) {
     hint.textContent = `Noch offen: ${pending.map((p) => p.entity_label).join(", ")} — bitte Schritt für Schritt abarbeiten.`;
   } else if (total === 0) {
     hint.textContent = "Noch keine Checklisten-Einträge (nach Bestätigung werden sie erzeugt).";
+  } else if (c.payment_blocked == null) {
+    hint.textContent = "Checkliste Personen/Firma fertig — Sicherung noch offen.";
   } else {
-    hint.textContent = "Checkliste vollständig — Report kann erzeugt werden.";
+    hint.textContent = "Dokumentation vollständig — Daten für interne Prävention erfasst.";
   }
 
   if (!docsPanel.classList.contains("hidden")) {
     renderDocsWizard(c);
   }
 
-  const reportBtn = document.getElementById("generateReportBtn");
-  const reportHint = document.getElementById("reportHint");
-  const canReport = !!c.documentation_complete && ["confirmed_fraud", "ready_for_report"].includes(c.status);
-  reportBtn.disabled = !canReport;
-  reportBtn.classList.toggle("hidden", ["reported", "closed"].includes(c.status));
-  reportBtn.title = canReport
-    ? "PDF-Report erzeugen und an Compliance übergeben"
-    : (pending.length
-      ? `Offen: ${pending.map((p) => p.entity_label).join(", ")}`
-      : "Checkliste unvollständig");
-  if (reportHint) {
-    if (c.status === "reported" || c.status === "closed") {
-      reportHint.textContent = "Report wurde erzeugt.";
-    } else if (canReport) {
-      reportHint.textContent = "Checkliste vollständig — Report erzeugen, dann Fall unter Compliance abschliessen.";
-    } else if (pending.length) {
-      reportHint.textContent = `Noch offen: ${pending.map((p) => p.entity_label).join(", ")}`;
-    } else {
-      reportHint.textContent = "Report erst nach vollständiger Checkliste.";
-    }
-  }
-
-  const dl = document.getElementById("downloadReportBtn");
-  if (c.has_report) {
-    dl.href = `/api/company-cases/${CASE_ID}/report`;
-    dl.classList.remove("hidden");
-  } else {
-    dl.classList.add("hidden");
-  }
-
-  const actions = document.getElementById("complianceActions");
-  const doneEl = document.getElementById("complianceDone");
-  const hintEl = document.getElementById("complianceHint");
-  if (c.status === "closed") {
-    actions?.classList.add("hidden");
-    if (doneEl) {
-      doneEl.classList.remove("hidden");
-      doneEl.textContent =
-        `Geschlossen von ${c.compliance_actioned_by || "—"}` +
-        (c.compliance_actioned_at ? ` · ${c.compliance_actioned_at}` : "") +
-        (c.compliance_note ? ` — ${c.compliance_note}` : "");
-    }
-    if (hintEl) hintEl.textContent = "Fall ist abgeschlossen.";
-  } else if (c.status === "reported") {
-    actions?.classList.remove("hidden");
-    doneEl?.classList.add("hidden");
-    if (hintEl) {
-      hintEl.textContent =
-        "Report liegt vor. Notiz erfassen und «Actioned — Fall schliessen» tippen.";
-    }
-  }
-
-  // Process rule A: closed cases stay readable + PDF for all logged-in roles (audit trail)
   if (c.status === "closed" || c.status === "cleared") {
     const audit = document.getElementById("caseAuditHint");
+    const auditText = c.status === "cleared" && isSuspiciousClose(c)
+      ? "Als verdächtig (In Abklärung) geschlossen — Firma und Organe auf der Watchlist; Akte bleibt einsehbar."
+      : c.status === "closed"
+        ? "Akte geschlossen — für alle Rollen weiterhin einsehbar (Audit-Trail)."
+        : "Fall als «Kein Betrug» geschlossen — Akte bleibt im Filter einsehbar.";
     if (!audit) {
       const p = document.createElement("p");
       p.id = "caseAuditHint";
       p.className = "fraud-help case-audit-hint";
-      p.textContent =
-        c.status === "closed"
-          ? "Akte geschlossen — für alle Rollen weiterhin einsehbar inkl. Report (Audit-Trail)."
-          : "Fall als «Kein Betrug» geschlossen — Akte bleibt im Filter einsehbar.";
+      p.textContent = auditText;
       document.getElementById("caseMsg")?.after(p);
     } else {
+      audit.textContent = auditText;
       audit.classList.remove("hidden");
     }
   } else {
@@ -672,17 +717,16 @@ function renderCase(c) {
 
 async function loadCase() {
   const r = await fetch(`/api/company-cases/${CASE_ID}`);
-  const d = await r.json();
+  const data = await r.json();
   if (!r.ok) {
-    setMsg(formatDetail(d.detail) || "Fall nicht gefunden");
+    setMsg(formatDetail(data.detail) || "Fall nicht gefunden");
     return;
   }
-  // Jump wizard to first incomplete step on fresh load
   docsWizardIndex = 0;
-  const steps = docsWizardSteps(d);
+  const steps = docsWizardSteps(data);
   const firstOpen = steps.findIndex((s) => !s.done);
   if (firstOpen >= 0) docsWizardIndex = firstOpen;
-  renderCase(d);
+  renderCase(data);
 }
 
 document.getElementById("confirmFraudBtn")?.addEventListener("click", async () => {
@@ -691,26 +735,22 @@ document.getElementById("confirmFraudBtn")?.addEventListener("click", async () =
     setMsg("Betrugsart wählen");
     return;
   }
-  // Persist hit context before confirm (best effort)
   await saveHitContext({ silent: true });
   const r = await fetch(`/api/company-cases/${CASE_ID}/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fraud_type }),
   });
-  const d = await r.json();
+  const data = await r.json();
   if (!r.ok) {
-    setMsg(formatDetail(d.detail) || "Fehler");
+    setMsg(formatDetail(data.detail) || "Fehler");
     return;
   }
-  const n = d.watch_intake?.enrolled_count ?? 0;
-  const skipped = d.watch_intake?.skipped_former_count ?? 0;
-  const formerHint = skipped
-    ? ` · ${skipped} Ehemalige nicht automatisch (optional per Watch)`
-    : "";
-  setMsg(`Betrug bestätigt — ${n} aktuelle Personen auf Watchlist${formerHint}, Kern-Checkliste angelegt`);
+  const n = data.watch_intake?.enrolled_count ?? 0;
+  setMsg(`Betrug bestätigt — ${n} aktuelle Personen auf Watchlist, Kern-Checkliste angelegt`);
   docsWizardIndex = 0;
-  renderCase(d);
+  const afterFormer = await maybeEnrollFormer(data);
+  renderCase(afterFormer);
 });
 
 async function saveHitContext({ silent } = {}) {
@@ -726,17 +766,17 @@ async function saveHitContext({ silent } = {}) {
       hit_note: document.getElementById("hitNote")?.value || null,
     }),
   });
-  const d = await r.json();
+  const data = await r.json();
   if (!r.ok) {
-    if (!silent) setMsg(formatDetail(d.detail) || "Kontext speichern fehlgeschlagen");
+    if (!silent) setMsg(formatDetail(data.detail) || "Kontext speichern fehlgeschlagen");
     return null;
   }
   if (!silent) {
-    renderCase(d);
+    renderCase(data);
     setHitContextCollapsed(true);
     setMsg("Zahlungs-Hit gespeichert");
   }
-  return d;
+  return data;
 }
 
 document.getElementById("saveHitContextBtn")?.addEventListener("click", () => saveHitContext());
@@ -753,70 +793,53 @@ document.getElementById("clearCaseBtn")?.addEventListener("click", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ note }),
   });
-  const d = await r.json();
+  const data = await r.json();
   if (!r.ok) {
-    setMsg(formatDetail(d.detail) || "Fehler");
+    setMsg(formatDetail(data.detail) || "Fehler");
     return;
   }
   setMsg("Fall geschlossen — kein Betrug");
-  renderCase(d);
+  renderCase(data);
+});
+
+document.getElementById("markSuspiciousBtn")?.addEventListener("click", async () => {
+  const go = confirm(
+    "Als verdächtig markieren?\n\n"
+    + "• Tag «In Abklärung»\n"
+    + "• Firma + aktuelle Organe auf die Watchlist\n"
+    + "• Akte wird geschlossen"
+  );
+  if (!go) return;
+  await saveHitContext({ silent: true });
+  const r = await fetch(`/api/company-cases/${CASE_ID}/mark-suspicious`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: "" }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    setMsg(formatDetail(data.detail) || "Markierung fehlgeschlagen");
+    return;
+  }
+  const persons = data.watchlist?.persons_enrolled ?? 0;
+  setMsg(`Als verdächtig markiert — In Abklärung, ${persons} Organe auf Watchlist, Akte geschlossen`);
+  renderCase(data);
 });
 
 document.getElementById("generateReportBtn")?.addEventListener("click", async () => {
-  const btn = document.getElementById("generateReportBtn");
-  btn.disabled = true;
-  setMsg("Report wird erzeugt…");
-  try {
-    const r = await fetch(`/api/company-cases/${CASE_ID}/report`, { method: "POST" });
-    const d = await r.json();
-    if (!r.ok) {
-      setMsg(formatDetail(d.detail) || "Report fehlgeschlagen");
-      btn.disabled = false;
-      return;
-    }
-    setMsg("Report erzeugt — jetzt unter Schritt 5 abschliessen");
-    renderCase(d);
-    document.getElementById("panelCompliance")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (e) {
-    setMsg(String(e.message || e));
-    btn.disabled = false;
-  }
+  setMsg("Reporting ist derzeit deaktiviert.");
 });
 
 document.getElementById("actionCaseBtn")?.addEventListener("click", async () => {
-  const note = document.getElementById("complianceNote")?.value?.trim() || "";
-  if (note.length < 3) {
-    setMsg("Compliance-Notiz ist Pflicht (min. 3 Zeichen)");
-    return;
-  }
-  const btn = document.getElementById("actionCaseBtn");
-  btn.disabled = true;
-  try {
-    const r = await fetch(`/api/company-cases/${CASE_ID}/action`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ compliance_note: note }),
-    });
-    const d = await r.json();
-    if (!r.ok) {
-      setMsg(formatDetail(d.detail) || "Abschluss fehlgeschlagen");
-      btn.disabled = false;
-      return;
-    }
-    setMsg("Fall geschlossen");
-    renderCase(d);
-  } catch (e) {
-    setMsg(String(e.message || e));
-    btn.disabled = false;
-  }
+  setMsg("Compliance-Abschluss ist derzeit deaktiviert.");
 });
 
 document.getElementById("deleteCasePageBtn")?.addEventListener("click", async () => {
   if (!confirm(`Akte #${CASE_ID} unwiderruflich löschen?`)) return;
   const r = await fetch(`/api/company-cases/${CASE_ID}`, { method: "DELETE" });
-  const d = await r.json().catch(() => ({}));
+  const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    setMsg(formatDetail(d.detail) || "Löschen fehlgeschlagen");
+    setMsg(formatDetail(data.detail) || "Löschen fehlgeschlagen");
     return;
   }
   location.href = "/cases";

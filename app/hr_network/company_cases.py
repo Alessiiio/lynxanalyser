@@ -83,7 +83,8 @@ def _case_dict(
     checks = bank_checks or []
     pending = sum(1 for c in checks if c.get("status") == "pending")
     total = len(checks)
-    documentation_complete = total > 0 and pending == 0
+    payment_done = case.payment_blocked is not None
+    documentation_complete = total > 0 and pending == 0 and payment_done
     if total == 0 and case.status in ("confirmed_fraud", "ready_for_report", "reported", "closed"):
         documentation_complete = False
     return {
@@ -307,6 +308,24 @@ async def open_case(
         SOURCE_CASE_OPEN,
         intake_from_fraud_company,
     )
+    from app.hr_network.watched_companies import (
+        SOURCE_CASE_OPEN as COMPANY_SOURCE_CASE_OPEN,
+        upsert_watched_company,
+    )
+
+    # Firma unbedingt auf Firmen-Watchlist (Symmetrie zu Personen)
+    try:
+        company_watch = await upsert_watched_company(
+            company_name=case_name,
+            company_uid=case_uid,
+            company_ehraid=case_payload.get("company_ehraid"),
+            source_reason=COMPANY_SOURCE_CASE_OPEN,
+            added_by=opened_by,
+            notes="Auto: Fall eröffnet",
+        )
+    except Exception as e:
+        logger.exception("Company watchlist after case open failed")
+        company_watch = {"error": str(e)}
 
     try:
         intake = await intake_from_fraud_company(
@@ -320,8 +339,66 @@ async def open_case(
         logger.exception("Watch intake after case open failed")
         intake = {"error": str(e), "enrolled": [], "enrolled_count": 0}
 
+    l5_meta = _kickoff_l5_background(name=case_name, uid=case_uid)
+
     case_payload["watch_intake"] = intake
+    case_payload["company_watch"] = company_watch
+    case_payload["l5"] = l5_meta
     return case_payload
+
+
+def _kickoff_l5_background(*, name: str | None, uid: str | None) -> dict[str, Any]:
+    """If L5 cache missing, start deep analyze in background (non-blocking)."""
+    from app.hr_network.fraud_network_cache import (
+        cache_status_for_company,
+        load_cached_for_company,
+        store_cached_for_company,
+    )
+
+    n = (name or "").strip() or None
+    u = (uid or "").strip() or None
+    if not n and not u:
+        return {"l5_cached": False, "l5_started": False, "reason": "no_company"}
+
+    status = cache_status_for_company(company_name=n, company_uid=u)
+    l5 = (status.get("levels") or {}).get("5") or {}
+    if l5.get("cached"):
+        return {"l5_cached": True, "l5_started": False}
+
+    async def _run() -> None:
+        from app.hr_network.fraud_network import build_fraud_network
+
+        try:
+            # Re-check cache in case another job finished first
+            hit, _key = load_cached_for_company(
+                level=5, company_name=n, company_uid=u
+            )
+            if hit is not None:
+                return
+            result = await build_fraud_network(
+                level=5,
+                ad_hoc_company={"name": n or "", "uid": u or ""},
+                max_person_searches=8,
+            )
+            if isinstance(result, dict):
+                store_cached_for_company(
+                    level=5,
+                    company_name=n,
+                    company_uid=u,
+                    payload=result,
+                )
+                logger.info("Background L5 cached for %s / %s", n, u)
+        except Exception:
+            logger.exception("Background L5 after case open failed for %s / %s", n, u)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_run())
+    except RuntimeError:
+        logger.warning("No running loop — L5 background kick skipped")
+        return {"l5_cached": False, "l5_started": False, "reason": "no_loop"}
+
+    return {"l5_cached": False, "l5_started": True}
 
 
 async def update_hit_context(
@@ -457,8 +534,7 @@ async def _seed_bank_checklist(case_id: int, *, intake: dict[str, Any]) -> None:
         add("company", case.company_name, case.company_uid or str(case.company_ehraid or ""))
 
         for enr in intake.get("enrolled") or []:
-            if (enr.get("person_hr_status") or "current") == "former":
-                continue
+            # Former only appear when intake ran with include_former=True
             if not _is_core_officer_roles(enr.get("roles") or []):
                 continue
             pid = enr.get("person_id")
@@ -482,6 +558,168 @@ def _is_core_officer_roles(roles: list[str]) -> bool:
         return True
     joined = " ".join(roles)
     return bool(_CORE_ROLE_RE.search(joined))
+
+
+async def mark_case_suspicious(
+    case_id: int,
+    *,
+    by: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """
+    «Als Verdächtig markieren»: Tag In Abklärung + Watchlist (Firma/Organe), Akte schliessen.
+    """
+    from app.hr_network.company_tags import (
+        TAG_UNDER_INVESTIGATION,
+        set_company_tag,
+    )
+    from app.hr_network.under_investigation_watchlist import (
+        enroll_under_investigation_watchlist,
+    )
+
+    async with async_session() as session:
+        case = await session.get(CompanyCase, case_id)
+        if not case:
+            raise LookupError("Fall nicht gefunden")
+        if case.status != "under_review":
+            raise ValueError("Nur Fälle in Prüfung können als verdächtig markiert werden")
+        name = case.company_name
+        uid = case.company_uid
+        ehraid = case.company_ehraid
+
+    try:
+        tag_row = await set_company_tag(
+            company_name=name,
+            company_uid=uid,
+            tag=TAG_UNDER_INVESTIGATION,
+            set_by=by,
+        )
+    except Exception as e:
+        logger.exception("Tag In Abklärung after mark-suspicious failed")
+        tag_row = {"error": str(e)}
+
+    try:
+        watchlist_side = await enroll_under_investigation_watchlist(
+            company_name=name,
+            company_uid=uid,
+            company_ehraid=ehraid,
+            added_by=by,
+        )
+    except Exception as e:
+        logger.exception("Watchlist enroll after mark-suspicious failed")
+        watchlist_side = {"error": str(e)}
+
+    journal = "[In Abklärung] Als Verdächtig markiert — Firma und Organe auf Watchlist; Akte geschlossen."
+    if (note or "").strip():
+        journal = f"{journal} {(note or '').strip()[:1800]}"
+
+    async with async_session() as session:
+        case = await session.get(CompanyCase, case_id)
+        if not case:
+            raise LookupError("Fall nicht gefunden")
+        case.status = "cleared"
+        session.add(
+            CaseJournalEntry(
+                case_id=case.id,
+                author=by,
+                created_at=datetime.now(timezone.utc),
+                text=journal[:4000],
+            )
+        )
+        await session.commit()
+
+    result = await get_company_case(case_id)
+    result["marked_suspicious"] = True
+    result["company_tag"] = tag_row
+    result["watchlist"] = watchlist_side
+    return result
+
+
+async def enroll_former_officers_for_case(case_id: int, *, by: str) -> dict[str, Any]:
+    """After confirm: optionally enroll former organs on watchlist + checklist."""
+    async with async_session() as session:
+        case = await session.get(CompanyCase, case_id)
+        if not case:
+            raise LookupError("Fall nicht gefunden")
+        if case.status not in ("confirmed_fraud", "ready_for_report"):
+            raise ValueError("Ehemalige nur nach Betrugsbestätigung aufnehmbar")
+        name, uid = case.company_name, case.company_uid
+
+    from app.hr_network.watch_intake import (
+        SCAN_PRIORITY_HIGH,
+        SOURCE_FRAUD_LIST_OFFICER,
+        intake_from_fraud_company,
+    )
+
+    try:
+        intake = await intake_from_fraud_company(
+            name=name,
+            uid=uid,
+            include_former=True,
+            source_reason=SOURCE_FRAUD_LIST_OFFICER,
+            scan_priority=SCAN_PRIORITY_HIGH,
+            notes_prefix="Auto: Ehemalige nach Bestätigung",
+        )
+    except Exception as e:
+        logger.exception("Former-officer intake failed")
+        raise ValueError(f"Aufnahme Ehemaliger fehlgeschlagen: {e}") from e
+
+    former_enrolled = [
+        enr
+        for enr in (intake.get("enrolled") or [])
+        if (enr.get("person_hr_status") or "") == "former"
+    ]
+
+    async with async_session() as session:
+        case = await session.get(CompanyCase, case_id)
+        if not case:
+            raise LookupError("Fall nicht gefunden")
+        existing = list(
+            (
+                await session.execute(
+                    select(CaseBankCheckItem).where(CaseBankCheckItem.case_id == case_id)
+                )
+            ).scalars().all()
+        )
+        seen = {
+            (r.entity_type, (r.entity_ref or r.entity_label or "").lower())
+            for r in existing
+        }
+        added = 0
+        for enr in former_enrolled:
+            if not _is_core_officer_roles(enr.get("roles") or []):
+                continue
+            label = (enr.get("display_name") or "").strip()
+            if not label:
+                continue
+            pid = enr.get("person_id")
+            key = ("person", str(pid).lower() if pid else label.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            session.add(
+                CaseBankCheckItem(
+                    case_id=case_id,
+                    entity_type="person",
+                    entity_label=label[:512],
+                    entity_ref=(str(pid) if pid else "")[:128] or None,
+                    status="pending",
+                )
+            )
+            added += 1
+        if added and case.status == "ready_for_report":
+            # New pending checks → back to documentation
+            case.status = "confirmed_fraud"
+        await session.commit()
+
+    result = await get_company_case(case_id)
+    result["former_intake"] = {
+        "enrolled": former_enrolled,
+        "enrolled_count": len(former_enrolled),
+        "checklist_added": added,
+    }
+    result["enrolled_by"] = by
+    return result
 
 
 async def add_bank_check_item(
@@ -554,6 +792,15 @@ async def update_payment_flags(
         case.payment_blocked = payment_blocked
         case.payment_blocked_note = (payment_blocked_note or "")[:512] or None
         await session.commit()
+
+        # Promote when Sicherung + checklist done
+        if case.status == "confirmed_fraud" and payment_blocked is not None:
+            checks = await _load_checks(session, case_id)
+            pending = sum(1 for c in checks if c["status"] == "pending")
+            if checks and pending == 0:
+                case.status = "ready_for_report"
+                await session.commit()
+
     return await get_company_case(case_id)
 
 
@@ -579,11 +826,18 @@ async def update_bank_check(
         item.checked_at = datetime.now(timezone.utc)
         await session.commit()
 
-        # Promote to ready_for_report when checklist complete
+        # Promote to ready_for_report when checklist + Sicherung complete
         case = await session.get(CompanyCase, case_id)
         checks = await _load_checks(session, case_id)
         pending = sum(1 for c in checks if c["status"] == "pending")
-        if case and case.status == "confirmed_fraud" and pending == 0 and checks:
+        payment_done = case is not None and case.payment_blocked is not None
+        if (
+            case
+            and case.status == "confirmed_fraud"
+            and pending == 0
+            and checks
+            and payment_done
+        ):
             case.status = "ready_for_report"
             await session.commit()
 

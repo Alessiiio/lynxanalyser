@@ -3674,7 +3674,7 @@ async function openCompanyCase() {
   const hasGraph = !!(networkInstance || (lastAnalysis?.nodes || []).length);
   if (!hasGraph) {
     const go = confirm(
-      "Netzwerk noch nicht geladen (optional).\n\nAkte trotzdem als «In Prüfung» anlegen?\nTypischer nächster Schritt: Kundengespräch → in der Akte bestätigen."
+      "Netzwerk noch nicht geladen (optional).\n\nAkte trotzdem als «In Prüfung» anlegen?\nAls Nächstes: in der Akte bestätigen, schliessen oder als verdächtig markieren."
     );
     if (!go) return;
   }
@@ -3694,10 +3694,18 @@ async function openCompanyCase() {
     return;
   }
   currentCaseHit = data;
+  const l5 = data.l5 || {};
+  let extra = "";
+  if (l5.l5_started) {
+    extra = " — Netzwerk L5 läuft im Hintergrund";
+    showNotify?.("Netzwerk Suchweite 5 gestartet (Hintergrund).", { ok: true, duration: 4200 });
+  } else if (l5.l5_cached) {
+    extra = " — L5-Cache vorhanden";
+  }
   showStatus(
     data.already_existed
       ? `Bestehender Fall #${data.id} (${data.status})`
-      : `Akte #${data.id} eröffnet — In Prüfung`
+      : `Akte #${data.id} eröffnet — In Prüfung${extra}`
   );
   if (lastAnalysis) renderSearchResults(lastAnalysis);
   else if (currentCompany) renderFirmBar(currentCompany, lastAnalysis || {});

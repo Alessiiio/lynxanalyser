@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.database import WatchedCompany, async_session
 
 SOURCE_UNDER_INVESTIGATION = "under_investigation"
+SOURCE_CASE_OPEN = "case_open"
 SOURCE_BULK_SCAN = "bulk_scan"
 SOURCE_MANUAL = "manual"
 
@@ -114,8 +115,10 @@ async def upsert_watched_company(
             if notes and not existing.notes:
                 existing.notes = notes[:2000]
             # Prefer stronger / more specific source labels lightly
-            if reason == SOURCE_UNDER_INVESTIGATION or not existing.source_reason:
-                existing.source_reason = reason
+            _STRONG = {SOURCE_UNDER_INVESTIGATION, SOURCE_CASE_OPEN}
+            if reason in _STRONG or not existing.source_reason:
+                if existing.source_reason != SOURCE_UNDER_INVESTIGATION or reason == SOURCE_UNDER_INVESTIGATION:
+                    existing.source_reason = reason
             if status == "active" and existing.status == "cleared":
                 existing.status = "active"
             if by:

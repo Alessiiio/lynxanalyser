@@ -12,6 +12,9 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Added
 
+- **Akte: Als Verdächtig markieren**: In der Bestätigung Tag «In Abklärung», Firma + Organe auf die Watchlist, Akte wird geschlossen.
+- **Akte öffnen → Firmen-Watchlist**: Beim Eröffnen landet die Firma (nicht nur Organe) auf der Firmen-Watchlist.
+- **L5 im Hintergrund**: Fehlt der Cache für Suchweite 5, startet Lynx den Scan beim Akte-Öffnen async — die Akte ist sofort nutzbar.
 - **Admin Inkognito**: Admins können im Account-Menü «Inkognito» einschalten. Dann erscheinen ihre Firmen-Suchen **nicht** in der Team-Historie.
 - **Benutzer endgültig löschen**: Nach dem Deaktivieren kann ein Admin den Benutzer komplett entfernen (nicht nur deaktivieren).
 - **SHAB-Tagesarchiv (Schweiz)**: Jede Nacht speichert Lynx die aktuellen Handelsregister-Meldungen des Tages. Steht jemand auf der Watchlist, landet der Treffer im **Posteingang**.
@@ -27,6 +30,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Changed
 
+- **Akte-Flow vereinfacht**: Stepper nur noch In Prüfung → Bestätigung → Dokumentation; Reporting/Compliance ausgeblendet (Backend bleibt). Zahlungshit nur bei Bestätigung. Sicherung mit Ja/Nein. Namen kopieren statt PDF. Banner «Nächster Schritt» entfernt.
 - **Watchlist-Oberfläche**: Tabs Firmen | Personen | Posteingang | Fälle; Bulk-Scan nur für Admins.
 - **Login erst nach 2FA**: Die volle Sitzung gibt es erst nach dem zweiten Faktor (oder nach dem erstmaligen Einrichten).
 - **Firmenanalyse aufgeräumt**: Status (unvollständig / Cache / nächster Schritt) steht **unter** dem Graphen; Warnungen kompakt unter der Firm-Leiste. Organigramm-Schalter entfernt (nur noch Netzwerk-Graph). «In Abklärung» und Akte bleiben gut sichtbar; HR / Profiler unter **Mehr**.

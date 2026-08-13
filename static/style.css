@@ -9186,6 +9186,12 @@ body.watch-modal-open { overflow: hidden; }
   grid-template-columns: 1fr 1fr;
   gap: 0.65rem;
 }
+.case-confirm-btns-three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+@media (max-width: 720px) {
+  .case-confirm-btns-three { grid-template-columns: 1fr; }
+}
 @media (max-width: 560px) {
   .case-confirm-btns { grid-template-columns: 1fr; }
 }
@@ -9225,6 +9231,32 @@ body.watch-modal-open { overflow: hidden; }
   background: rgba(148, 163, 184, 0.12);
   border-color: rgba(248, 113, 113, 0.45);
   color: #fecaca;
+}
+.btn-case-suspicious {
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+}
+.btn-case-suspicious:hover {
+  background: rgba(251, 191, 36, 0.16);
+  border-color: rgba(251, 191, 36, 0.55);
+  color: #fef3c7;
+}
+
+.docs-wiz-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 1rem;
+}
+.docs-wiz-copy-row .docs-wiz-subject {
+  margin: 0;
+}
+.docs-wiz-copy-hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.85rem;
+  color: var(--c-muted);
 }
 
 /* ── Documentation wizard ── */

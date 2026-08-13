@@ -19,11 +19,13 @@ from app.hr_network.company_cases import (
     clear_case,
     confirm_fraud,
     delete_company_case,
+    enroll_former_officers_for_case,
     find_open_case_for_company,
     generate_case_report,
     get_case_report_path,
     get_company_case,
     list_company_cases,
+    mark_case_suspicious,
     open_case,
     open_case_from_alert,
     update_bank_check,
@@ -47,6 +49,10 @@ class ConfirmBody(BaseModel):
 
 
 class ClearBody(BaseModel):
+    note: str = Field("", max_length=2000)
+
+
+class MarkSuspiciousBody(BaseModel):
     note: str = Field("", max_length=2000)
 
 
@@ -182,6 +188,39 @@ async def api_clear(
 ):
     try:
         return await clear_case(case_id, by=user.username, note=body.note)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/api/company-cases/{case_id}/mark-suspicious")
+async def api_mark_suspicious(
+    case_id: int,
+    body: MarkSuspiciousBody,
+    user: User = Depends(require_role("case_manager", "admin")),
+):
+    """Tag «In Abklärung» + Watchlist, Akte schliessen."""
+    try:
+        return await mark_case_suspicious(
+            case_id,
+            by=user.username,
+            note=body.note,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/api/company-cases/{case_id}/enroll-former")
+async def api_enroll_former(
+    case_id: int,
+    user: User = Depends(require_role("case_manager", "admin")),
+):
+    """Ehemalige Organe auf Watchlist + Checkliste (nach Bestätigung)."""
+    try:
+        return await enroll_former_officers_for_case(case_id, by=user.username)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
