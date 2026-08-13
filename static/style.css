@@ -19,6 +19,7 @@
   --c-card-hover: #1a2433;
   --radius: 6px;
   --radius-sm: 4px;
+  --radius-pill: 999px;
   --shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
   --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.55);
   --glow-cyan: 0 0 24px rgba(0, 212, 255, 0.2);
@@ -28,6 +29,56 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ============================================================
+   DESIGN SYSTEM v1 (siehe DESIGN_SYSTEM.md) — additiv, ersetzt
+   bestehende Klassen nicht. Für neue UI diese Basis nutzen statt
+   neue btn-*/badge-*/card-* Varianten zu erfinden.
+   ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid var(--c-border);
+  background: var(--c-card);
+  color: var(--c-text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.btn:hover { background: var(--c-card-hover); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary { background: var(--c-primary-light); border-color: var(--c-primary); color: var(--c-primary); }
+.btn-danger { background: var(--c-red-light); border-color: var(--c-red); color: var(--c-red); }
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-sm { padding: 0.4rem 0.75rem; font-size: 0.8rem; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.card {
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem;
+}
+.card-hover:hover { background: var(--c-card-hover); }
+
+/* ============================================================ */
 
 body {
   font-family: var(--font-body);
