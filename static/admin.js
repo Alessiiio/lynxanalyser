@@ -376,14 +376,14 @@
     const users = data.users || [];
     list.innerHTML = users
       .map((u) => {
-        const roleClass = u.role === "admin" ? "nav-role-admin" : "";
+        const roleClass = u.role === "admin" ? "badge badge-gray" : "";
         const inactive = u.active === false;
         const roleOpts = ROLE_OPTIONS.map(
           ([v, lab]) =>
             `<option value="${v}"${u.role === v ? " selected" : ""}>${esc(lab)}</option>`
         ).join("");
         const totpBit = u.totp_enabled ? "2FA an" : "2FA aus";
-        return `<li class="card admin-user-card${inactive ? " admin-user-inactive" : ""}" data-user-id="${u.id}">
+        return `<li class="admin-user-card${inactive ? " admin-user-inactive" : ""}" data-user-id="${u.id}">
           <div class="admin-user-main">
             <strong>${esc(u.display_name || u.username)}</strong>
             <span class="fraud-help">${esc(u.username)} · <span class="${roleClass}">${esc(u.role_label || u.role)}</span>${inactive ? " · inaktiv" : ""} · ${totpBit}</span>
@@ -393,15 +393,15 @@
             </label>
           </div>
           <div class="admin-user-actions">
-            <button type="button" class="btn btn-sm" data-save-role="${u.id}" ${inactive ? "disabled" : ""}>Rolle speichern</button>
+            <button type="button" class="btn-nav" data-save-role="${u.id}" ${inactive ? "disabled" : ""}>Rolle speichern</button>
             ${
               inactive
-                ? `<button type="button" class="btn btn-sm" data-reactivate="${u.id}" data-name="${esc(u.username)}">Reaktivieren</button>
-            <button type="button" class="btn btn-sm btn-danger" data-hard-delete="${u.id}" data-name="${esc(u.username)}" ${u.id === meId ? "disabled" : ""}>Endgültig löschen</button>`
-                : `<button type="button" class="btn btn-sm" data-deactivate="${u.id}" data-name="${esc(u.username)}">Deaktivieren</button>`
+                ? `<button type="button" class="btn-nav" data-reactivate="${u.id}" data-name="${esc(u.username)}">Reaktivieren</button>
+            <button type="button" class="btn-nav btn-danger-quiet" data-hard-delete="${u.id}" data-name="${esc(u.username)}" ${u.id === meId ? "disabled" : ""}>Endgültig löschen</button>`
+                : `<button type="button" class="btn-nav" data-deactivate="${u.id}" data-name="${esc(u.username)}">Deaktivieren</button>`
             }
-            <button type="button" class="btn btn-sm" data-reset="${u.id}" data-name="${esc(u.username)}" ${inactive ? "disabled" : ""}>Passwort reset</button>
-            <button type="button" class="btn btn-sm" data-reset-2fa="${u.id}" data-name="${esc(u.username)}" ${u.id === meId || inactive || !u.totp_enabled ? "disabled" : ""}>2FA reset</button>
+            <button type="button" class="btn-nav" data-reset="${u.id}" data-name="${esc(u.username)}" ${inactive ? "disabled" : ""}>Passwort reset</button>
+            <button type="button" class="btn-nav" data-reset-2fa="${u.id}" data-name="${esc(u.username)}" ${u.id === meId || inactive || !u.totp_enabled ? "disabled" : ""}>2FA reset</button>
           </div>
         </li>`;
       })

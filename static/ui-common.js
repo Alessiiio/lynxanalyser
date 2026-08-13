@@ -430,14 +430,17 @@ function renderSiteNav() {
         <span>Inkognito (Suchen nicht loggen)</span>
       </label>`
     : "";
+  const roleBadge = isAdminRole
+    ? `<span class="badge badge-gray">${escHtml(roleLabel)}</span>`
+    : escHtml(roleLabel);
   const accountBit = window.__lynxUser
     ? `<span class="nav-dropdown nav-account">
-        <button type="button" class="nav-link nav-dropdown-trigger nav-account-trigger${isAdminRole ? " nav-role-admin" : ""}${adminActive ? " nav-link-active" : ""}${incognitoOn ? " is-incognito" : ""}"
+        <button type="button" class="nav-link nav-dropdown-trigger nav-account-trigger${adminActive ? " nav-link-active" : ""}${incognitoOn ? " is-incognito" : ""}"
           aria-expanded="false" aria-haspopup="true" aria-controls="navAccountPanel">
-          ${escHtml(roleLabel)}${incognitoOn ? " · Inkognito" : ""} ▾
+          ${roleBadge}${incognitoOn ? " · Inkognito" : ""} ▾
         </button>
         <span id="navAccountPanel" class="nav-dropdown-panel nav-account-panel hidden" role="menu">
-          <span class="nav-account-meta">${escHtml(displayName)} · <span class="${isAdminRole ? "nav-role-admin" : ""}">${escHtml(roleLabel)}</span></span>
+          <span class="nav-account-meta">${escHtml(displayName)} · ${roleBadge}</span>
           <a href="/account" class="nav-link nav-dropdown-item${isNavActive("/account", path) ? " nav-link-active" : ""}" role="menuitem">Konto</a>
           ${isAdminRole ? `<a href="/admin" class="nav-link nav-dropdown-item${adminActive ? " nav-link-active" : ""}" role="menuitem">Admin</a>` : ""}
           ${isAdminRole ? `<a href="/admin/planning" class="nav-link nav-dropdown-item${isNavActive("/admin/planning", path) ? " nav-link-active" : ""}" role="menuitem">Planung</a>` : ""}
@@ -451,7 +454,7 @@ function renderSiteNav() {
 
   nav.innerHTML = `
     <span class="nav-group nav-group-primary">${primary.map((i) => link(i)).join("")}</span>
-    ${moreDropdown ? `<span class="nav-sep" aria-hidden="true"></span>${moreDropdown}` : ""}
+    ${moreDropdown || ""}
     ${accountBit ? `<span class="nav-sep" aria-hidden="true"></span><span class="nav-group nav-group-user">${accountBit}</span>` : ""}
   `;
 

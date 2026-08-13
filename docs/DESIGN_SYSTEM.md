@@ -98,7 +98,7 @@ Spacing: durchgehend das bestehende `rem`-Raster nutzen, keine neuen `px`-Werte 
 .btn-sm      { padding: 0.4rem 0.75rem; font-size: 0.8rem; }
 ```
 
-**Migration, nicht Big-Bang:** Bestehende Klassen (`btn-nav`, `btn-check`, `ca-btn-fraud`, …) bleiben vorerst bestehen und funktionieren weiter. Regel: *sobald du eine Seite ohnehin anfasst, ersetze die alte Klasse dort durch `.btn` + Modifier statt sie zu behalten oder eine neue zu erfinden.*
+**Migration, nicht Big-Bang:** Bestehende Klassen (`btn-nav`, `btn-check`, `ca-btn-fraud`, …) bleiben vorerst bestehen und funktionieren weiter. **Admin (`/admin`) bleibt bewusst bei `fraud-panel` / `btn-nav` / `btn-check` / `btn-case-*`** — die hellen Design-System-`.btn`-Klassen wirken dort auf dem dunklen Lynx-UI schlecht. Regel sonst: *sobald du eine Seite ohnehin anfasst und das dunkle Lynx-Look bestätigt ist, kannst du schrittweise `.btn` + Modifier nutzen — nicht ungeprüft ersetzen.*
 
 ---
 

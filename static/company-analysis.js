@@ -1332,6 +1332,7 @@ async function refreshIdleHomeStats() {
   const wrap = document.getElementById("caIdleStats");
   const watchEl = document.getElementById("caIdleWatchCount");
   const alertEl = document.getElementById("caIdleAlertCount");
+  const alertCard = document.getElementById("caIdleAlertCard");
   if (!wrap || !watchEl || !alertEl) return;
 
   try {
@@ -1348,20 +1349,10 @@ async function refreshIdleHomeStats() {
     const personTotal = Number(personsData.total) || 0;
     const alertTotal = Array.isArray(alertsData.alerts) ? alertsData.alerts.length : 0;
 
-    watchEl.textContent =
-      personTotal === 1
-        ? "1 Person auf der Watchlist"
-        : `${personTotal} Personen auf der Watchlist`;
+    watchEl.textContent = String(personTotal);
+    alertEl.textContent = String(alertTotal);
+    alertCard?.classList.toggle("card-stat--warn", alertTotal > 0);
     wrap.classList.remove("hidden");
-
-    if (alertTotal > 0) {
-      alertEl.textContent =
-        alertTotal === 1 ? "1 offener Alert" : `${alertTotal} offene Alerts`;
-      alertEl.classList.remove("hidden");
-    } else {
-      alertEl.textContent = "";
-      alertEl.classList.add("hidden");
-    }
   } catch (_) {
     wrap.classList.add("hidden");
   }
@@ -4371,6 +4362,31 @@ function loadDemoFraudFirm() {
   quickAnalyze();
 }
 
+/** Demo-Firma button: only with ?demo=1 (persists via localStorage) or lynx_show_demo=1. */
+function syncDemoFraudBtnVisibility() {
+  const btn = document.getElementById("caDemoFraudBtn");
+  const wrap = document.getElementById("caIdleDemo");
+  if (!btn) return;
+  const params = new URLSearchParams(location.search);
+  const demoParam = (params.get("demo") || "").trim().toLowerCase();
+  if (demoParam === "1") {
+    try {
+      localStorage.setItem("lynx_show_demo", "1");
+    } catch (_) { /* ignore */ }
+  }
+  let show = demoParam === "1";
+  if (!show) {
+    try {
+      show = localStorage.getItem("lynx_show_demo") === "1";
+    } catch (_) {
+      show = false;
+    }
+  }
+  btn.hidden = !show;
+  wrap?.classList.toggle("hidden", !show);
+}
+
+syncDemoFraudBtnVisibility();
 document.getElementById("caDemoFraudBtn")?.addEventListener("click", () => {
   loadDemoFraudFirm();
 });

@@ -18,8 +18,8 @@
           <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
           <div>
             <p class="header-eyebrow">Lynx · Admin</p>
-            <h1>Admin-Hub</h1>
-            <p class="header-sub">Alles Admin-relevante zentral: Exporte, Betrieb, Benutzer, Audit, System.</p>
+            <h1>Admin-Panel</h1>
+            <p class="header-sub">Exporte, Betrieb, Benutzer, Audit und System — zentral.</p>
           </div>
         </div>
         <div class="header-actions">
@@ -40,7 +40,7 @@
     </nav>
 
     <!-- Übersicht -->
-    <section class="card fraud-panel admin-panel admin-tab-panel is-active" data-panel="overview">
+    <section class="fraud-panel admin-panel admin-tab-panel is-active" data-panel="overview">
       <div class="fraud-panel-head"><h2>Übersicht</h2></div>
       <p class="fraud-help">Kurzstatus für Data Science, Überwachung und Betrieb.</p>
       <div class="admin-stat-grid" id="adminOverviewStats">
@@ -50,56 +50,56 @@
         <div class="admin-stat"><span class="admin-stat-label">Offene Alerts</span><strong id="statAlerts">—</strong></div>
       </div>
       <div class="admin-quick-links" style="margin-top:1rem">
-        <button type="button" class="btn" data-goto="exports">Zu Exporten</button>
-        <button type="button" class="btn" data-goto="audit">Zu Audit</button>
-        <a class="btn" href="/watchlist">Watchlist</a>
-        <a class="btn" href="/cases">Fälle</a>
+        <button type="button" class="btn-nav" data-goto="exports">Zu Exporten</button>
+        <button type="button" class="btn-nav" data-goto="audit">Zu Audit</button>
+        <a class="btn-nav" href="/watchlist">Watchlist</a>
+        <a class="btn-nav" href="/cases">Fälle</a>
       </div>
     </section>
 
     <!-- Exporte -->
-    <section class="card fraud-panel admin-panel admin-tab-panel" data-panel="exports" hidden>
+    <section class="fraud-panel admin-panel admin-tab-panel" data-panel="exports" hidden>
       <div class="fraud-panel-head"><h2>Exporte (Data Science / Fraudfilter)</h2></div>
       <p class="fraud-help">CSV mit Semikolon, UTF-8. Jeder Download wird im Audit geloggt.</p>
       <div class="admin-export-grid">
-        <article class="card admin-export-card">
+        <article class="admin-export-card">
           <h3>Fraudfirmen</h3>
           <p class="fraud-help">Bestätigte Fraudfälle (inkl. dokumentiert / Fraudfall aktiv): Name, UID, Betrugsart, Status, Daten.</p>
-          <a class="btn btn-primary" id="exportFraudCompanies" href="/api/admin/exports/fraud-companies.csv">CSV herunterladen</a>
+          <a class="btn-case-equal btn-case-confirm" id="exportFraudCompanies" href="/api/admin/exports/fraud-companies.csv">CSV herunterladen</a>
         </article>
-        <article class="card admin-export-card">
+        <article class="admin-export-card">
           <h3>Watchlist Personen</h3>
           <p class="fraud-help">Namen und Wohnort für Namematching vor Zahlungsausführung.</p>
-          <a class="btn btn-primary" id="exportWatchPersons" href="/api/admin/exports/watched-persons.csv">CSV herunterladen</a>
+          <a class="btn-case-equal btn-case-confirm" id="exportWatchPersons" href="/api/admin/exports/watched-persons.csv">CSV herunterladen</a>
         </article>
-        <article class="card admin-export-card">
+        <article class="admin-export-card">
           <h3>Watchlist Firmen</h3>
           <p class="fraud-help">Firmenname und Adresse (inkl. In Abklärung / case_open).</p>
-          <a class="btn btn-primary" id="exportWatchCompanies" href="/api/admin/exports/watched-companies.csv">CSV herunterladen</a>
+          <a class="btn-case-equal btn-case-confirm" id="exportWatchCompanies" href="/api/admin/exports/watched-companies.csv">CSV herunterladen</a>
         </article>
       </div>
     </section>
 
     <!-- Betrieb -->
-    <section class="card fraud-panel admin-panel admin-tab-panel" data-panel="ops" hidden>
+    <section class="fraud-panel admin-panel admin-tab-panel" data-panel="ops" hidden>
       <div class="fraud-panel-head"><h2>Betrieb &amp; Jobs</h2></div>
       <p class="fraud-help">Hintergrundläufe und Admin-Werkzeuge. Detaillierte UIs bleiben verlinkt.</p>
       <div class="admin-ops-grid">
-        <button type="button" class="btn" id="opsHighScan">Priorisierte Watchlist jetzt prüfen</button>
-        <button type="button" class="btn" id="opsShabDaily">SHAB-Tagesarchiv jetzt holen</button>
-        <a class="btn" href="/watchlist?tab=bulk">Bulk-Scan</a>
-        <a class="btn" href="/admin/planning">Planung &amp; Ideen</a>
-        <a class="btn" href="/profiler">Profiler</a>
-        <a class="btn" href="/profiler-cases">Profiler-Fälle</a>
+        <button type="button" class="btn-nav" id="opsHighScan">Priorisierte Watchlist jetzt prüfen</button>
+        <button type="button" class="btn-nav" id="opsShabDaily">SHAB-Tagesarchiv jetzt holen</button>
+        <a class="btn-nav" href="/watchlist?tab=bulk">Bulk-Scan</a>
+        <a class="btn-nav" href="/admin/planning">Planung &amp; Ideen</a>
+        <a class="btn-nav" href="/profiler">Profiler</a>
+        <a class="btn-nav" href="/profiler-cases">Profiler-Fälle</a>
       </div>
       <p id="opsMsg" class="fraud-help" style="margin-top:0.75rem"></p>
     </section>
 
     <!-- Benutzer -->
-    <section class="card fraud-panel admin-panel admin-tab-panel" data-panel="users" hidden>
+    <section class="fraud-panel admin-panel admin-tab-panel" data-panel="users" hidden>
       <div class="fraud-panel-head">
         <h2>Benutzer</h2>
-        <button type="button" class="btn btn-sm" id="adminRefreshUsers">Aktualisieren</button>
+        <button type="button" class="btn-nav" id="adminRefreshUsers">Aktualisieren</button>
       </div>
       <ul id="adminUserList" class="admin-user-list"></ul>
 
@@ -125,12 +125,12 @@
           <span>Passwort (min. 12)</span>
           <input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password">
         </label>
-        <button type="submit" class="btn btn-primary">Anlegen</button>
+        <button type="submit" class="btn-check">Anlegen</button>
       </form>
     </section>
 
     <!-- Audit -->
-    <section class="card fraud-panel admin-panel admin-tab-panel" data-panel="audit" hidden>
+    <section class="fraud-panel admin-panel admin-tab-panel" data-panel="audit" hidden>
       <div class="fraud-panel-head">
         <h2>Audit-Log</h2>
         <div class="admin-audit-tools">
@@ -145,8 +145,8 @@
             <option value="export_watched_companies">Export Firmen</option>
             <option value="setting_change">Einstellung</option>
           </select>
-          <button type="button" class="btn btn-sm" id="auditRefresh">Aktualisieren</button>
-          <a class="btn btn-sm" id="auditExportCsv" href="/api/admin/audit/export.csv">CSV</a>
+          <button type="button" class="btn-nav" id="auditRefresh">Aktualisieren</button>
+          <a class="btn-nav" id="auditExportCsv" href="/api/admin/audit/export.csv">CSV</a>
         </div>
       </div>
       <p class="fraud-help">Logins, Fehlversuche, Exporte und Admin-Aktionen. Aufbewahrung: bis manuell bereinigt (Policy später festlegen).</p>
@@ -154,7 +154,7 @@
     </section>
 
     <!-- System -->
-    <section class="card fraud-panel admin-panel admin-tab-panel" data-panel="system" hidden>
+    <section class="fraud-panel admin-panel admin-tab-panel" data-panel="system" hidden>
       <div class="fraud-panel-head"><h2>System</h2></div>
 
       <h3 class="profiler-section-title">Demo &amp; Anonymisierung</h3>
