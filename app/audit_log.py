@@ -8,7 +8,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import Request
+try:
+    from fastapi import Request
+except ImportError:  # unit tests without FastAPI
+    Request = Any  # type: ignore[misc,assignment]
 from sqlalchemy import select
 
 from app.database import AuditEvent, async_session

@@ -118,7 +118,7 @@
 
   /* ——— Exporte ——— */
   function wireExports() {
-    document.querySelectorAll(".admin-export-card a[href*='/api/admin/exports/']").forEach((a) => {
+    document.querySelectorAll(".admin-export-card a[href*='/api/admin/export']").forEach((a) => {
       a.addEventListener("click", () => {
         msg("Export startet… (Audit wird geloggt)");
       });

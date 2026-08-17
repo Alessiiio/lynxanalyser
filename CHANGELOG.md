@@ -12,7 +12,8 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Added
 
-- **Admin-Panel (`/admin`)**: Zentraler Admin-Bereich mit Tabs (Übersicht, Exporte, Betrieb, Benutzer, Audit, System). CSV-Exporte für Fraudfirmen und Watchlist, Audit-Log mit Filter/Export, Betriebs-Jobs und Einstellungen an einem Ort.
+- **Fraudfall im Audit-Log**: Eröffnen, Betrug bestätigt, kein Betrug, verdächtig, Dokumentation abgeschlossen — wer hat wann was gemacht.
+- **Namenslisten für Data Science**: Im Admin unter Exporte zwei schlanke CSVs (nur Firmennamen bzw. nur Personennamen) für den Abgleich bei Zahlungen. Die ausführlichen Fraud-/Watchlist-Exporte bleiben.
 - **Startseite (Idle)**: Dezente Begrüssung «Hallo, {Vorname}» sowie Watchlist-Anzahl (und offene Alerts, falls vorhanden) — klickbar, ohne Dashboard.
 - **Akte: Als Verdächtig markieren**: In der Bestätigung Tag «In Abklärung», Firma + Organe auf die Watchlist, Akte wird geschlossen.
 - **Akte öffnen → Firmen-Watchlist**: Beim Eröffnen landet die Firma (nicht nur Organe) auf der Firmen-Watchlist.
@@ -36,7 +37,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Changed
 
-- **Firmen-Watchlist**: Firmen in Haushalten (gemeinsame Personen). Name öffnet das Profil. Punkt = Profil bereit / älter / offen.
+- **DS-Namenslisten getrennt**: Firmennamen (Betrug + In Abklärung) und Personennamen (nur aus Betrug / In Abklärung, nicht aus jedem offenen Fall) als eigene Downloads.
 - **Firmenanalyse Idle-Optik**: Begrüssung und Metrik-Pills in einer Zeile; Suche als Fokus (stärkerer Rahmen, solid «Analysieren»); Abstände enger, Block vertikal zentriert.
 - **Firmenanalyse Idle-Home**: Marketing-Hero entfernt; Begrüssung kompakt, darunter zwei klickbare Karten (Offene Alerts → Posteingang, Watchlist → Personen). Demo-Firma nur noch mit `?demo=1` (bleibt über `localStorage` sichtbar).
 - **Navigation**: Nur noch ein Trenner vor dem Account-Menü; Admin-Rolle als neutrales Badge statt rot.
@@ -51,7 +52,8 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Fixed
 
-- **Akte abschliessen**: Nach vollständiger Dokumentation gibt es im Journal-Schritt «Akte abschliessen» (intern `closed`, ohne Reporting/Compliance). Journal-Kommentar ist optional.
+- **«Kein Betrug» vs. «Verdächtig»**: Beides schliesst die Akte, ist aber intern unterscheidbar (`clearance_reason`).
+- **Watchlist nach Betrugsbestätigung**: Wenn die automatische Eintragung scheitert, siehst du eine Warnung und kannst Firma/Organe manuell prüfen.
 - **Demo-Akte Personen-Checkliste**: Bei DEMO-FRAUD fehlten Organe in der Erfassung, weil der Intake Live-Zefix nutzte. Jetzt kommen aktuelle Organe (z. B. Max Muster) zuverlässig in Watchlist und Checkliste.
 
 - Demo-Firma: Fehler behoben, wenn die Daten-Datei im Docker-Setup nicht gefunden wurde.

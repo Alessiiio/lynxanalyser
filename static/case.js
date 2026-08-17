@@ -974,7 +974,13 @@ document.getElementById("confirmFraudBtn")?.addEventListener("click", async () =
     return;
   }
   const n = data.watch_intake?.enrolled_count ?? 0;
-  setMsg(`Betrug bestätigt — ${n} aktuelle Personen auf Watchlist, Kern-Checkliste angelegt`);
+  if (data.watch_intake?.error) {
+    setMsg(
+      "Automatische Watchlist-Eintragung fehlgeschlagen — bitte Firma/Organe manuell prüfen."
+    );
+  } else {
+    setMsg(`Betrug bestätigt — ${n} aktuelle Personen auf Watchlist, Kern-Checkliste angelegt`);
+  }
   docsWizardIndex = 0;
   const afterFormer = await maybeEnrollFormer(data);
   renderCase(afterFormer);

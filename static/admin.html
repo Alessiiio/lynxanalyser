@@ -77,6 +77,16 @@
           <p class="fraud-help">Firmenname und Adresse (inkl. In Abklärung / case_open).</p>
           <a class="btn-case-equal btn-case-confirm" id="exportWatchCompanies" href="/api/admin/exports/watched-companies.csv">CSV herunterladen</a>
         </article>
+        <article class="admin-export-card">
+          <h3>Firmennamen für DS</h3>
+          <p class="fraud-help">Nur Namen: bestätigter Betrug und In Abklärung. Für Namensabgleich bei Zahlungen.</p>
+          <a class="btn-case-equal btn-case-confirm" id="exportFlaggedCompanyNames" href="/api/admin/export/flagged-company-names">CSV herunterladen</a>
+        </article>
+        <article class="admin-export-card">
+          <h3>Personennamen für DS</h3>
+          <p class="fraud-help">Nur Namen: Personen aus bestätigtem Betrug und In Abklärung.</p>
+          <a class="btn-case-equal btn-case-confirm" id="exportFlaggedPersonNames" href="/api/admin/export/flagged-person-names">CSV herunterladen</a>
+        </article>
       </div>
     </section>
 
@@ -143,6 +153,13 @@
             <option value="export_fraud_companies">Export Fraudfirmen</option>
             <option value="export_watched_persons">Export Personen</option>
             <option value="export_watched_companies">Export Firmen</option>
+            <option value="ds_export_company_names">DS Firmennamen</option>
+            <option value="ds_export_person_names">DS Personennamen</option>
+            <option value="case_opened">Akte eröffnet</option>
+            <option value="case_confirmed_fraud">Betrug bestätigt</option>
+            <option value="case_cleared_no_fraud">Kein Betrug</option>
+            <option value="case_marked_suspicious">Verdächtig</option>
+            <option value="case_closed">Akte geschlossen</option>
             <option value="setting_change">Einstellung</option>
           </select>
           <button type="button" class="btn-nav" id="auditRefresh">Aktualisieren</button>

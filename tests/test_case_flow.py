@@ -189,6 +189,7 @@ async def test_mark_suspicious_sets_tag_and_closes():
         result = await mark_case_suspicious(opened["id"], by="tester")
 
     assert result["status"] == "cleared"
+    assert result["clearance_reason"] == "suspicious_flagged"
     assert result["marked_suspicious"] is True
     assert any("[In Abklärung]" in (e.get("text") or "") for e in result["journal"])
     tag = await get_company_tag(uid="CHE-999.888.777", name="Verdacht AG")

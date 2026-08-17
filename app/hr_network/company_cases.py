@@ -19,6 +19,7 @@ from app.database import (
     CaseBankCheckItem,
     CaseJournalEntry,
     CompanyCase,
+    CompanyTag,
     NetworkAlert,
     WatchedPerson,
     async_session,
@@ -116,6 +117,7 @@ def _case_dict(
         ),
         "compliance_note": case.compliance_note,
         "source_alert_id": case.source_alert_id,
+        "clearance_reason": getattr(case, "clearance_reason", None),
         "journal": journal or [],
         "bank_checks": checks,
         "bank_checks_total": total,
@@ -183,6 +185,83 @@ async def export_fraud_companies_csv(*, include_cleared: bool = False) -> str:
                 c.get("opened_by") or "",
             ]
         )
+    return buf.getvalue()
+
+
+def _unique_csv_names(names: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in names:
+        text = re.sub(r"\s+", " ", (raw or "").strip())
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    out.sort(key=lambda s: s.lower())
+    return out
+
+
+async def export_flagged_company_names_csv() -> str:
+    """Minimale DS-Namensliste: bestätigter Betrug ∪ In Abklärung. Nur Firmenname."""
+    from app.hr_network.company_tags import TAG_UNDER_INVESTIGATION
+
+    names: list[str] = []
+    async with async_session() as session:
+        case_rows = list(
+            (
+                await session.execute(
+                    select(CompanyCase.company_name).where(
+                        CompanyCase.status.in_(ACTIVE_FRAUD_STATUSES)
+                    )
+                )
+            ).all()
+        )
+        tag_rows = list(
+            (
+                await session.execute(
+                    select(CompanyTag.company_name).where(
+                        CompanyTag.tag == TAG_UNDER_INVESTIGATION
+                    )
+                )
+            ).all()
+        )
+    names.extend((r[0] or "") for r in case_rows)
+    names.extend((r[0] or "") for r in tag_rows)
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", lineterminator="\n")
+    writer.writerow(["Firmenname"])
+    for name in _unique_csv_names(names):
+        writer.writerow([name])
+    return buf.getvalue()
+
+
+async def export_flagged_person_names_csv() -> str:
+    """Minimale DS-Namensliste: Watchlist-Personen aus Betrug / In Abklärung."""
+    from app.hr_network.watch_intake import (
+        SOURCE_FRAUD_LIST_OFFICER,
+        SOURCE_UNDER_INVESTIGATION,
+    )
+
+    async with async_session() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(WatchedPerson.display_name).where(
+                        WatchedPerson.source_reason.in_(
+                            (SOURCE_FRAUD_LIST_OFFICER, SOURCE_UNDER_INVESTIGATION)
+                        )
+                    )
+                )
+            ).all()
+        )
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", lineterminator="\n")
+    writer.writerow(["Personenname"])
+    for name in _unique_csv_names([(r[0] or "") for r in rows]):
+        writer.writerow([name])
     return buf.getvalue()
 
 
@@ -429,6 +508,14 @@ async def open_case(
         session.add(case)
         await session.commit()
         await session.refresh(case)
+        from app.audit_log import record_audit
+
+        await record_audit(
+            action="case_opened",
+            actor_username=opened_by,
+            target=f"{resolved_name} ({uid or 'keine UID'})",
+            detail=f"case_id={case.id}",
+        )
         case_payload = {**_case_dict(case, bank_checks=[]), "already_existed": False}
         case_name, case_uid = case.company_name, case.company_uid
 
@@ -597,6 +684,7 @@ async def clear_case(case_id: int, *, by: str, note: str = "") -> dict[str, Any]
         if case.status != "under_review":
             raise ValueError("Nur Fälle in Prüfung können als «kein Betrug» geschlossen werden")
         case.status = "cleared"
+        case.clearance_reason = "no_fraud"
         if note.strip():
             session.add(
                 CaseJournalEntry(
@@ -607,6 +695,14 @@ async def clear_case(case_id: int, *, by: str, note: str = "") -> dict[str, Any]
                 )
             )
         await session.commit()
+        from app.audit_log import record_audit
+
+        await record_audit(
+            action="case_cleared_no_fraud",
+            actor_username=by,
+            target=f"{case.company_name} ({case.company_uid or 'keine UID'})",
+            detail=f"case_id={case.id}",
+        )
         return await get_company_case(case_id)
 
 
@@ -631,6 +727,14 @@ async def confirm_fraud(
         case.confirmed_at = datetime.now(timezone.utc)
         await session.commit()
         name, uid = case.company_name, case.company_uid
+        from app.audit_log import record_audit
+
+        await record_audit(
+            action="case_confirmed_fraud",
+            actor_username=by,
+            target=f"{name} ({uid or 'keine UID'})",
+            detail=f"case_id={case_id} fraud_type={fraud_type}",
+        )
 
     # Watchlist intake outside session
     from app.hr_network.watch_intake import (
@@ -793,6 +897,7 @@ async def mark_case_suspicious(
         if not case:
             raise LookupError("Fall nicht gefunden")
         case.status = "cleared"
+        case.clearance_reason = "suspicious_flagged"
         session.add(
             CaseJournalEntry(
                 case_id=case.id,
@@ -802,6 +907,14 @@ async def mark_case_suspicious(
             )
         )
         await session.commit()
+        from app.audit_log import record_audit
+
+        await record_audit(
+            action="case_marked_suspicious",
+            actor_username=by,
+            target=f"{case.company_name} ({case.company_uid or 'keine UID'})",
+            detail=f"case_id={case_id} tag=In Abklärung",
+        )
 
     result = await get_company_case(case_id)
     result["marked_suspicious"] = True
@@ -1156,6 +1269,14 @@ async def close_documented_case(
             )
         )
         await session.commit()
+        from app.audit_log import record_audit
+
+        await record_audit(
+            action="case_closed",
+            actor_username=by,
+            target=f"{case.company_name} ({case.company_uid or 'keine UID'})",
+            detail=f"case_id={case_id}",
+        )
     return await get_company_case(case_id)
 
 

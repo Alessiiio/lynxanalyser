@@ -352,6 +352,8 @@ class CompanyCase(Base):
     source_alert_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("network_alerts.id"), nullable=True, index=True
     )
+    # no_fraud (clear_case) | suspicious_flagged (mark_case_suspicious)
+    clearance_reason: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
 
 class CaseJournalEntry(Base):
@@ -544,6 +546,7 @@ async def init_db() -> None:
         await conn.run_sync(_migrate_scan_history_columns)
         await conn.run_sync(_migrate_watched_person_columns)
         await conn.run_sync(_migrate_company_case_columns)
+        await conn.run_sync(_migrate_add_clearance_reason)
         await conn.run_sync(_migrate_user_2fa_columns)
     await seed_default_users()
 
@@ -760,6 +763,16 @@ def _migrate_company_case_columns(conn) -> None:
         if column not in existing:
             conn.execute(text(f"ALTER TABLE company_cases ADD COLUMN {column} {sql_type}"))
             logger.info("Added company_cases.%s", column)
+
+
+def _migrate_add_clearance_reason(conn) -> None:
+    insp = inspect(conn)
+    if "company_cases" not in insp.get_table_names():
+        return
+    existing = {col["name"] for col in insp.get_columns("company_cases")}
+    if "clearance_reason" not in existing:
+        conn.execute(text("ALTER TABLE company_cases ADD COLUMN clearance_reason VARCHAR(32)"))
+        logger.info("Added company_cases.clearance_reason")
 
 
 def _migrate_user_2fa_columns(conn) -> None:

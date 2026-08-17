@@ -14,7 +14,12 @@ from sqlalchemy import func, select
 import config
 from app.audit_log import export_audit_csv, list_audit_events, record_audit
 from app.database import CompanyCase, NetworkAlert, User, WatchedCompany, WatchedPerson, async_session
-from app.hr_network.company_cases import ACTIVE_FRAUD_STATUSES, export_fraud_companies_csv
+from app.hr_network.company_cases import (
+    ACTIVE_FRAUD_STATUSES,
+    export_flagged_company_names_csv,
+    export_flagged_person_names_csv,
+    export_fraud_companies_csv,
+)
 from app.hr_network.person_monitoring import list_watched_persons
 from app.hr_network.watched_companies import (
     export_companies_csv,
@@ -151,6 +156,40 @@ async def api_export_fraud_companies(
     )
     day = datetime.now(timezone.utc).strftime("%Y%m%d")
     return _csv_response(csv_text, f"lynx_fraud_companies_{day}.csv")
+
+
+@router.get("/api/admin/export/flagged-company-names")
+async def api_export_flagged_company_names(
+    request: Request,
+    user: User = Depends(require_role("admin")),
+):
+    csv_text = await export_flagged_company_names_csv()
+    await record_audit(
+        action="ds_export_company_names",
+        actor_username=user.username,
+        actor_display=user.display_name,
+        detail=f"bytes={len(csv_text.encode('utf-8'))}",
+        request=request,
+    )
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(csv_text, f"lynx_ds_firmennamen_{day}.csv")
+
+
+@router.get("/api/admin/export/flagged-person-names")
+async def api_export_flagged_person_names(
+    request: Request,
+    user: User = Depends(require_role("admin")),
+):
+    csv_text = await export_flagged_person_names_csv()
+    await record_audit(
+        action="ds_export_person_names",
+        actor_username=user.username,
+        actor_display=user.display_name,
+        detail=f"bytes={len(csv_text.encode('utf-8'))}",
+        request=request,
+    )
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(csv_text, f"lynx_ds_personennamen_{day}.csv")
 
 
 @router.get("/api/admin/exports/watched-persons.csv")
