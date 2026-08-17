@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=inbox-20260817">
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
@@ -39,26 +39,27 @@
     </div>
 
     <section id="tabInbox" class="ca-tab-panel is-active">
-      <div class="fraud-panel">
-        <div class="fraud-panel-head">
-          <h2>Offene Funde</h2>
-          <div class="fraud-inline-actions">
-            <select id="alertSeverity" class="ca-select" aria-label="Severity">
-              <option value="">Alle Severities</option>
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
+      <div class="inbox-shell" id="inboxShell" role="region" aria-label="Posteingang">
+        <div class="inbox-toolbar">
+          <div class="inbox-toolbar-title">
+            <h2>Posteingang</h2>
+            <span id="inboxCountLabel" class="inbox-count">0 neu</span>
+          </div>
+          <div class="inbox-toolbar-actions">
+            <input id="inboxSearch" class="inbox-search" type="search" placeholder="Suchen…" aria-label="Meldungen suchen" autocomplete="off" />
+            <select id="alertSeverity" class="ca-select" aria-label="Filter">
+              <option value="">Alle</option>
+              <option value="high">Wichtig</option>
             </select>
             <button type="button" class="btn-nav" id="refreshInboxBtn">Aktualisieren</button>
           </div>
         </div>
-        <p class="fraud-help">
-          Offene Alerts zu neuen Mandaten / Firmenverknüpfungen beobachteter Personen.
-          Auslöser: Nacht-Cron 04:15, «Liste fortsetzen», oder Mandat-Scan in der Personenakte.
-          Bei konfiguriertem SMTP: Digest-E-Mail an
-          <code>WATCHLIST_NOTIFY_EMAILS</code>.
-        </p>
-        <div id="inboxList"></div>
+        <div class="inbox-split">
+          <div class="inbox-list-pane">
+            <div id="inboxList" class="inbox-list" role="listbox" aria-label="Meldungen"></div>
+          </div>
+          <div class="inbox-read-pane" id="inboxRead" aria-live="polite"></div>
+        </div>
       </div>
     </section>
 
@@ -221,6 +222,6 @@
   </div>
 
   <script src="/static/ui-common.js"></script>
-  <script src="/static/watchlist.js"></script>
+  <script src="/static/watchlist.js?v=inbox-20260817"></script>
 </body>
 </html>

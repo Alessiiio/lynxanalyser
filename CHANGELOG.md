@@ -37,6 +37,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Changed
 
+- **Posteingang**: Wie ein kleines Postfach — Liste links, Meldung rechts. Ohne interne Codes; Filter «Wichtig», Suche, Tastatur ↑↓.
 - **DS-Namenslisten getrennt**: Firmennamen (Betrug + In Abklärung) und Personennamen (nur aus Betrug / In Abklärung, nicht aus jedem offenen Fall) als eigene Downloads.
 - **Firmenanalyse Idle-Optik**: Begrüssung und Metrik-Pills in einer Zeile; Suche als Fokus (stärkerer Rahmen, solid «Analysieren»); Abstände enger, Block vertikal zentriert.
 - **Firmenanalyse Idle-Home**: Marketing-Hero entfernt; Begrüssung kompakt, darunter zwei klickbare Karten (Offene Alerts → Posteingang, Watchlist → Personen). Demo-Firma nur noch mit `?demo=1` (bleibt über `localStorage` sichtbar).

@@ -20,6 +20,10 @@ const PAGE_SIZE = 50;
 let personOffset = 0;
 let personTotal = 0;
 let alertSeverityFilter = "";
+let inboxAllItems = [];
+let inboxTotal = 0;
+let selectedInboxId = null;
+let inboxSearchQuery = "";
 let selectedPersonId = null;
 let mergeSelected = new Set();
 let companySelected = new Set();
@@ -212,13 +216,13 @@ function renderCaseModal(p) {
           <h3>Fund-Historie <span class="fraud-badge">${alerts.length}</span></h3>
           ${alerts.length ? `<ul class="fraud-side-list">${alerts.map((a) => `
             <li>
-              <div class="fraud-side-item-title">${esc(a.severity)} · ${esc(a.alert_type)}
-                ${a.acknowledged ? `<span class="fraud-speed-hint">quittiert</span>` : ""}
+              <div class="fraud-side-item-title">${esc(inboxSubject(a.alert_type))}
+                ${a.acknowledged ? `<span class="fraud-speed-hint">erledigt</span>` : ""}
               </div>
-              <div class="fraud-entry-meta">${esc(a.message)}</div>
+              <div class="fraud-entry-meta">${esc(inboxPreview(a))}</div>
               <div class="fraud-side-links">
-                ${!a.acknowledged ? `<button type="button" class="btn-nav" data-ack="${a.id}">Quittieren</button>` : ""}
-                <button type="button" class="btn-check" data-to-case="${a.id}">In neue Akte überführen</button>
+                ${!a.acknowledged ? `<button type="button" class="btn-nav" data-ack="${a.id}">Erledigt</button>` : ""}
+                <button type="button" class="btn-check" data-to-case="${a.id}">Fall eröffnen</button>
               </div>
             </li>
           `).join("")}</ul>` : `<p class="fraud-help">Keine Funde.</p>`}
@@ -306,11 +310,11 @@ function wireCaseModalActions(personId) {
       const r = await fetch(`/api/company-cases/from-alert/${alertId}`, { method: "POST" });
       const d = await r.json();
       if (!r.ok) {
-        setCaseStatus(formatDetail(d.detail) || "Überführung fehlgeschlagen");
+        setCaseStatus(formatDetail(d.detail) || "Fall konnte nicht eröffnet werden");
         btn.disabled = false;
         return;
       }
-      setCaseStatus(`Akte #${d.id} eröffnet (${d.already_existed ? "bereits vorhanden" : "neu"})`);
+      setCaseStatus(`Fall #${d.id} eröffnet (${d.already_existed ? "bereits vorhanden" : "neu"})`);
       if (d.id) location.href = `/cases/${d.id}`;
     });
   });
@@ -426,62 +430,295 @@ function setCaseStatus(msg) {
   }
 }
 
-async function loadInbox() {
-  const resp = await fetch("/api/watchlist/inbox?limit=150");
-  const data = await resp.json();
-  let items = data.items || [];
+function inboxSubject(alertType) {
+  switch (alertType) {
+    case "new_company_founded":
+      return "Neue Firma";
+    case "new_role":
+      return "Neue Funktion";
+    case "organ_exit":
+      return "Austritt";
+    default:
+      return "Neue Verbindung";
+  }
+}
+
+function inboxRoleHint(message) {
+  const m = String(message || "").match(/»\s*\(([^)]+)\)\s*(?:—|-|\[)/);
+  const role = (m && m[1] ? m[1] : "").trim();
+  if (!role || /^(entered|exited|shab)/i.test(role)) return "";
+  return role;
+}
+
+function inboxPreview(a) {
+  const company = d(a.company_name, "company");
+  const role = inboxRoleHint(a.message);
+  if (a.alert_type === "organ_exit") {
+    return company ? `Nicht mehr bei ${company}` : "Austritt aus einer Firma";
+  }
+  if (role && company) return `${role} · ${company}`;
+  return company || inboxSubject(a.alert_type);
+}
+
+function inboxBody(a) {
+  const person = d(a.person_name, "person") || "Eine beobachtete Person";
+  const company = d(a.company_name, "company") || "einer Firma";
+  const role = inboxRoleHint(a.message);
+  if (a.alert_type === "organ_exit") {
+    return `${person} ist nicht mehr bei ${company} eingetragen.`;
+  }
+  if (role) {
+    return `${person} ist neu als ${role} bei ${company} eingetragen.`;
+  }
+  if (a.alert_type === "new_company_founded") {
+    return `${person} erscheint neu bei ${company}.`;
+  }
+  return `${person} ist neu mit ${company} verbunden.`;
+}
+
+function inboxInitials(name) {
+  const parts = String(name || "")
+    .split(/[\s,]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function inboxWhenList(iso) {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const date = new Date(t);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startThat = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((startToday - startThat) / 86400000);
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  if (diffDays === 0) return `${hh}:${mi}`;
+  if (diffDays === 1) return "Gestern";
+  return formatDateDisplay(iso);
+}
+
+function inboxCountLabel(n) {
+  if (n <= 0) return "Keine neuen";
+  if (n === 1) return "1 neu";
+  return `${n} neu`;
+}
+
+function getInboxFiltered() {
+  let items = inboxAllItems;
   if (alertSeverityFilter) {
     items = items.filter((it) => it.payload && it.payload.severity === alertSeverityFilter);
   }
-  document.getElementById("inboxBadge").textContent = String(data.total || items.length);
-  const el = document.getElementById("inboxList");
-  if (!items.length) {
-    el.innerHTML = `<p class="fraud-help">Keine offenen Funde.</p>`;
+  const q = inboxSearchQuery.trim().toLowerCase();
+  if (q) {
+    items = items.filter((it) => {
+      const a = it.payload || {};
+      const hay = [
+        a.person_name,
+        a.company_name,
+        a.source_company_name,
+        inboxSubject(a.alert_type),
+        inboxPreview(a),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  return items;
+}
+
+function inboxEmptyMarkup(filtered) {
+  if (inboxAllItems.length && filtered) {
+    return `<div class="inbox-empty">
+      <p class="inbox-empty-title">Keine Treffer</p>
+      <p class="inbox-empty-copy">Suche oder Filter anpassen.</p>
+    </div>`;
+  }
+  return `<div class="inbox-empty">
+    <svg class="inbox-empty-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+      <polyline points="22,6 12,13 2,6"/>
+    </svg>
+    <p class="inbox-empty-title">Keine neuen Meldungen</p>
+    <p class="inbox-empty-copy">Neue Firmen und Funktionen beobachteter Personen erscheinen hier.</p>
+  </div>`;
+}
+
+function renderInboxReading(a) {
+  const el = document.getElementById("inboxRead");
+  const shell = document.getElementById("inboxShell");
+  if (!el) return;
+  if (!a) {
+    shell?.classList.remove("is-reading");
+    el.innerHTML = `<div class="inbox-empty inbox-empty--pane">
+      <p class="inbox-empty-title">Keine Meldung gewählt</p>
+      <p class="inbox-empty-copy">Wähle links eine Meldung.</p>
+    </div>`;
     return;
   }
-  el.innerHTML = `<ul class="fraud-side-list">${items.map((it) => {
-    const a = it.payload;
-    return `<li class="watch-inbox-item">
-      <button type="button" class="watch-person-summary" data-open-person="${a.person_id || ""}">
-        <span class="fraud-side-item-title">${esc(a.severity)} · ${esc(a.alert_type)}</span>
-        <span class="fraud-entry-meta">${esc(a.message)}</span>
-        <span class="fraud-entry-meta">
-          ${a.person_name ? `<span>${esc(a.person_name)}</span>` : ""}
-          ${a.source_company_name ? `<span>Quelle: ${esc(d(a.source_company_name, "company"))}</span>` : ""}
-        </span>
-      </button>
-      <div class="fraud-side-links">
-        ${a.person_id ? `<button type="button" class="btn-nav" data-open-person="${a.person_id}">Akte öffnen</button>` : ""}
-        <button type="button" class="btn-check" data-from-alert="${a.id}">In neue Akte überführen</button>
-        <button type="button" class="btn-nav" data-ack="${a.id}">Quittieren</button>
+  shell?.classList.add("is-reading");
+  const person = d(a.person_name, "person") || "Unbekannt";
+  const company = d(a.company_name, "company") || "—";
+  const important = a.severity === "high";
+  const context = a.source_company_name
+    ? `Steht auf der Liste wegen ${esc(d(a.source_company_name, "company"))}.`
+    : "";
+  const href = a.company_name ? `/?company=${encodeURIComponent(a.company_name)}` : "";
+  el.innerHTML = `
+    <div class="inbox-letter">
+      <button type="button" class="inbox-back btn-nav" id="inboxBackBtn">Zurück zur Liste</button>
+      <div class="inbox-letter-kicker">
+        ${important ? `<span class="inbox-flag">Wichtig</span>` : ""}
+        <time class="inbox-letter-time" datetime="${esc(a.created_at || "")}">${esc(formatDateTimeDisplay(a.created_at))}</time>
       </div>
-    </li>`;
-  }).join("")}</ul>`;
+      <h3 class="inbox-letter-subject">${esc(inboxSubject(a.alert_type))}</h3>
+      <dl class="inbox-letter-meta">
+        <div><dt>Person</dt><dd>${esc(person)}</dd></div>
+        <div><dt>Firma</dt><dd>${href ? `<a href="${esc(href)}">${esc(company)}</a>` : esc(company)}</dd></div>
+      </dl>
+      <p class="inbox-letter-body">${esc(inboxBody(a))}</p>
+      ${context ? `<p class="inbox-letter-context">${context}</p>` : ""}
+      <p id="inboxActionMsg" class="inbox-letter-msg" hidden></p>
+      <div class="inbox-letter-actions">
+        ${a.person_id ? `<button type="button" class="btn-nav" data-open-person="${a.person_id}">Akte öffnen</button>` : ""}
+        <button type="button" class="btn-check" data-from-alert="${a.id}">Fall eröffnen</button>
+        <button type="button" class="btn-nav" data-ack="${a.id}">Erledigt</button>
+      </div>
+    </div>`;
+  bindInboxActions(el);
+}
 
-  el.querySelectorAll("[data-open-person]").forEach((btn) => {
-    btn.addEventListener("click", () => openPersonFromInbox(btn.dataset.openPerson));
+function bindInboxActions(root) {
+  root.querySelector("#inboxBackBtn")?.addEventListener("click", () => {
+    selectedInboxId = null;
+    renderInbox();
   });
-  el.querySelectorAll("[data-from-alert]").forEach((btn) => {
+  root.querySelectorAll("[data-open-person]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openPersonFromInbox(btn.dataset.openPerson);
+    });
+  });
+  root.querySelectorAll("[data-from-alert]").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       btn.disabled = true;
       const r = await fetch(`/api/company-cases/from-alert/${btn.dataset.fromAlert}`, { method: "POST" });
-      const d = await r.json();
+      const payload = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setMsg(formatDetail(d.detail) || "Überführung fehlgeschlagen");
+        const msgEl = document.getElementById("inboxActionMsg");
+        if (msgEl) {
+          msgEl.hidden = false;
+          msgEl.textContent = formatDetail(payload.detail) || "Fall konnte nicht eröffnet werden.";
+        }
         btn.disabled = false;
         return;
       }
-      if (d.id) location.href = `/cases/${d.id}`;
+      if (payload.id) location.href = `/cases/${payload.id}`;
     });
   });
-  el.querySelectorAll("[data-ack]").forEach((btn) => {
+  root.querySelectorAll("[data-ack]").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
+      btn.disabled = true;
+      const items = getInboxFiltered();
+      const idx = items.findIndex((it) => it.payload && String(it.payload.id) === String(btn.dataset.ack));
+      const next = items[idx + 1] || items[idx - 1];
+      selectedInboxId = next && next.payload ? next.payload.id : null;
       await fetch(`/api/network-alerts/${btn.dataset.ack}/ack`, { method: "POST" });
       loadInbox();
     });
   });
+}
+
+function renderInbox() {
+  const items = getInboxFiltered();
+  const badge = document.getElementById("inboxBadge");
+  const countEl = document.getElementById("inboxCountLabel");
+  if (badge) badge.textContent = String(inboxTotal);
+  if (countEl) countEl.textContent = inboxCountLabel(inboxTotal);
+
+  const listEl = document.getElementById("inboxList");
+  const readEl = document.getElementById("inboxRead");
+  const shell = document.getElementById("inboxShell");
+  if (!listEl) return;
+
+  if (!items.length) {
+    selectedInboxId = null;
+    listEl.innerHTML = inboxEmptyMarkup(Boolean(inboxSearchQuery || alertSeverityFilter));
+    if (readEl) {
+      readEl.innerHTML = "";
+    }
+    shell?.classList.remove("is-reading");
+    shell?.classList.toggle("is-empty", true);
+    return;
+  }
+  shell?.classList.toggle("is-empty", false);
+
+  const stillVisible = items.some((it) => it.payload && it.payload.id === selectedInboxId);
+  if (!stillVisible) {
+    const desktop = window.matchMedia("(min-width: 801px)").matches;
+    selectedInboxId = desktop && items[0].payload ? items[0].payload.id : null;
+  }
+
+  listEl.innerHTML = items.map((it) => {
+    const a = it.payload || {};
+    const person = d(a.person_name, "person") || "Unbekannt";
+    const selected = a.id === selectedInboxId;
+    const important = a.severity === "high";
+    return `<button type="button" class="inbox-row${selected ? " is-selected" : ""}${important ? " is-important" : ""}" role="option" aria-selected="${selected ? "true" : "false"}" data-inbox-id="${a.id}">
+      <span class="inbox-avatar" aria-hidden="true">${esc(inboxInitials(a.person_name))}</span>
+      <span class="inbox-row-main">
+        <span class="inbox-row-top">
+          <span class="inbox-row-from">${esc(person)}</span>
+          <time class="inbox-row-when" datetime="${esc(a.created_at || "")}">${esc(inboxWhenList(a.created_at))}</time>
+        </span>
+        <span class="inbox-row-subject">${esc(inboxSubject(a.alert_type))}${important ? `<span class="inbox-flag inbox-flag--inline">Wichtig</span>` : ""}</span>
+        <span class="inbox-row-preview">${esc(inboxPreview(a))}</span>
+      </span>
+    </button>`;
+  }).join("");
+
+  listEl.querySelectorAll("[data-inbox-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedInboxId = Number(btn.dataset.inboxId);
+      renderInbox();
+    });
+  });
+  const selectedRow = listEl.querySelector(".inbox-row.is-selected");
+  if (selectedRow) {
+    const top = selectedRow.offsetTop;
+    const bottom = top + selectedRow.offsetHeight;
+    if (top < listEl.scrollTop) listEl.scrollTop = top;
+    else if (bottom > listEl.scrollTop + listEl.clientHeight) {
+      listEl.scrollTop = bottom - listEl.clientHeight;
+    }
+  }
+
+  const selected = items.find((it) => it.payload && it.payload.id === selectedInboxId);
+  renderInboxReading(selected ? selected.payload : null);
+}
+
+function moveInboxSelection(delta) {
+  const items = getInboxFiltered();
+  if (!items.length) return;
+  const idx = items.findIndex((it) => it.payload && it.payload.id === selectedInboxId);
+  const next = Math.max(0, Math.min(items.length - 1, (idx < 0 ? 0 : idx) + delta));
+  selectedInboxId = items[next].payload.id;
+  renderInbox();
+}
+
+async function loadInbox() {
+  const resp = await fetch("/api/watchlist/inbox?limit=150");
+  const data = await resp.json();
+  inboxAllItems = data.items || [];
+  inboxTotal = data.total || inboxAllItems.length;
+  renderInbox();
 }
 
 function personQueryParams() {
@@ -1456,14 +1693,40 @@ document.querySelectorAll(".watch-tabs .ca-tab").forEach((tab) => {
 document.getElementById("refreshInboxBtn")?.addEventListener("click", loadInbox);
 document.getElementById("alertSeverity")?.addEventListener("change", (e) => {
   alertSeverityFilter = e.target.value;
-  loadInbox();
+  renderInbox();
+});
+document.getElementById("inboxSearch")?.addEventListener("input", (e) => {
+  inboxSearchQuery = e.target.value || "";
+  renderInbox();
 });
 document.getElementById("refreshCasesBtn")?.addEventListener("click", loadCases);
 document.querySelectorAll("[data-close-modal]").forEach((el) => {
   el.addEventListener("click", closeCaseModal);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeCaseModal();
+  const modalOpen = !document.getElementById("caseModal")?.classList.contains("hidden");
+  if (e.key === "Escape") {
+    if (modalOpen) {
+      closeCaseModal();
+      return;
+    }
+    if (document.getElementById("tabInbox")?.classList.contains("is-active") && selectedInboxId) {
+      selectedInboxId = null;
+      renderInbox();
+    }
+    return;
+  }
+  if (modalOpen) return;
+  if (!document.getElementById("tabInbox")?.classList.contains("is-active")) return;
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.key === "ArrowDown" || e.key === "j") {
+    e.preventDefault();
+    moveInboxSelection(1);
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    e.preventDefault();
+    moveInboxSelection(-1);
+  }
 });
 
 let searchTimer = null;
