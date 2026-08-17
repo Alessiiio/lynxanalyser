@@ -102,24 +102,39 @@ function updateDemoGraphFoot() {
   const deepen = document.getElementById("caDemoDeepen");
   const loaded = loadedDeepLevel != null ? Number(loadedDeepLevel) : null;
   if (status) {
-    status.textContent = loaded != null && loaded >= 3
-      ? "Weitere Firmen geladen."
-      : "Aktuelle Personen geladen.";
+    if (loaded == null || loaded <= 2) {
+      status.textContent = "Aktuelle Personen geladen.";
+    } else if (loaded === 3) {
+      status.textContent = "Weitere Firmen geladen (Suchweite 3).";
+    } else {
+      status.textContent = `Netz geladen (Suchweite ${loaded}).`;
+    }
   }
   if (deepen) {
-    const canDeepen = loaded != null && loaded <= 2;
-    deepen.disabled = !canDeepen;
-    deepen.textContent = canDeepen
-      ? "Weitere Firmen dieser Personen laden"
-      : "Verbindungen geladen";
+    if (loaded == null || loaded <= 2) {
+      deepen.hidden = false;
+      deepen.disabled = false;
+      deepen.dataset.nextLevel = "3";
+      deepen.textContent = "Weitere Firmen dieser Personen laden";
+    } else if (loaded === 3) {
+      deepen.hidden = false;
+      deepen.disabled = false;
+      deepen.dataset.nextLevel = "4";
+      deepen.textContent = "Noch mehr Verbindungen laden";
+    } else if (loaded === 4) {
+      deepen.hidden = false;
+      deepen.disabled = false;
+      deepen.dataset.nextLevel = "5";
+      deepen.textContent = "Ganzes Netz laden";
+    } else {
+      deepen.hidden = true;
+    }
   }
 }
 
 function setDemoAnalysisUi(on) {
   const page = document.getElementById("caPage") || document.querySelector(".ca-page");
   page?.classList.toggle("ca-page--demo-ui", !!on);
-  const foot = document.getElementById("caDemoGraphFoot");
-  foot?.classList.toggle("hidden", !on);
   const tl = document.querySelector('.ca-side-tab[data-side="timeline"]');
   const det = document.querySelector('.ca-side-tab[data-side="details"]');
   if (tl) tl.textContent = on ? "Verlauf" : "Timeline";
@@ -4396,7 +4411,8 @@ wireGraphControls();
 wireHeavyWarnModal();
 document.getElementById("deepBtn")?.addEventListener("click", () => deepAnalyze());
 document.getElementById("caDemoDeepen")?.addEventListener("click", () => {
-  setDeepLevel(3);
+  const next = Number(document.getElementById("caDemoDeepen")?.dataset.nextLevel) || 3;
+  setDeepLevel(next);
   deepAnalyze();
 });
 document.getElementById("caDemoExpert")?.addEventListener("click", () => {

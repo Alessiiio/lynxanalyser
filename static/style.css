@@ -10831,9 +10831,9 @@ body.watch-modal-open { overflow: hidden; }
 }
 
 /* Demo-Firma only: quieter analysis chrome (does not affect live searches). */
-.ca-demo-graph-foot.hidden { display: none; }
+.ca-demo-graph-foot { display: none; }
 .ca-page--demo-ui .ca-demo-graph-foot {
-  display: flex;
+  display: flex !important;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem 0.85rem;
