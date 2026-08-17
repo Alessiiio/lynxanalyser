@@ -36,7 +36,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Changed
 
-- **Firmen-Watchlist**: Name öffnet das Profil (Netz aus Cache). Herkunft und Profil-Status (bereit / älter / offen) ohne Technik-Text. Nachts und per «Profile laden» (Admin) werden fehlende Profile nachgezogen.
+- **Firmen-Watchlist**: Firmen in Haushalten (gemeinsame Personen). Name öffnet das Profil. Punkt = Profil bereit / älter / offen.
 - **Firmenanalyse Idle-Optik**: Begrüssung und Metrik-Pills in einer Zeile; Suche als Fokus (stärkerer Rahmen, solid «Analysieren»); Abstände enger, Block vertikal zentriert.
 - **Firmenanalyse Idle-Home**: Marketing-Hero entfernt; Begrüssung kompakt, darunter zwei klickbare Karten (Offene Alerts → Posteingang, Watchlist → Personen). Demo-Firma nur noch mit `?demo=1` (bleibt über `localStorage` sichtbar).
 - **Navigation**: Nur noch ein Trenner vor dem Account-Menü; Admin-Rolle als neutrales Badge statt rot.

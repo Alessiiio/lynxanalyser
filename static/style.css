@@ -8940,7 +8940,96 @@ div.vis-tooltip {
   color: var(--c-muted);
   font-size: 0.85rem;
 }
-.watch-company-row { align-items: center; }
+.watch-households {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.watch-household {
+  padding: 0.85rem 1rem 0.4rem;
+}
+.watch-household-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.35rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.watch-household-head h3 {
+  margin: 0;
+  font-family: var(--font-display, Rajdhani, sans-serif);
+  font-size: 1.1rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.watch-household-sub {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: var(--c-muted);
+}
+.watch-household-count {
+  font-size: 0.75rem;
+  color: var(--c-muted);
+  white-space: nowrap;
+}
+.watch-firm {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.15rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 55%, transparent);
+}
+.watch-firm:last-child { border-bottom: 0; }
+.watch-firm-open {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.55rem;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+.watch-firm-open:hover .watch-firm-name { color: var(--c-primary); }
+.watch-firm-name {
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-firm-place {
+  font-size: 0.78rem;
+  color: var(--c-muted);
+  white-space: nowrap;
+}
+.watch-firm-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--c-muted);
+  flex-shrink: 0;
+}
+.watch-firm-dot.watch-cache--fresh {
+  background: var(--c-primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--c-primary) 55%, transparent);
+}
+.watch-firm-dot.watch-cache--stale { background: var(--c-orange); }
+.watch-firm-dot.watch-cache--missing { background: var(--c-muted); opacity: 0.55; }
+.watch-firm-archive {
+  background: none;
+  border: 0;
+  color: var(--c-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.15rem 0.25rem;
+  opacity: 0;
+}
+.watch-firm:hover .watch-firm-archive,
+.watch-firm:focus-within .watch-firm-archive { opacity: 1; }
+.watch-firm-archive:hover { color: var(--c-text); }
 .watch-company-open {
   flex: 1;
   min-width: 0;

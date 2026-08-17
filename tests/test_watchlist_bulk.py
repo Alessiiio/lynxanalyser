@@ -264,3 +264,49 @@ def test_source_label_plain_language():
     assert source_label("under_investigation") == "Abklärung"
     assert source_label("case_open") == "Fall"
     assert source_label("manual") == "Manuell"
+
+
+def test_households_group_via_shared_person():
+    from app.hr_network.company_households import build_households
+
+    items = [
+        {"id": 1, "company_name": "Alpha AG", "company_uid": "CHE-111.111.111"},
+        {"id": 2, "company_name": "Beta GmbH", "company_uid": "CHE-222.222.222"},
+        {"id": 3, "company_name": "Solo SA", "company_uid": "CHE-333.333.333"},
+    ]
+    links = [
+        {"person_name": "Osman, Rashad", "company_name": "Alpha AG", "company_uid": "CHE-111.111.111"},
+        {"person_name": "Osman, Rashad", "company_name": "Beta GmbH", "company_uid": "CHE-222.222.222"},
+    ]
+    groups = build_households(items, person_links=links, graphs={})
+    sizes = sorted(g["size"] for g in groups)
+    assert sizes == [1, 2]
+    linked = next(g for g in groups if g["size"] == 2)
+    assert "Osman" in linked["title"]
+    assert set(linked["company_ids"]) == {1, 2}
+
+
+def test_households_group_via_cached_graph():
+    from app.hr_network.company_households import build_households
+
+    items = [
+        {"id": 10, "company_name": "S&C Group Schweiz GmbH", "company_uid": "CHE-401.183.891"},
+        {"id": 11, "company_name": "FOXON GmbH", "company_uid": "CHE-315.010.090"},
+    ]
+    graphs = {
+        10: {
+            "nodes": [
+                {"id": "c1", "type": "company", "label": "S&C Group Schweiz GmbH", "uid": "CHE-401.183.891"},
+                {"id": "c2", "type": "company", "label": "FOXON GmbH", "uid": "CHE-315.010.090"},
+                {"id": "p1", "type": "person", "label": "Osman, Rashad"},
+            ],
+            "edges": [
+                {"from": "p1", "to": "c1"},
+                {"from": "p1", "to": "c2"},
+            ],
+        }
+    }
+    groups = build_households(items, person_links=[], graphs=graphs)
+    assert len(groups) == 1
+    assert groups[0]["size"] == 2
+    assert "Osman" in groups[0]["title"]

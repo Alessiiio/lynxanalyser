@@ -238,8 +238,13 @@ async def list_watched_companies(
     limit = max(1, min(int(limit or 100), 500))
     offset = max(0, int(offset or 0))
     page = rows[offset : offset + limit]
+    items = [company_row_dict(r) for r in page]
+    from app.hr_network.company_households import attach_households
+
+    households = await attach_households(items)
     return {
-        "items": [company_row_dict(r) for r in page],
+        "items": items,
+        "households": households,
         "total": total,
         "limit": limit,
         "offset": offset,

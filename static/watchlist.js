@@ -690,6 +690,7 @@ async function loadCompanies() {
   }
   const data = await resp.json();
   const items = data.items || [];
+  const households = data.households || [];
   document.getElementById("companyCount").textContent = String(data.total || items.length);
   document.getElementById("companyBadge").textContent = String(data.total || items.length);
   const el = document.getElementById("companyList");
@@ -697,32 +698,73 @@ async function loadCompanies() {
     el.innerHTML = `<p class="fraud-help">Keine Firmen.</p>`;
     return;
   }
-  el.innerHTML = items
-    .map((c) => {
-      const checked = companySelected.has(c.id) ? "checked" : "";
-      const qs = new URLSearchParams();
-      if (c.company_name) qs.set("company", c.company_name);
-      if (c.company_uid) qs.set("uid", c.company_uid);
-      qs.set("deep", "3");
-      const href = `/?${qs}`;
-      const place = c.legal_seat || (c.address || "").split(",").pop()?.trim() || "";
-      const metaBits = [c.company_uid, place].filter(Boolean);
-      const cacheState = c.cache_state || "missing";
-      const cacheLabel = c.cache_label || "offen";
-      return `<div class="watch-person-row watch-company-row">
-        <label class="watch-merge-label"><input type="checkbox" data-company-id="${c.id}" ${checked} /></label>
-        <a class="watch-company-open" href="${esc(href)}">
-          <strong>${esc(d(c.company_name, "company"))}</strong>
-          <span class="fraud-entry-meta">${esc(metaBits.join(" · ") || "—")}</span>
-        </a>
-        <span class="watch-company-flags">
-          <span class="watch-meta-pill">${esc(c.source_label || "Watchlist")}</span>
-          <span class="watch-cache watch-cache--${esc(cacheState)}">${esc(cacheLabel)}</span>
-        </span>
-        <button type="button" class="btn-nav" data-clear-company="${c.id}">Archivieren</button>
-      </div>`;
-    })
-    .join("");
+  const linked = households.filter((h) => (h.size || 0) >= 2);
+  const singles = households
+    .filter((h) => (h.size || 0) < 2)
+    .flatMap((h) => h.items || []);
+  const blocks = [];
+  linked.forEach((h) => {
+    blocks.push(renderHouseholdCard(h.title, h.people, h.items || [], h.size));
+  });
+  if (singles.length) {
+    const label = linked.length ? "Weitere Firmen" : "Firmen";
+    blocks.push(renderHouseholdCard(label, [], singles, singles.length));
+  }
+  el.innerHTML = `<div class="watch-households">${blocks.join("")}</div>`;
+  bindCompanyList(el);
+}
+
+function firmHref(c) {
+  const qs = new URLSearchParams();
+  if (c.company_name) qs.set("company", c.company_name);
+  if (c.company_uid) qs.set("uid", c.company_uid);
+  qs.set("deep", "3");
+  return `/?${qs}`;
+}
+
+function renderFirmRow(c) {
+  const checked = companySelected.has(c.id) ? "checked" : "";
+  const place = c.legal_seat || (c.address || "").split(",").pop()?.trim() || "";
+  const cacheState = c.cache_state || "missing";
+  const cacheLabel = c.cache_label || "offen";
+  const special =
+    c.source_reason === "case_open"
+      ? `<span class="watch-meta-pill">Fall</span>`
+      : c.source_reason === "under_investigation"
+        ? `<span class="watch-meta-pill">Abklärung</span>`
+        : "";
+  return `<div class="watch-firm">
+    <label class="watch-merge-label"><input type="checkbox" data-company-id="${c.id}" ${checked} /></label>
+    <a class="watch-firm-open" href="${esc(firmHref(c))}">
+      <span class="watch-firm-dot watch-cache--${esc(cacheState)}" title="${esc(cacheLabel)}"></span>
+      <span class="watch-firm-name">${esc(d(c.company_name, "company"))}</span>
+      <span class="watch-firm-place">${esc(place)}</span>
+    </a>
+    ${special}
+    <button type="button" class="watch-firm-archive" data-clear-company="${c.id}">Archiv</button>
+  </div>`;
+}
+
+function renderHouseholdCard(title, people, members, size) {
+  const headTitle =
+    people && people.length
+      ? people.map((p) => esc(d(p, "person"))).join(" · ")
+      : esc(d(title, "company"));
+  const count = `${size} ${size === 1 ? "Firma" : "Firmen"}`;
+  return `<section class="card watch-household">
+    <header class="watch-household-head">
+      <div>
+        <h3>${headTitle}</h3>
+      </div>
+      <span class="watch-household-count">${esc(count)}</span>
+    </header>
+    <div class="watch-household-body">
+      ${members.map(renderFirmRow).join("")}
+    </div>
+  </section>`;
+}
+
+function bindCompanyList(el) {
   el.querySelectorAll("input[data-company-id]").forEach((cb) => {
     cb.addEventListener("change", () => {
       const id = Number(cb.dataset.companyId);
@@ -744,6 +786,7 @@ async function loadCompanies() {
         setCompanyMsg("Archivieren fehlgeschlagen");
         return;
       }
+      companySelected.delete(id);
       loadCompanies();
     });
   });
@@ -1604,6 +1647,26 @@ document.getElementById("refreshCompanyCacheBtn")?.addEventListener("click", asy
   } finally {
     if (btn) btn.disabled = false;
   }
+});
+document.getElementById("archiveCompaniesBtn")?.addEventListener("click", async () => {
+  const ids = [...companySelected];
+  if (!ids.length) {
+    setCompanyMsg("Bitte eine Firma ankreuzen");
+    return;
+  }
+  for (const id of ids) {
+    const r = await fetch(`/api/watched-companies/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "cleared" }),
+    });
+    if (!r.ok) {
+      setCompanyMsg("Archivieren fehlgeschlagen");
+      return;
+    }
+  }
+  companySelected.clear();
+  loadCompanies();
 });
 document.getElementById("deleteCompaniesBtn")?.addEventListener("click", async () => {
   const ids = [...companySelected];
