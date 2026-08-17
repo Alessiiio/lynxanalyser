@@ -38,6 +38,8 @@ let l5GateBypassed = false;
 let l5LastData = null;
 /** @type {boolean} */
 let l5PostConfirmPrompted = false;
+/** @type {boolean} */
+let l5FetchComplete = false;
 
 function esc(s) {
   return String(s ?? "")
@@ -79,12 +81,26 @@ function isPostConfirmStep() {
 
 function confirmGateBlocked(data) {
   if (!isConfirmStep() || l5GateBypassed) return false;
+  if (!l5FetchComplete) return true;
   const status = data?.status || "";
   if (status === "running") return true;
   if (status === "ready") {
     const hits = Array.isArray(data?.hits) ? data.hits : [];
     if (hits.length > 0 && !l5HitsDismissed) return true;
   }
+  return false;
+}
+
+function assertConfirmAllowed() {
+  if (!confirmGateBlocked(l5LastData)) return true;
+  if (!l5FetchComplete) {
+    setMsg("Netzwerk-Status wird geladen — bitte kurz warten.");
+  } else if (l5LastData?.status === "running") {
+    setMsg("Netzwerk-Suche läuft noch — Bestätigung gesperrt.");
+  } else {
+    setMsg("Offene Netzwerk-Treffer — bitte prüfen oder «Später» wählen.");
+  }
+  updateConfirmGate(l5LastData);
   return false;
 }
 
@@ -123,6 +139,8 @@ function updateConfirmGate(data) {
       } else if (hits.length) {
         gateText.textContent =
           `${hits.length} neue Treffer aus dem Netzwerk — bitte prüfen und übernehmen oder «Später» wählen.`;
+      } else if (!l5FetchComplete) {
+        gateText.textContent = "Netzwerk-Status wird geladen — Bestätigung kurz gesperrt.";
       } else {
         gateText.textContent = "Netzwerk wird geladen — bitte kurz warten.";
       }
@@ -161,8 +179,8 @@ function renderNetworkL5(data) {
   if (status === "running") {
     title.textContent = "Netzwerk Suchweite 5 läuft";
     text.textContent = isConfirmStep() && !l5GateBypassed
-      ? "Weitere Personen und Firmen werden gesucht — Bestätigung ist freigegeben, sobald der Scan fertig ist."
-      : "Weitere Personen und Firmen werden gesucht — neue Treffer erscheinen automatisch.";
+      ? "Weitere Personen und Firmen werden gesucht — Bestätigung ist gesperrt, bis der Scan fertig ist."
+      : "Weitere Personen und Firmen werden gesucht — neue Treffer erscheinen automatisch; du wirst informiert.";
     hitsBox?.classList.add("hidden");
     updateConfirmGate(data);
     return;
@@ -1087,11 +1105,13 @@ async function loadCase() {
   l5GateBypassed = false;
   l5HitsDismissed = false;
   l5PostConfirmPrompted = false;
+  l5FetchComplete = false;
   l5LastData = null;
   const steps = docsWizardSteps(data);
   const firstOpen = steps.findIndex((s) => !s.done);
   if (firstOpen >= 0) docsWizardIndex = firstOpen;
   renderCase(data);
+  updateConfirmGate(null);
 
   const params = new URLSearchParams(location.search);
   const l5Hint = params.get("l5");
@@ -1102,10 +1122,13 @@ async function loadCase() {
     renderNetworkL5({ status: "ready", hits: [], hit_count: 0 });
   }
   const net = await fetchNetworkL5({ kick: true });
+  l5FetchComplete = true;
+  updateConfirmGate(l5LastData);
   if (net) startL5PollIfNeeded(net);
 }
 
 document.getElementById("confirmFraudBtn")?.addEventListener("click", async () => {
+  if (!assertConfirmAllowed()) return;
   const fraud_type = document.getElementById("fraudType")?.value;
   if (!fraud_type) {
     setMsg("Betrugsart wählen");
@@ -1115,7 +1138,7 @@ document.getElementById("confirmFraudBtn")?.addEventListener("click", async () =
   const r = await fetch(`/api/company-cases/${CASE_ID}/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fraud_type }),
+    body: JSON.stringify({ fraud_type, l5_gate_bypass: l5GateBypassed }),
   });
   const data = await r.json();
   if (!r.ok) {
@@ -1182,11 +1205,12 @@ document.getElementById("hitContextToggle")?.addEventListener("click", () => {
 });
 
 document.getElementById("clearCaseBtn")?.addEventListener("click", async () => {
+  if (!assertConfirmAllowed()) return;
   const note = prompt("Optional: Kurznotiz") || "";
   const r = await fetch(`/api/company-cases/${CASE_ID}/clear`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note }),
+    body: JSON.stringify({ note, l5_gate_bypass: l5GateBypassed }),
   });
   const data = await r.json();
   if (!r.ok) {
@@ -1198,6 +1222,7 @@ document.getElementById("clearCaseBtn")?.addEventListener("click", async () => {
 });
 
 document.getElementById("markSuspiciousBtn")?.addEventListener("click", async () => {
+  if (!assertConfirmAllowed()) return;
   const go = confirm(
     "Als verdächtig markieren?\n\n"
     + "• Tag «In Abklärung»\n"
@@ -1209,7 +1234,7 @@ document.getElementById("markSuspiciousBtn")?.addEventListener("click", async ()
   const r = await fetch(`/api/company-cases/${CASE_ID}/mark-suspicious`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note: "" }),
+    body: JSON.stringify({ note: "", l5_gate_bypass: l5GateBypassed }),
   });
   const data = await r.json();
   if (!r.ok) {

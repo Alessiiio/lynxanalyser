@@ -21,6 +21,7 @@ from app.database import (
     CompanyCase,
     CompanyTag,
     NetworkAlert,
+    WatchedCompany,
     WatchedPerson,
     async_session,
 )
@@ -676,7 +677,30 @@ async def update_hit_context(
     return await get_company_case(case_id)
 
 
-async def clear_case(case_id: int, *, by: str, note: str = "") -> dict[str, Any]:
+async def assert_l5_confirm_allowed(case_id: int, *, bypass: bool = False) -> None:
+    """Block confirm/clear/suspicious while L5 is in flight or open hits are pending."""
+    if bypass:
+        return
+    case = await get_company_case(case_id)
+    if case.get("status") != "under_review":
+        return
+    l5 = await get_case_network_l5(case_id, kick=False)
+    status = l5.get("status") or ""
+    if status == "running":
+        raise ValueError(
+            "Netzwerk-Suche (Suchweite 5) läuft noch — bitte warten oder "
+            "«Trotzdem fortfahren» wählen."
+        )
+
+
+async def clear_case(
+    case_id: int,
+    *,
+    by: str,
+    note: str = "",
+    l5_gate_bypass: bool = False,
+) -> dict[str, Any]:
+    await assert_l5_confirm_allowed(case_id, bypass=l5_gate_bypass)
     async with async_session() as session:
         case = await session.get(CompanyCase, case_id)
         if not case:
@@ -711,7 +735,9 @@ async def confirm_fraud(
     *,
     fraud_type: str,
     by: str,
+    l5_gate_bypass: bool = False,
 ) -> dict[str, Any]:
+    await assert_l5_confirm_allowed(case_id, bypass=l5_gate_bypass)
     fraud_type = (fraud_type or "").strip()
     if fraud_type not in FRAUD_TYPES:
         raise ValueError(f"fraud_type muss einer von {FRAUD_TYPES} sein")
@@ -844,10 +870,12 @@ async def mark_case_suspicious(
     *,
     by: str,
     note: str = "",
+    l5_gate_bypass: bool = False,
 ) -> dict[str, Any]:
     """
     «Als Verdächtig markieren»: Tag In Abklärung + Watchlist (Firma/Organe), Akte schliessen.
     """
+    await assert_l5_confirm_allowed(case_id, bypass=l5_gate_bypass)
     from app.hr_network.company_tags import (
         TAG_UNDER_INVESTIGATION,
         set_company_tag,
@@ -1302,6 +1330,99 @@ async def open_case_from_alert(alert_id: int, *, opened_by: str) -> dict[str, An
     )
 
 
+def _should_revoke_watchlist_on_case_delete(case: CompanyCase) -> bool:
+    """Remove auto-enrolled case_open entries when an unconfirmed case is deleted."""
+    if case.status == "under_review":
+        return True
+    if case.status == "cleared" and getattr(case, "clearance_reason", None) == "no_fraud":
+        return True
+    return False
+
+
+def _case_company_matches_person(
+    *,
+    case_ehraid: int | None,
+    case_name: str,
+    person: WatchedPerson,
+) -> bool:
+    if case_ehraid and person.source_company_ehraid == case_ehraid:
+        return True
+    pname = re.sub(r"\s+", " ", (person.source_company_name or "").strip().lower())
+    cname = re.sub(r"\s+", " ", (case_name or "").strip().lower())
+    return bool(cname and pname == cname)
+
+
+async def _revoke_case_open_watchlist(
+    *,
+    case_id: int,
+    company_name: str,
+    company_uid: str | None,
+    company_ehraid: int | None,
+) -> dict[str, Any]:
+    """Drop persons/companies auto-added when a case was opened (source case_open)."""
+    from app.hr_network.person_monitoring import delete_watched_persons
+    from app.hr_network.watch_intake import SOURCE_CASE_OPEN
+    from app.hr_network.watched_companies import (
+        SOURCE_CASE_OPEN as COMPANY_SOURCE_CASE_OPEN,
+        _name_key,
+        _uid_digits,
+        delete_watched_companies,
+    )
+
+    person_ids: list[int] = []
+    company_ids: list[int] = []
+    case_note = f"Akte #{case_id}"
+    uid_digits = _uid_digits(company_uid)
+    name_key = _name_key(company_name)
+
+    async with async_session() as session:
+        persons = list(
+            (
+                await session.execute(
+                    select(WatchedPerson).where(WatchedPerson.source_reason == SOURCE_CASE_OPEN)
+                )
+            ).scalars().all()
+        )
+        for person in persons:
+            if _case_company_matches_person(
+                case_ehraid=company_ehraid,
+                case_name=company_name,
+                person=person,
+            ):
+                person_ids.append(person.id)
+
+        companies = list(
+            (
+                await session.execute(
+                    select(WatchedCompany).where(
+                        WatchedCompany.source_reason == COMPANY_SOURCE_CASE_OPEN
+                    )
+                )
+            ).scalars().all()
+        )
+        for row in companies:
+            if uid_digits and _uid_digits(row.company_uid) == uid_digits:
+                company_ids.append(row.id)
+            elif name_key and _name_key(row.company_name) == name_key:
+                company_ids.append(row.id)
+            elif case_note in (row.notes or ""):
+                company_ids.append(row.id)
+
+    deleted_persons = 0
+    deleted_companies = 0
+    if person_ids:
+        result = await delete_watched_persons(person_ids)
+        deleted_persons = result.get("deleted_count", 0)
+    if company_ids:
+        result = await delete_watched_companies(sorted(set(company_ids)))
+        deleted_companies = result.get("deleted_count", 0)
+
+    return {
+        "persons_removed": deleted_persons,
+        "companies_removed": deleted_companies,
+    }
+
+
 async def delete_company_case(case_id: int) -> dict[str, Any]:
     """Permanently remove a CompanyCase and related journal / checklist rows."""
     async with async_session() as session:
@@ -1309,11 +1430,33 @@ async def delete_company_case(case_id: int) -> dict[str, Any]:
         if not case:
             raise LookupError("Fall nicht gefunden")
         name = case.company_name
+        uid = case.company_uid
+        ehraid = case.company_ehraid
+        revoke_watchlist = _should_revoke_watchlist_on_case_delete(case)
         await session.execute(delete(CaseJournalEntry).where(CaseJournalEntry.case_id == case_id))
         await session.execute(delete(CaseBankCheckItem).where(CaseBankCheckItem.case_id == case_id))
         await session.delete(case)
         await session.commit()
-        return {"deleted": True, "id": case_id, "company_name": name}
+
+    watchlist_cleanup: dict[str, Any] = {}
+    if revoke_watchlist:
+        try:
+            watchlist_cleanup = await _revoke_case_open_watchlist(
+                case_id=case_id,
+                company_name=name,
+                company_uid=uid,
+                company_ehraid=ehraid,
+            )
+        except Exception:
+            logger.exception("Watchlist cleanup after case delete failed")
+            watchlist_cleanup = {"error": "cleanup_failed"}
+
+    return {
+        "deleted": True,
+        "id": case_id,
+        "company_name": name,
+        "watchlist_cleanup": watchlist_cleanup,
+    }
 
 
 async def branch_signal(*, months: int = 6, limit: int = 8) -> dict[str, Any]:

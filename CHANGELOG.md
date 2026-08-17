@@ -38,6 +38,8 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 ### Changed
 
 - **Akte: L5 vor Bestätigung**: Solange die Netzwerk-Suche (Suchweite 5) läuft oder neue Treffer offen sind, sind Bestätigungs-Buttons gesperrt. «Trotzdem fortfahren» für Eilfälle; nach Bestätigung erscheint ein Nachhol-Dialog für verpasste Treffer.
+- **Akte löschen**: Beim Löschen eines unbestätigten Falls werden auto-aufgenommene Personen und Firma (`case_open`) von der Watchlist entfernt.
+- **Akte: L5-Gate (Fix)**: Bestätigung ist serverseitig gesperrt, solange L5 läuft; Frontend blockt zusätzlich bis der Netzwerk-Status geladen ist.
 - **Firmenanalyse (alle Firmen)**: Ruhigere Ansicht — weniger Aktionen (Mehr + Fall eröffnen), Graph zuerst mit Schritt-für-Schritt vertiefen, Tabs Verlauf/Firma. Personen als Karten mit Chips.
 - **Posteingang**: Wie ein kleines Postfach — Liste links, Meldung rechts. Ohne interne Codes; Filter «Wichtig», Suche, Tastatur ↑↓.
 - **DS-Namenslisten getrennt**: Firmennamen (Betrug + In Abklärung) und Personennamen (nur aus Betrug / In Abklärung, nicht aus jedem offenen Fall) als eigene Downloads.

@@ -29,8 +29,10 @@ db.engine = create_async_engine(f"sqlite+aiosqlite:///{_DB_PATH}", echo=False)
 db.async_session = async_sessionmaker(db.engine, expire_on_commit=False)
 
 from app.hr_network.company_cases import (  # noqa: E402
+    assert_l5_confirm_allowed,
     close_documented_case,
     confirm_fraud,
+    delete_company_case,
     get_company_case,
     mark_case_suspicious,
     open_case,
@@ -38,6 +40,8 @@ from app.hr_network.company_cases import (  # noqa: E402
     update_payment_flags,
 )
 from app.hr_network.company_tags import get_company_tag  # noqa: E402
+from app.hr_network.person_monitoring import list_watched_persons  # noqa: E402
+from app.hr_network.watch_intake import SOURCE_CASE_OPEN, upsert_watched_person  # noqa: E402
 from app.hr_network.watched_companies import list_watched_companies  # noqa: E402
 
 
@@ -120,6 +124,104 @@ async def test_open_case_enrolls_company_watchlist():
     assert companies["total"] == 1
     assert companies["items"][0]["company_name"] == "Test AG"
     assert companies["items"][0]["source_reason"] == "case_open"
+
+
+@pytest.mark.asyncio
+async def test_delete_under_review_case_revokes_case_open_watchlist():
+    with (
+        patch(
+            "app.hr_network.watch_intake.intake_from_fraud_company",
+            new=AsyncMock(side_effect=lambda **kw: _fake_intake(**kw)),
+        ),
+        patch(
+            "app.hr_network.company_cases._kickoff_l5_background",
+            return_value={"l5_cached": True, "l5_started": False},
+        ),
+    ):
+        opened = await open_case(
+            company_name="Delete Me AG",
+            company_uid="CHE-555.666.777",
+            company_ehraid=99,
+            opened_by="tester",
+        )
+
+    await upsert_watched_person(
+        person_slug="carina-zweifel",
+        display_name="Zweifel, Carina Ramona",
+        residence="CH",
+        source_company_ehraid=99,
+        source_company_name="Delete Me AG",
+        source_reason=SOURCE_CASE_OPEN,
+        status="active",
+    )
+    await upsert_watched_person(
+        person_slug="manual-person",
+        display_name="Manual Only",
+        residence=None,
+        source_company_ehraid=99,
+        source_company_name="Delete Me AG",
+        source_reason="manual",
+        status="active",
+    )
+
+    persons_before = await list_watched_persons(status="active")
+    assert persons_before["total"] == 2
+    companies_before = await list_watched_companies(status="active")
+    assert companies_before["total"] == 1
+
+    result = await delete_company_case(opened["id"])
+    assert result["deleted"] is True
+    assert result["watchlist_cleanup"]["persons_removed"] == 1
+    assert result["watchlist_cleanup"]["companies_removed"] == 1
+
+    persons_after = await list_watched_persons(status="active")
+    assert persons_after["total"] == 1
+    assert persons_after["items"][0]["display_name"] == "Manual Only"
+    companies_after = await list_watched_companies(status="active")
+    assert companies_after["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_confirm_blocked_while_l5_running():
+    l5_mock = AsyncMock(
+        return_value={"status": "running", "hits": [], "hit_count": 0}
+    )
+    with (
+        patch(
+            "app.hr_network.watch_intake.intake_from_fraud_company",
+            new=AsyncMock(side_effect=lambda **kw: _fake_intake(**kw)),
+        ),
+        patch(
+            "app.hr_network.company_cases._kickoff_l5_background",
+            return_value={"l5_cached": False, "l5_started": True},
+        ),
+        patch(
+            "app.hr_network.company_cases.get_case_network_l5",
+            l5_mock,
+        ),
+    ):
+        opened = await open_case(
+            company_name="Gate Test AG",
+            company_uid="CHE-111.000.222",
+            opened_by="tester",
+        )
+
+        with pytest.raises(ValueError, match="Netzwerk-Suche"):
+            await confirm_fraud(opened["id"], fraud_type="other", by="tester")
+
+        with pytest.raises(ValueError, match="Netzwerk-Suche"):
+            await assert_l5_confirm_allowed(opened["id"], bypass=False)
+
+        await assert_l5_confirm_allowed(opened["id"], bypass=True)
+
+        l5_mock.return_value = {"status": "ready", "hits": [], "hit_count": 0}
+        confirmed = await confirm_fraud(
+            opened["id"],
+            fraud_type="other",
+            by="tester",
+            l5_gate_bypass=True,
+        )
+        assert confirmed["status"] == "confirmed_fraud"
 
 
 @pytest.mark.asyncio

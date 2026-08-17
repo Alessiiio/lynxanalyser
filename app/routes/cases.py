@@ -50,14 +50,17 @@ class OpenCaseBody(BaseModel):
 
 class ConfirmBody(BaseModel):
     fraud_type: str
+    l5_gate_bypass: bool = False
 
 
 class ClearBody(BaseModel):
     note: str = Field("", max_length=2000)
+    l5_gate_bypass: bool = False
 
 
 class MarkSuspiciousBody(BaseModel):
     note: str = Field("", max_length=2000)
+    l5_gate_bypass: bool = False
 
 
 class JournalBody(BaseModel):
@@ -186,7 +189,12 @@ async def api_confirm(
     if body.fraud_type not in FRAUD_TYPES:
         raise HTTPException(status_code=400, detail=f"fraud_type: {FRAUD_TYPES}")
     try:
-        return await confirm_fraud(case_id, fraud_type=body.fraud_type, by=user.username)
+        return await confirm_fraud(
+            case_id,
+            fraud_type=body.fraud_type,
+            by=user.username,
+            l5_gate_bypass=body.l5_gate_bypass,
+        )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
@@ -200,7 +208,12 @@ async def api_clear(
     user: User = Depends(require_role("case_manager", "admin")),
 ):
     try:
-        return await clear_case(case_id, by=user.username, note=body.note)
+        return await clear_case(
+            case_id,
+            by=user.username,
+            note=body.note,
+            l5_gate_bypass=body.l5_gate_bypass,
+        )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
@@ -219,6 +232,7 @@ async def api_mark_suspicious(
             case_id,
             by=user.username,
             note=body.note,
+            l5_gate_bypass=body.l5_gate_bypass,
         )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
