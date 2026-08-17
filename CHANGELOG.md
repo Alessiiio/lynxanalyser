@@ -38,6 +38,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 ### Changed
 
 - **Demo-Firma Analyse (Test)**: Nur bei DEMO-FRAUD die ruhigere Ansicht (Firm-Leiste bleibt, Aktionen nur Mehr + Fall eröffnen, Graph zuerst). Alle anderen Firmen unverändert.
+- **Demo-Personen**: Karten mit Initialen, eine Zeile zu Wohnort, andere Firmen als Chips («Auch bei»), ohne UID/Jargon. Fraudfall bleibt klar markiert.
 - **Posteingang**: Wie ein kleines Postfach — Liste links, Meldung rechts. Ohne interne Codes; Filter «Wichtig», Suche, Tastatur ↑↓.
 - **DS-Namenslisten getrennt**: Firmennamen (Betrug + In Abklärung) und Personennamen (nur aus Betrug / In Abklärung, nicht aus jedem offenen Fall) als eigene Downloads.
 - **Firmenanalyse Idle-Optik**: Begrüssung und Metrik-Pills in einer Zeile; Suche als Fokus (stärkerer Rahmen, solid «Analysieren»); Abstände enger, Block vertikal zentriert.

@@ -3201,13 +3201,15 @@ function personSilhouetteIcon(gender, isFormer, caseInvolved) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-function watchButtonHtml({ watched = false, name = "", residence = "" } = {}) {
+function watchButtonHtml({ watched = false, name = "", residence = "", demo = false } = {}) {
   const eye = `<svg class="ca-watch-ico" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const check = `<svg class="ca-watch-ico" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6L9 17l-5-5"/></svg>`;
+  const onTitle = demo ? "Auf der Liste" : "Bereits auf der Watchlist";
+  const offTitle = demo ? "Beobachten" : "Auf Watchlist setzen";
   if (watched) {
-    return `<button type="button" class="ca-person-watch is-on" disabled title="Bereits auf der Watchlist" aria-label="Bereits auf der Watchlist">${check}</button>`;
+    return `<button type="button" class="ca-person-watch is-on" disabled title="${escHtml(onTitle)}" aria-label="${escHtml(onTitle)}">${check}</button>`;
   }
-  return `<button type="button" class="ca-person-watch" data-watch="${escHtml(name)}" data-res="${escHtml(residence || "")}" title="Auf Watchlist setzen" aria-label="Auf Watchlist setzen">${eye}</button>`;
+  return `<button type="button" class="ca-person-watch" data-watch="${escHtml(name)}" data-res="${escHtml(residence || "")}" title="${escHtml(offTitle)}" aria-label="${escHtml(offTitle)}">${eye}</button>`;
 }
 
 /** SHAB/HR: Ausländer → Staatsangehörigkeit; Schweizer → Heimatort; selten → staatenlos. */
@@ -3238,9 +3240,35 @@ function personFact(label, value, { hint = "", skipAnon = false } = {}) {
   </div>`;
 }
 
-function renderPersonsTable(persons) {
+function personInitials(name) {
+  const parts = String(name || "")
+    .split(/[\s,]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function isDemoAnalysisUi(company) {
+  return (
+    !!document.getElementById("caPage")?.classList.contains("ca-page--demo-ui") ||
+    isDemoFirm(company || currentCompany)
+  );
+}
+
+function compactNationality(text) {
+  const raw = String(text || "").trim();
+  if (/^schweiz$/i.test(raw)) return "CH";
+  return raw;
+}
+
+function renderPersonsTable(persons, company) {
   const box = document.getElementById("personsBox");
   const list = persons || [];
+  const demo = isDemoAnalysisUi(company);
+  const seedName = String((company && company.name) || currentCompany?.name || "").trim().toLowerCase();
+  const seedUid = String((company && company.uid) || currentCompany?.uid || pendingUid || "").replace(/\D/g, "");
   if (!list.length) {
     box.innerHTML = `<p class="hr-empty">Keine Personen erkannt.<br>
       <span class="ca-muted-note">Personen kommen aus SHAB-Meldungen (Zefix <code>sogcPub</code>).
@@ -3251,6 +3279,14 @@ function renderPersonsTable(persons) {
   const former = list.filter((p) => p.status === "former");
   // Investigation: always surface formers when present (case/watchlist or organ change)
   const openFormers = former.length >= 1;
+
+  const isSeedFirm = (m) => {
+    const name = String(m.company || m.name || "").trim().toLowerCase();
+    const uid = String(m.uid || "").replace(/\D/g, "");
+    if (seedUid && uid && uid === seedUid) return true;
+    if (seedName && name && name === seedName) return true;
+    return false;
+  };
 
   const mandatesForPerson = (p) => {
     let mandates = Array.isArray(p.mandates) ? p.mandates : [];
@@ -3284,9 +3320,30 @@ function renderPersonsTable(persons) {
   };
 
   const renderMandates = (p) => {
-    const mandates = mandatesForPerson(p);
+    let mandates = mandatesForPerson(p);
     if (!mandates.length) return "";
     const level = Number(lastGraph?.level || lastAnalysis?.level || selectedDeepLevel) || 2;
+    if (demo) {
+      mandates = mandates.filter((m) => !isSeedFirm(m));
+      if (!mandates.length) return "";
+      const hasCurrent = mandates.some((m) => m.status !== "former");
+      const label = hasCurrent ? "Auch bei" : "Früher auch bei";
+      const ordered = [...mandates].sort((a, b) => {
+        const af = a.status === "former" ? 1 : 0;
+        const bf = b.status === "former" ? 1 : 0;
+        return af - bf;
+      });
+      const items = ordered.map((m) => {
+        const name = m.company || m.name || "—";
+        const formerChip = m.status === "former";
+        const tip = formerChip ? `${name} (früher)` : name;
+        return `<li class="ca-person-chip${formerChip ? " is-former" : ""}" title="${escHtml(tip)}">${escHtml(name)}</li>`;
+      }).join("");
+      return `<div class="ca-person-also">
+        <span class="ca-person-also-label">${escHtml(label)}</span>
+        <ul class="ca-person-chips" aria-label="${escHtml(label)}">${items}</ul>
+      </div>`;
+    }
     // Show mandate list after deeper scans; seed alone is already implied
     if (level < 3 && mandates.length <= 1) return "";
     const items = mandates.map((m) => {
@@ -3325,6 +3382,43 @@ function renderPersonsTable(persons) {
     const natHint = nat.inferred
       ? "Im Handelsregister steht bei Schweizern der Heimatort statt der Staatsangehörigkeit"
       : "";
+    const watch = watchButtonHtml({ watched: !!caseFlag, name, residence, demo });
+    const pill = caseFlag
+      ? `<span class="ca-case-pill" title="${escHtml(p.case_flag_label || "Fraudfall")}">${escHtml((p.case_flag_label || "Fraudfall").split(" / ")[0])}</span>`
+      : "";
+
+    if (demo) {
+      const natShort = compactNationality(nat.text);
+      const sameHeimat = heimatort && residence && heimatort.toLowerCase() === residence.toLowerCase();
+      const metaParts = [];
+      if (natShort) metaParts.push(`<span title="Staatsangehörigkeit">${escHtml(natShort)}</span>`);
+      if (residence) {
+        const resShow = typeof anon === "function" ? anon(residence, "place") : residence;
+        metaParts.push(`<span title="Wohnort">${escHtml(resShow)}</span>`);
+      }
+      if (heimatort && !sameHeimat) {
+        const homeShow = typeof anon === "function" ? anon(heimatort, "place") : heimatort;
+        metaParts.push(`<span title="Heimatort">Heimatort ${escHtml(homeShow)}</span>`);
+      }
+      if (p.status === "former" && periodLabel) {
+        metaParts.push(`<span title="Zeitraum">${escHtml(periodLabel)}</span>`);
+      }
+      return `<li class="ca-person-row${caseFlag ? " is-case-flagged" : ""}">
+        <div class="ca-person-head">
+          <span class="ca-person-avatar" aria-hidden="true">${escHtml(personInitials(showName))}</span>
+          <div class="ca-person-id">
+            <strong class="ca-person-name"><span>${escHtml(showName)}</span>
+              ${copyBtnHtml(copyName, `Name kopieren (${copyName || "—"})`)}
+              ${pill}
+            </strong>
+            ${roles.length ? `<p class="ca-person-roles">${roles.map((r) => escHtml(r)).join(" · ")}</p>` : ""}
+          </div>
+          ${watch}
+        </div>
+        ${metaParts.length ? `<p class="ca-person-meta">${metaParts.join("")}</p>` : ""}
+        ${renderMandates(p)}
+      </li>`;
+    }
 
     const facts = [
       personFact("Staatsangehörigkeit", nat.text, { hint: natHint, skipAnon: true }),
@@ -3337,9 +3431,9 @@ function renderPersonsTable(persons) {
       <div class="ca-person-top">
         <strong class="ca-person-name">${genderMark(p.gender || inferGenderFromRoles(p.roles))}<span>${escHtml(showName)}</span>
           ${copyBtnHtml(copyName, `Name kopieren (${copyName || "—"})`)}
-          ${caseFlag ? `<span class="ca-case-pill" title="${escHtml(p.case_flag_label || "Fraudfall")}">${escHtml((p.case_flag_label || "Fraudfall").split(" / ")[0])}</span>` : ""}
+          ${pill}
         </strong>
-        ${watchButtonHtml({ watched: !!caseFlag, name, residence })}
+        ${watch}
       </div>
       ${roles.length ? `<p class="ca-person-roles">${roles.map((r) => escHtml(r)).join(" · ")}</p>` : ""}
       ${facts.length ? `<dl class="ca-person-facts">${facts.join("")}</dl>` : ""}
@@ -3355,10 +3449,11 @@ function renderPersonsTable(persons) {
     </div>`;
   }
   if (former.length) {
+    const formerHint = demo ? "Früher in der Firma" : "Organ-Austritt · weitere Firmen prüfen";
     html += `<details class="ca-person-group ca-person-group-former"${openFormers ? " open" : ""}>
       <summary class="ca-former-summary">
         <span class="fraud-group-label">Ehemalig (${former.length})</span>
-        <span class="ca-former-hint">Organ-Austritt · weitere Firmen prüfen</span>
+        <span class="ca-former-hint">${escHtml(formerHint)}</span>
       </summary>
       <ul class="ca-persons-list ca-persons-former">${former.map(renderPersonItem).join("")}</ul>
     </details>`;
@@ -3373,7 +3468,7 @@ function renderPersonsTable(persons) {
         body: JSON.stringify({ display_name: btn.dataset.watch, residence: btn.dataset.res || null }),
       });
       await resp.json();
-      btn.outerHTML = watchButtonHtml({ watched: true });
+      btn.outerHTML = watchButtonHtml({ watched: true, demo });
     });
   });
 }
