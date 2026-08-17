@@ -32,6 +32,12 @@ let wizPaymentChoice = null;
 let l5PollTimer = null;
 /** @type {boolean} */
 let l5HitsDismissed = false;
+/** @type {boolean} */
+let l5GateBypassed = false;
+/** @type {object | null} */
+let l5LastData = null;
+/** @type {boolean} */
+let l5PostConfirmPrompted = false;
 
 function esc(s) {
   return String(s ?? "")
@@ -55,6 +61,75 @@ function stopL5Poll() {
   if (l5PollTimer) {
     clearInterval(l5PollTimer);
     l5PollTimer = null;
+  }
+}
+
+function isConfirmStep() {
+  return currentCase?.status === "under_review";
+}
+
+function isPostConfirmCase(c) {
+  const s = c?.status;
+  return s === "confirmed_fraud" || s === "ready_for_report" || s === "reported" || s === "closed";
+}
+
+function isPostConfirmStep() {
+  return isPostConfirmCase(currentCase);
+}
+
+function confirmGateBlocked(data) {
+  if (!isConfirmStep() || l5GateBypassed) return false;
+  const status = data?.status || "";
+  if (status === "running") return true;
+  if (status === "ready") {
+    const hits = Array.isArray(data?.hits) ? data.hits : [];
+    if (hits.length > 0 && !l5HitsDismissed) return true;
+  }
+  return false;
+}
+
+function updateConfirmGate(data) {
+  if (data) l5LastData = data;
+  const gate = document.getElementById("l5ConfirmGate");
+  const bypass = document.getElementById("l5BypassBtn");
+  const gateText = document.getElementById("l5ConfirmGateText");
+  const confirmBtn = document.getElementById("confirmFraudBtn");
+  const clearBtn = document.getElementById("clearCaseBtn");
+  const suspBtn = document.getElementById("markSuspiciousBtn");
+  const blocked = confirmGateBlocked(l5LastData);
+
+  if (!isConfirmStep()) {
+    gate?.classList.add("hidden");
+    bypass?.classList.add("hidden");
+    [confirmBtn, clearBtn, suspBtn].forEach((btn) => {
+      if (btn) btn.disabled = false;
+    });
+    return;
+  }
+
+  [confirmBtn, clearBtn, suspBtn].forEach((btn) => {
+    if (btn) btn.disabled = blocked;
+  });
+
+  if (blocked) {
+    gate?.classList.remove("hidden");
+    bypass?.classList.remove("hidden");
+    if (gateText) {
+      const status = l5LastData?.status || "";
+      const hits = l5LastData?.hits || [];
+      if (status === "running") {
+        gateText.textContent =
+          "Netzwerk-Suche läuft noch — bitte kurz warten, bevor du die Bestätigung abschliesst.";
+      } else if (hits.length) {
+        gateText.textContent =
+          `${hits.length} neue Treffer aus dem Netzwerk — bitte prüfen und übernehmen oder «Später» wählen.`;
+      } else {
+        gateText.textContent = "Netzwerk wird geladen — bitte kurz warten.";
+      }
+    }
+  } else {
+    gate?.classList.add("hidden");
+    bypass?.classList.add("hidden");
   }
 }
 
@@ -85,8 +160,11 @@ function renderNetworkL5(data) {
 
   if (status === "running") {
     title.textContent = "Netzwerk Suchweite 5 läuft";
-    text.textContent = "Im Hintergrund werden weitere Personen und Firmen gesucht — du kannst die Akte parallel ausfüllen.";
+    text.textContent = isConfirmStep() && !l5GateBypassed
+      ? "Weitere Personen und Firmen werden gesucht — Bestätigung ist freigegeben, sobald der Scan fertig ist."
+      : "Weitere Personen und Firmen werden gesucht — neue Treffer erscheinen automatisch.";
     hitsBox?.classList.add("hidden");
+    updateConfirmGate(data);
     return;
   }
 
@@ -103,12 +181,15 @@ function renderNetworkL5(data) {
         : "Keine zusätzlichen Treffer gegenüber der bisherigen Checkliste.";
     hitsBox?.classList.add("hidden");
     stopL5Poll();
+    updateConfirmGate(data);
     return;
   }
 
-  text.textContent = fraudDocumented
-    ? `${hits.length} neue Hinweise — Fraud bleibt aktiv; optional auf Watchlist / Checkliste übernehmen.`
-    : `${hits.length} neue Hinweise — optional auf Watchlist und Checkliste übernehmen.`;
+  text.textContent = isConfirmStep()
+    ? `${hits.length} neue Hinweise — bitte prüfen, dann Bestätigung abschliessen.`
+    : fraudDocumented
+      ? `${hits.length} neue Hinweise — Fraud bleibt aktiv; optional auf Watchlist / Checkliste übernehmen.`
+      : `${hits.length} neue Hinweise — optional auf Watchlist und Checkliste übernehmen.`;
   hitsBox?.classList.remove("hidden");
   if (hitsList) {
     hitsList.innerHTML = hits.map((h, i) => {
@@ -126,6 +207,7 @@ function renderNetworkL5(data) {
     hitsList._l5Hits = hits;
   }
   stopL5Poll();
+  updateConfirmGate(data);
 }
 
 async function fetchNetworkL5({ kick = true } = {}) {
@@ -133,6 +215,17 @@ async function fetchNetworkL5({ kick = true } = {}) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) return null;
   renderNetworkL5(data);
+  updateConfirmGate(data);
+  if (
+    data?.status === "ready"
+    && Array.isArray(data.hits)
+    && data.hits.length > 0
+    && isPostConfirmStep()
+    && !l5HitsDismissed
+    && !l5PostConfirmPrompted
+  ) {
+    await maybePromptL5Hits(currentCase, data);
+  }
   return data;
 }
 
@@ -144,6 +237,21 @@ function startL5PollIfNeeded(initial) {
       fetchNetworkL5({ kick: true });
     }, 4000);
   }
+}
+
+async function applyL5HitsItems(items) {
+  if (!items?.length) return null;
+  const r = await fetch(`/api/company-cases/${CASE_ID}/network-l5/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    setMsg(formatDetail(data.detail) || "Übernehmen fehlgeschlagen");
+    return null;
+  }
+  return data;
 }
 
 async function applySelectedL5Hits() {
@@ -158,22 +266,46 @@ async function applySelectedL5Hits() {
     setMsg("Mindestens einen Treffer auswählen");
     return;
   }
-  const r = await fetch(`/api/company-cases/${CASE_ID}/network-l5/apply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items: selected }),
-  });
-  const data = await r.json();
-  if (!r.ok) {
-    setMsg(formatDetail(data.detail) || "Übernehmen fehlgeschlagen");
-    return;
-  }
+  const data = await applyL5HitsItems(selected);
+  if (!data) return;
   setMsg(`${data.applied_count || 0} Treffer auf Watchlist / Checkliste übernommen`);
   const keepIdx = docsWizardIndex;
   renderCase(data);
   docsWizardIndex = keepIdx;
   renderDocsWizard(currentCase);
-  if (data.network_l5) renderNetworkL5(data.network_l5);
+  if (data.network_l5) {
+    renderNetworkL5(data.network_l5);
+    updateConfirmGate(data.network_l5);
+  }
+}
+
+async function maybePromptL5Hits(caseData, l5Data) {
+  if (!caseData || caseData.status === "cleared") return caseData;
+  const hits = Array.isArray(l5Data?.hits) ? l5Data.hits : [];
+  if (!hits.length || l5HitsDismissed || l5PostConfirmPrompted) return caseData;
+  if (!isPostConfirmCase(caseData)) return caseData;
+
+  l5PostConfirmPrompted = true;
+  const preview = hits.slice(0, 8).map((h) => {
+    const kind = h.kind === "company" ? "Firma" : "Person";
+    return `• ${kind}: ${h.label}`;
+  });
+  const more = hits.length > 8 ? `\n… und ${hits.length - 8} weitere` : "";
+  const go = confirm(
+    `${hits.length} neue Hinweise aus dem Netzwerk (Suchweite 5):\n\n${preview.join("\n")}${more}\n\nAuf Watchlist und Checkliste übernehmen?`
+  );
+  if (!go) {
+    l5HitsDismissed = true;
+    const text = document.getElementById("l5BannerText");
+    if (text) text.textContent = "Hinweis ausgeblendet — Treffer bleiben im Netzwerk-Cache.";
+    document.getElementById("l5HitsBox")?.classList.add("hidden");
+    return caseData;
+  }
+
+  const applied = await applyL5HitsItems(hits);
+  if (!applied) return caseData;
+  setMsg(`${applied.applied_count || 0} Netzwerk-Treffer auf Watchlist / Checkliste übernommen`);
+  return applied;
 }
 
 document.getElementById("l5ApplyHitsBtn")?.addEventListener("click", () => applySelectedL5Hits());
@@ -181,7 +313,18 @@ document.getElementById("l5DismissHitsBtn")?.addEventListener("click", () => {
   l5HitsDismissed = true;
   document.getElementById("l5HitsBox")?.classList.add("hidden");
   const text = document.getElementById("l5BannerText");
-  if (text) text.textContent = "Hinweis ausgeblendet — du kannst die Akte weiter ausfüllen.";
+  if (text) {
+    text.textContent = isConfirmStep()
+      ? "Treffer vorerst übersprungen — du kannst die Bestätigung jetzt abschliessen."
+      : "Hinweis ausgeblendet — du kannst die Akte weiter ausfüllen.";
+  }
+  updateConfirmGate(l5LastData);
+});
+
+document.getElementById("l5BypassBtn")?.addEventListener("click", () => {
+  l5GateBypassed = true;
+  updateConfirmGate(l5LastData);
+  setMsg("Bestätigung freigegeben — Netzwerk-Treffer können später noch übernommen werden.");
 });
 
 function isSuspiciousClose(c) {
@@ -909,6 +1052,8 @@ function renderCase(c) {
     renderDocsWizard(c);
   }
 
+  updateConfirmGate(l5LastData);
+
   if (c.status === "closed" || c.status === "cleared") {
     const audit = document.getElementById("caseAuditHint");
     const auditText = c.status === "cleared" && isSuspiciousClose(c)
@@ -939,6 +1084,10 @@ async function loadCase() {
     return;
   }
   docsWizardIndex = 0;
+  l5GateBypassed = false;
+  l5HitsDismissed = false;
+  l5PostConfirmPrompted = false;
+  l5LastData = null;
   const steps = docsWizardSteps(data);
   const firstOpen = steps.findIndex((s) => !s.done);
   if (firstOpen >= 0) docsWizardIndex = firstOpen;
@@ -983,7 +1132,20 @@ document.getElementById("confirmFraudBtn")?.addEventListener("click", async () =
   }
   docsWizardIndex = 0;
   const afterFormer = await maybeEnrollFormer(data);
-  renderCase(afterFormer);
+  const net = await fetchNetworkL5({ kick: false });
+  let afterL5 = afterFormer;
+  if (net?.hits?.length) {
+    afterL5 = await maybePromptL5Hits(afterFormer, net);
+  }
+  renderCase(afterL5);
+  if (afterL5 !== afterFormer) {
+    renderDocsWizard(currentCase);
+  } else {
+    renderDocsWizard(afterL5);
+  }
+  if (l5LastData?.status === "running") {
+    startL5PollIfNeeded(l5LastData);
+  }
 });
 
 async function saveHitContext({ silent } = {}) {

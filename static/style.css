@@ -4166,6 +4166,28 @@ body.scanning .scan-loader {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+  margin-top: 0.45rem;
+}
+.case-l5-confirm-gate {
+  margin: 0.65rem 0 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(251, 146, 60, 0.45);
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(154, 52, 18, 0.16);
+  color: #fde68a;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.case-l5-confirm-gate.hidden { display: none; }
+.case-l5-bypass {
+  display: block;
+  margin-top: 0.45rem;
+  padding: 0;
+  font-size: 0.82rem;
+}
+.case-confirm-btns button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 #downloadReportBtn {
   text-decoration: none;
@@ -10926,24 +10948,29 @@ body.watch-modal-open { overflow: hidden; }
   max-width: 14rem;
 }
 
-/* Analysis results: quieter chrome (graph first, compact actions). */
+/* Analysis results: graph first, layer deepen controls under the graph. */
 .ca-demo-graph-foot { display: none; }
+
+#caResults:not(.hidden) .ca-demo-graph-foot,
 .ca-page--demo-ui .ca-demo-graph-foot {
   display: flex !important;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem 0.85rem;
   padding: 0.55rem 0.8rem;
+  margin-top: 0.45rem;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--c-bg) 40%, var(--c-card));
-  order: 3;
 }
+
+#caResults:not(.hidden) .ca-demo-graph-foot p,
 .ca-page--demo-ui .ca-demo-graph-foot p {
   margin: 0;
   font-size: 0.82rem;
   color: var(--c-muted);
 }
+
 .ca-demo-link {
   border: 0;
   background: none;
@@ -10955,26 +10982,37 @@ body.watch-modal-open { overflow: hidden; }
   padding: 0;
 }
 .ca-demo-link:disabled { opacity: 0.55; cursor: default; }
+
+#caResults:not(.hidden) .ca-graph-col,
 .ca-page--demo-ui .ca-graph-col {
   display: flex;
   flex-direction: column;
 }
-.ca-page--demo-ui .fraud-graph-toolbar { order: 0; }
-.ca-page--demo-ui .ca-graph-status { order: 1; }
-.ca-page--demo-ui .ca-graph-stage { order: 2; }
-.ca-page--demo-ui .ca-graph-legend { order: 4; }
-.ca-page--demo-ui .ca-suchweite { order: 5; }
-.ca-page--demo-ui .ca-suchweite.is-collapsed {
-  display: none;
+
+/* Suchweite-Picker oben ausblenden — nur über «Tiefer suchen» unten. */
+#caResults:not(.hidden) .ca-suchweite,
+.ca-page--demo-ui .ca-suchweite {
+  display: none !important;
 }
+#caResults:not(.hidden).ca-suchweite-expert .ca-suchweite,
+.ca-page--demo-ui.ca-suchweite-expert .ca-suchweite {
+  display: block !important;
+  margin-top: 0.55rem;
+}
+
+#caResults:not(.hidden) .ca-graph-canvas,
 .ca-page--demo-ui .ca-graph-canvas {
   height: min(58vh, 560px) !important;
   min-height: 28rem;
   max-height: 70vh;
 }
+
+#caResults:not(.hidden) .ca-workspace,
 .ca-page--demo-ui .ca-workspace {
   min-height: min(70vh, 720px);
 }
+
+#caResults:not(.hidden) .ca-side,
 .ca-page--demo-ui .ca-side {
   min-height: min(70vh, 720px);
   max-height: min(70vh, 720px);

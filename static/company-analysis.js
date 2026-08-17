@@ -132,9 +132,10 @@ function updateDemoGraphFoot() {
   }
 }
 
-/** Ruhigere Analyse-Ansicht (Graph zuerst, weniger Aktionen) — für alle Firmen. */
+/** Ruhigere Analyse-Ansicht (Graph zuerst, Layer-Laden unten) — für alle Firmen. */
 function setAnalysisUi(on) {
   const page = document.getElementById("caPage") || document.querySelector(".ca-page");
+  const results = document.getElementById("caResults");
   page?.classList.toggle("ca-page--demo-ui", !!on);
   const tl = document.querySelector('.ca-side-tab[data-side="timeline"]');
   const det = document.querySelector('.ca-side-tab[data-side="details"]');
@@ -144,8 +145,18 @@ function setAnalysisUi(on) {
     applySuchweiteExpanded(false, { persist: false });
     updateDemoGraphFoot();
   } else {
+    results?.classList.remove("ca-suchweite-expert");
     applySuchweiteExpanded(readSuchweiteExpanded(), { persist: false });
   }
+}
+
+function isAnalysisResultsVisible() {
+  const results = document.getElementById("caResults");
+  return !!results && !results.classList.contains("hidden");
+}
+
+function syncAnalysisUi() {
+  if (isAnalysisResultsVisible()) setAnalysisUi(true);
 }
 
 function applySuchweiteExpanded(expanded, { persist = true } = {}) {
@@ -1901,6 +1912,8 @@ async function runDeepAnalyze(level, maxPersonSearches, { forceRefresh = false }
         );
       }
     }
+    updateDemoGraphFoot();
+    syncAnalysisUi();
   } catch (err) {
     stopDeepProgress();
     hideDeepCacheBar();
@@ -2171,7 +2184,11 @@ function hideNotify() {
 
 function renderSearchResults(data) {
   const company = data.company || {};
-  applySuchweiteExpanded(readSuchweiteExpanded(), { persist: false });
+  if (isAnalysisResultsVisible()) {
+    setAnalysisUi(true);
+  } else {
+    applySuchweiteExpanded(readSuchweiteExpanded(), { persist: false });
+  }
   renderFirmBar(company, data);
   const warnings = [...(data.warnings || [])];
   if (currentCaseHit) {
@@ -4428,6 +4445,7 @@ document.getElementById("caDemoDeepen")?.addEventListener("click", () => {
   deepAnalyze();
 });
 document.getElementById("caDemoExpert")?.addEventListener("click", () => {
+  document.getElementById("caResults")?.classList.add("ca-suchweite-expert");
   setSuchweiteExpanded(true);
   document.getElementById("caSuchweite")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 });

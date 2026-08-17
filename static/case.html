@@ -88,7 +88,11 @@
       <div class="fraud-panel-head"><h2>Bestätigung</h2></div>
       <p class="fraud-help">
         Interne Einschätzung festhalten: Betrug bestätigt, entkräftet, oder als verdächtig (In Abklärung) markieren.
-        Netzwerk-Prüfung in der Firmenanalyse ist ein Bonus, keine Pflicht.
+        Während die Netzwerk-Suche läuft, ist die Bestätigung gesperrt — ausser du wählst «Trotzdem fortfahren».
+      </p>
+      <p id="l5ConfirmGate" class="case-l5-confirm-gate hidden" role="status">
+        <span id="l5ConfirmGateText"></span>
+        <button type="button" class="btn-nav case-l5-bypass" id="l5BypassBtn">Trotzdem fortfahren (ohne Netzwerk-Treffer)</button>
       </p>
       <div class="case-confirm-block" id="confirmActions">
         <label class="case-confirm-label" for="fraudType">Betrugsart</label>
@@ -145,6 +149,6 @@
     </section>
   </div>
   <script src="/static/ui-common.js"></script>
-  <script src="/static/case.js"></script>
+  <script src="/static/case.js?v=case-l5-gate-20260818"></script>
 </body>
 </html>

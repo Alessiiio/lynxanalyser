@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/style.css?v=demo-ui-20260818">
+  <link rel="stylesheet" href="/static/style.css?v=demo-ui-20260818b">
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
@@ -123,30 +123,6 @@
             <div id="caNextStepHint" class="ca-next-step ca-next-step--compact hidden" role="status"></div>
             <div id="caDeepCacheBar" class="ca-deep-cache-bar hidden" role="status"></div>
           </div>
-          <div class="ca-suchweite is-collapsed" id="caSuchweite" aria-label="Suchweite">
-            <div class="ca-suchweite-bar">
-              <button type="button" class="ca-suchweite-toggle" id="caSuchweiteToggle"
-                aria-expanded="false" aria-controls="caSuchweiteBody">
-                <span class="ca-suchweite-summary" id="suchweiteCurrent">Suchweite 2 · Register</span>
-                <span class="ca-suchweite-toggle-label" id="caSuchweiteToggleLabel">Suchweite wählen</span>
-                <svg class="ca-suchweite-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M4 6l4 4 4-4"/>
-                </svg>
-              </button>
-              <div class="ca-suchweite-bar-actions">
-                <button type="button" class="btn-nav ca-suchweite-mini-extend hidden" id="caSuchweiteMiniExtend"
-                  title="Suchweite 3 wählen (Mandate der aktuellen Organe)">Netzwerk erweitern</button>
-              </div>
-            </div>
-            <div class="ca-suchweite-body" id="caSuchweiteBody" hidden>
-              <div class="ca-suchweite-phases" id="caSuchweitePhases">
-                <!-- filled by company-analysis.js -->
-              </div>
-              <div class="ca-suchweite-footer">
-                <button type="button" class="btn-check ca-suchweite-cta" id="deepBtn">Mit dieser Suchweite laden</button>
-              </div>
-            </div>
-          </div>
           <div class="ca-graph-stage">
             <div id="caGraph" class="hr-graph-canvas ca-graph-canvas"></div>
             <div class="ca-graph-controls" aria-label="Graph-Steuerung">
@@ -181,6 +157,30 @@
             <li><span class="ca-leg-swatch ca-leg-former"></span><span>Ehemalig (Person / Kante)</span></li>
             <li><span class="ca-leg-swatch ca-leg-case" aria-hidden="true">⚠</span><span>Fall / Watchlist</span></li>
           </ul>
+          <div class="ca-suchweite is-collapsed" id="caSuchweite" aria-label="Suchweite">
+            <div class="ca-suchweite-bar">
+              <button type="button" class="ca-suchweite-toggle" id="caSuchweiteToggle"
+                aria-expanded="false" aria-controls="caSuchweiteBody">
+                <span class="ca-suchweite-summary" id="suchweiteCurrent">Suchweite 2 · Register</span>
+                <span class="ca-suchweite-toggle-label" id="caSuchweiteToggleLabel">Suchweite wählen</span>
+                <svg class="ca-suchweite-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 6l4 4 4-4"/>
+                </svg>
+              </button>
+              <div class="ca-suchweite-bar-actions">
+                <button type="button" class="btn-nav ca-suchweite-mini-extend hidden" id="caSuchweiteMiniExtend"
+                  title="Suchweite 3 wählen (Mandate der aktuellen Organe)">Netzwerk erweitern</button>
+              </div>
+            </div>
+            <div class="ca-suchweite-body" id="caSuchweiteBody" hidden>
+              <div class="ca-suchweite-phases" id="caSuchweitePhases">
+                <!-- filled by company-analysis.js -->
+              </div>
+              <div class="ca-suchweite-footer">
+                <button type="button" class="btn-check ca-suchweite-cta" id="deepBtn">Mit dieser Suchweite laden</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <aside class="ca-side">
@@ -221,7 +221,7 @@
 
   <script src="/static/ui-common.js"></script>
   <script src="/static/cantons.js"></script>
-  <script src="/static/company-analysis.js?v=demo-ui-20260818"></script>
+  <script src="/static/company-analysis.js?v=demo-ui-20260818b"></script>
   <script src="/static/profiler-enter.js"></script>
 </body>
 </html>
