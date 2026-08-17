@@ -146,6 +146,16 @@ WATCHLIST_SCAN_MANUAL_LIMIT: int = max(
 WATCHLIST_SCAN_HIGH_PRIORITY_CAP: int = max(
     1, min(200, int(os.getenv("WATCHLIST_SCAN_HIGH_PRIORITY_CAP", "50") or "50"))
 )
+# Firmen-Watchlist: rolling L3 cache refresh (night + Admin-Button)
+COMPANY_CACHE_FRESH_DAYS: int = max(
+    1, min(7, int(os.getenv("COMPANY_CACHE_FRESH_DAYS", "3") or "3"))
+)
+COMPANY_CACHE_REFRESH_BATCH: int = max(
+    1, min(40, int(os.getenv("COMPANY_CACHE_REFRESH_BATCH", "8") or "8"))
+)
+COMPANY_CACHE_REFRESH_MANUAL: int = max(
+    1, min(20, int(os.getenv("COMPANY_CACHE_REFRESH_MANUAL", "5") or "5"))
+)
 
 # Daily CH-wide SHAB archive (ZefixREST) — complementary to Moneyhouse watchlist scans.
 # See docs/SHAB_DAILY_WATCHLIST.md. Default off so local/dev does not hit the API.

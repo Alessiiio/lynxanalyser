@@ -255,3 +255,12 @@ def test_compact_scan_includes_graph_and_via():
     assert len(related) == 1
     assert related[0]["name"] == "Beta GmbH"
     assert "Muster, Max" in related[0]["via"]
+
+
+def test_source_label_plain_language():
+    from app.hr_network.watched_companies import source_label
+
+    assert source_label("bulk_scan") == "Scan"
+    assert source_label("under_investigation") == "Abklärung"
+    assert source_label("case_open") == "Fall"
+    assert source_label("manual") == "Manuell"

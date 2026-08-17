@@ -76,19 +76,39 @@ def start_monitoring_scheduler() -> None:
         except Exception:
             logger.exception("SHAB daily ingest job failed")
 
+    async def _company_cache_job() -> None:
+        import config
+        from app.hr_network.company_cache_refresh import refresh_watched_company_caches
+
+        try:
+            result = await refresh_watched_company_caches(
+                limit=config.COMPANY_CACHE_REFRESH_BATCH
+            )
+            logger.info(
+                "Company cache refresh: refreshed=%s queued=%s errors=%s",
+                result.get("refreshed"),
+                result.get("queued"),
+                len(result.get("errors") or []),
+            )
+        except Exception:
+            logger.exception("Company cache refresh job failed")
+
     scheduler.add_job(_job, "cron", hour=4, minute=15, id="person_watch_daily")
     # After MH batch (04:15): CH-wide SHAB day archive (+ optional watchlist match)
     scheduler.add_job(_shab_daily_job, "cron", hour=5, minute=45, id="shab_daily_ingest")
+    scheduler.add_job(_company_cache_job, "cron", hour=6, minute=15, id="company_watch_cache_daily")
     scheduler.start()
     _scheduler = scheduler
     import config as _cfg
 
     logger.info(
         "Person monitoring scheduler started (daily 04:15, "
-        "high-prio cap=%s + rolling batch=%s; SHAB daily 05:45 ingest=%s)",
+        "high-prio cap=%s + rolling batch=%s; SHAB daily 05:45 ingest=%s; "
+        "company cache 06:15 batch=%s)",
         _cfg.WATCHLIST_SCAN_HIGH_PRIORITY_CAP,
         _cfg.WATCHLIST_SCAN_BATCH,
         "on" if _cfg.SHAB_DAILY_INGEST else "off",
+        _cfg.COMPANY_CACHE_REFRESH_BATCH,
     )
 
 

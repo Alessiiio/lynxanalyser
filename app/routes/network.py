@@ -988,6 +988,18 @@ async def api_delete_watched_companies(
     return await delete_watched_companies(body.ids)
 
 
+@router.post("/api/watched-companies/refresh-cache")
+async def api_refresh_watched_company_caches(
+    _user: User = Depends(require_role("admin")),
+    limit: Optional[int] = Query(None, ge=1, le=20),
+):
+    import config
+    from app.hr_network.company_cache_refresh import refresh_watched_company_caches
+
+    cap = limit if limit is not None else config.COMPANY_CACHE_REFRESH_MANUAL
+    return await refresh_watched_company_caches(limit=cap)
+
+
 @router.post("/api/watchlist/bulk-add")
 async def api_watchlist_bulk_add(
     body: WatchlistBulkAddBody,

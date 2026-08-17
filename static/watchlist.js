@@ -44,6 +44,8 @@ async function loadMe() {
   if (bulkBtn && currentUserRole === "admin") bulkBtn.classList.remove("hidden");
   const highPrioBtn = document.getElementById("runHighPriorityBtn");
   if (highPrioBtn && currentUserRole === "admin") highPrioBtn.classList.remove("hidden");
+  const cacheBtn = document.getElementById("refreshCompanyCacheBtn");
+  if (cacheBtn && currentUserRole === "admin") cacheBtn.classList.remove("hidden");
   if (data.settings && typeof applyAnonymizeMode === "function") {
     applyAnonymizeMode(!!data.settings.anonymize_mode, { silent: true });
   }
@@ -677,11 +679,13 @@ function setCompanyMsg(msg) {
 async function loadCompanies() {
   const q = document.getElementById("companySearch")?.value.trim() || "";
   const status = document.getElementById("companyStatusFilter")?.value || "active";
+  const source = document.getElementById("companySourceFilter")?.value || "";
   const qs = new URLSearchParams({ status, limit: "200" });
   if (q) qs.set("q", q);
+  if (source) qs.set("source_reason", source);
   const resp = await fetch(`/api/watched-companies?${qs}`);
   if (!resp.ok) {
-    setCompanyMsg("Firmen-Watchlist nicht ladbar");
+    setCompanyMsg("Liste nicht ladbar");
     return;
   }
   const data = await resp.json();
@@ -690,18 +694,31 @@ async function loadCompanies() {
   document.getElementById("companyBadge").textContent = String(data.total || items.length);
   const el = document.getElementById("companyList");
   if (!items.length) {
-    el.innerHTML = `<p class="fraud-help">Noch keine Firmen auf der Watchlist.</p>`;
+    el.innerHTML = `<p class="fraud-help">Keine Firmen.</p>`;
     return;
   }
   el.innerHTML = items
     .map((c) => {
       const checked = companySelected.has(c.id) ? "checked" : "";
+      const qs = new URLSearchParams();
+      if (c.company_name) qs.set("company", c.company_name);
+      if (c.company_uid) qs.set("uid", c.company_uid);
+      qs.set("deep", "3");
+      const href = `/?${qs}`;
+      const place = c.legal_seat || (c.address || "").split(",").pop()?.trim() || "";
+      const metaBits = [c.company_uid, place].filter(Boolean);
+      const cacheState = c.cache_state || "missing";
+      const cacheLabel = c.cache_label || "offen";
       return `<div class="watch-person-row watch-company-row">
         <label class="watch-merge-label"><input type="checkbox" data-company-id="${c.id}" ${checked} /></label>
-        <div class="watch-person-summary">
+        <a class="watch-company-open" href="${esc(href)}">
           <strong>${esc(d(c.company_name, "company"))}</strong>
-          <span class="fraud-entry-meta">${esc(c.company_uid || "—")} · ${esc(c.address || c.legal_seat || "keine Adresse")} · ${esc(c.source_reason || "")}</span>
-        </div>
+          <span class="fraud-entry-meta">${esc(metaBits.join(" · ") || "—")}</span>
+        </a>
+        <span class="watch-company-flags">
+          <span class="watch-meta-pill">${esc(c.source_label || "Watchlist")}</span>
+          <span class="watch-cache watch-cache--${esc(cacheState)}">${esc(cacheLabel)}</span>
+        </span>
         <button type="button" class="btn-nav" data-clear-company="${c.id}">Archivieren</button>
       </div>`;
     })
@@ -714,7 +731,9 @@ async function loadCompanies() {
     });
   });
   el.querySelectorAll("[data-clear-company]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       const id = Number(btn.dataset.clearCompany);
       const r = await fetch(`/api/watched-companies/${id}/status`, {
         method: "PATCH",
@@ -1554,17 +1573,42 @@ document.getElementById("deletePersonsBtn")?.addEventListener("click", async () 
   loadCases();
 });
 
-document.getElementById("refreshCompaniesBtn")?.addEventListener("click", loadCompanies);
 document.getElementById("companyStatusFilter")?.addEventListener("change", loadCompanies);
+document.getElementById("companySourceFilter")?.addEventListener("change", loadCompanies);
 let companySearchTimer = null;
 document.getElementById("companySearch")?.addEventListener("input", () => {
   clearTimeout(companySearchTimer);
   companySearchTimer = setTimeout(loadCompanies, 250);
 });
+document.getElementById("refreshCompanyCacheBtn")?.addEventListener("click", async () => {
+  const btn = document.getElementById("refreshCompanyCacheBtn");
+  if (btn) btn.disabled = true;
+  setCompanyMsg("Profile werden geladen…");
+  try {
+    const r = await fetch("/api/watched-companies/refresh-cache", { method: "POST" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setCompanyMsg(formatDetail(d.detail) || "Laden fehlgeschlagen");
+      return;
+    }
+    const n = d.refreshed || 0;
+    const err = (d.errors || []).length;
+    setCompanyMsg(
+      n
+        ? `${n} Profil${n === 1 ? "" : "e"} geladen` + (err ? ` · ${err} ohne Treffer` : "")
+        : err
+          ? "Keine neuen Profile"
+          : "Alle Profile sind aktuell"
+    );
+    await loadCompanies();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
 document.getElementById("deleteCompaniesBtn")?.addEventListener("click", async () => {
   const ids = [...companySelected];
   if (!ids.length) {
-    setCompanyMsg("Mindestens eine Firma auswählen");
+    setCompanyMsg("Bitte eine Firma ankreuzen");
     return;
   }
   if (!confirm(`${ids.length} Firma(en) von der Watchlist löschen?`)) return;

@@ -8941,6 +8941,31 @@ div.vis-tooltip {
   font-size: 0.85rem;
 }
 .watch-company-row { align-items: center; }
+.watch-company-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  color: inherit;
+  text-decoration: none;
+}
+.watch-company-open:hover strong { color: var(--c-primary, #00d4ff); }
+.watch-company-flags {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+.watch-cache {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+.watch-cache--fresh { color: var(--c-primary, #00d4ff); }
+.watch-cache--stale { color: var(--c-orange, #f59e0b); }
+.watch-cache--missing { color: var(--c-muted); }
 .watch-flag-box {
   margin-top: 0.75rem;
   display: grid;

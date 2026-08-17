@@ -4389,6 +4389,42 @@ document.getElementById("caDemoFraudBtn")?.addEventListener("click", () => {
   loadDemoFraudFirm();
 });
 
+async function openFromWatchlist() {
+  const name = (document.getElementById("companyInput")?.value || "").trim();
+  const uid = (pendingUid || "").trim();
+  if (!name && !uid) return;
+  currentCompany = { name, uid };
+  sessionIdentityOverrides = [];
+  hideError();
+  const page = document.getElementById("caPage") || document.querySelector(".ca-page");
+  if (page?.classList.contains("is-idle")) page.classList.add("is-analyzing");
+  showStatus("Lade Profil…");
+  try {
+    await runDeepAnalyze(3, 4);
+    const seed = (lastGraph?.seed_companies || [])[0] || {};
+    currentCompany = {
+      name: seed.name || name,
+      uid: seed.uid || uid,
+      address: seed.address || "",
+      legal_seat: seed.legal_seat || "",
+      ehraid: seed.ehraid,
+    };
+    lastAnalysis = { ...(lastGraph || {}), company: currentCompany };
+    currentCaseHit = await ensureCaseLookup(currentCompany);
+    currentCompanyTag = await ensureCompanyTagLookup(currentCompany);
+    renderSearchResults(lastAnalysis);
+    loadedDeepLevel = 3;
+    setDeepLevel(3);
+    rememberSearch(currentCompany);
+    syncForceRefreshBtn();
+    await transitionToResults();
+    refreshCompanyCacheOffer();
+  } catch (err) {
+    showError(err.message);
+    await transitionToIdle();
+  }
+}
+
 const params = new URLSearchParams(location.search);
 if (params.get("tab") === "cases" || params.get("tab") === "list") {
   location.replace("/cases");
@@ -4407,7 +4443,11 @@ if (demoKey === "fraud" || demoKey === "demo-fraud" || demoKey === "demo_fraud")
 } else if (params.get("company") || params.get("uid")) {
   if (params.get("company")) companyInput.value = params.get("company");
   pendingUid = params.get("uid") || "";
-  quickAnalyze();
+  if ((params.get("deep") || "") === "3" || (params.get("watch") || "") === "1") {
+    openFromWatchlist();
+  } else {
+    quickAnalyze();
+  }
 }
 loadCompanyTagsFromServer();
 loadCompanyCasesFromServer();

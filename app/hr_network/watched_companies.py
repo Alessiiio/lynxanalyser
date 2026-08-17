@@ -11,11 +11,59 @@ from typing import Any
 from sqlalchemy import select
 
 from app.database import WatchedCompany, async_session
+from app.hr_network.fraud_network_cache import cached_at_iso, load_cached_for_company
 
 SOURCE_UNDER_INVESTIGATION = "under_investigation"
 SOURCE_CASE_OPEN = "case_open"
 SOURCE_BULK_SCAN = "bulk_scan"
 SOURCE_MANUAL = "manual"
+
+SOURCE_LABELS = {
+    SOURCE_BULK_SCAN: "Scan",
+    SOURCE_UNDER_INVESTIGATION: "Abklärung",
+    SOURCE_CASE_OPEN: "Fall",
+    SOURCE_MANUAL: "Manuell",
+}
+
+CACHE_LEVEL = 3
+
+
+def source_label(reason: str | None) -> str:
+    key = (reason or "").strip()
+    return SOURCE_LABELS.get(key, "Watchlist")
+
+
+def _parse_cached_at(iso: str | None) -> datetime | None:
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def company_cache_info(
+    *,
+    company_name: str | None,
+    company_uid: str | None,
+    fresh_days: int = 3,
+) -> dict[str, Any]:
+    hit, key = load_cached_for_company(
+        level=CACHE_LEVEL, company_name=company_name, company_uid=company_uid
+    )
+    if hit is None or not key:
+        return {"cache_state": "missing", "cache_label": "offen", "cached_at": None}
+    at = cached_at_iso(key)
+    parsed = _parse_cached_at(at)
+    age_days = 999.0
+    if parsed is not None:
+        now = datetime.now(timezone.utc)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        age_days = max(0.0, (now - parsed).total_seconds() / 86400)
+    if age_days <= max(1, int(fresh_days)):
+        return {"cache_state": "fresh", "cache_label": "bereit", "cached_at": at}
+    return {"cache_state": "stale", "cache_label": "älter", "cached_at": at}
 
 
 def _uid_digits(uid: str | None) -> str:
@@ -37,7 +85,7 @@ def _iso_utc(dt: datetime | None) -> str | None:
 
 
 def company_row_dict(row: WatchedCompany) -> dict[str, Any]:
-    return {
+    out = {
         "id": row.id,
         "company_name": row.company_name or "",
         "company_uid": row.company_uid or "",
@@ -45,11 +93,26 @@ def company_row_dict(row: WatchedCompany) -> dict[str, Any]:
         "address": row.address or "",
         "legal_seat": row.legal_seat or "",
         "source_reason": row.source_reason or "",
+        "source_label": source_label(row.source_reason),
         "status": row.status or "active",
         "added_at": _iso_utc(row.added_at),
         "added_by": row.added_by or "",
         "notes": row.notes or "",
     }
+    try:
+        import config
+
+        fresh_days = int(getattr(config, "COMPANY_CACHE_FRESH_DAYS", 3) or 3)
+    except Exception:
+        fresh_days = 3
+    out.update(
+        company_cache_info(
+            company_name=out["company_name"],
+            company_uid=out["company_uid"],
+            fresh_days=fresh_days,
+        )
+    )
+    return out
 
 
 def find_watched_company_match(
