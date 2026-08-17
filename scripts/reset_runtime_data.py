@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Reset operational firm/case/scan data to a virgin state. Keeps users."""
+"""Reset operational firm/case/scan data to a virgin state. Keeps users.
+
+  python scripts/reset_runtime_data.py
+  python scripts/reset_runtime_data.py --also-lists   # also empty goldlist/blocklist
+"""
 
 from __future__ import annotations
 
-import os
+import argparse
 import shutil
 import sqlite3
 import sys
@@ -43,12 +47,14 @@ WIPE_TABLES = (
     "check_details",
     "scan_history",
     "analyst_feedback",
+    "audit_events",
 )
 
 DIR_WIPES = (
     ROOT / "case_reports",
     ROOT / "compliance_reports",
     ROOT / "data" / "shab_month_cache",
+    ROOT / "data" / "fraud_network_cache",
 )
 
 
@@ -60,6 +66,7 @@ def wipe_db() -> None:
     try:
         cur = conn.cursor()
         cur.execute("PRAGMA foreign_keys = OFF")
+        cleared = []
         for table in WIPE_TABLES:
             cur.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -70,6 +77,17 @@ def wipe_db() -> None:
                 continue
             cur.execute(f"DELETE FROM {table}")
             print(f"  cleared {table} ({cur.rowcount} rows)")
+            cleared.append(table)
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'"
+        )
+        if cur.fetchone() and cleared:
+            qmarks = ",".join("?" * len(cleared))
+            cur.execute(
+                f"DELETE FROM sqlite_sequence WHERE name IN ({qmarks})",
+                cleared,
+            )
+            print("  autoincrement counters reset")
         cur.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='app_settings'"
         )
@@ -85,6 +103,12 @@ def wipe_db() -> None:
                 )
             print("  anonymize_mode → false")
         conn.commit()
+    finally:
+        conn.close()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("VACUUM")
+        print("  vacuumed")
     finally:
         conn.close()
 
@@ -116,12 +140,20 @@ def wipe_lists() -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Hard-reset watchlist, cases, scans. Keeps users.")
+    parser.add_argument(
+        "--also-lists",
+        action="store_true",
+        help="Also empty goldlist.txt and blocklist.json",
+    )
+    args = parser.parse_args()
     print(f"Resetting runtime data under {ROOT}")
     print(f"Database: {DB_PATH}")
     wipe_db()
     wipe_dirs()
-    wipe_lists()
-    print("Done. Users preserved; firm/case/scan data cleared.")
+    if args.also_lists:
+        wipe_lists()
+    print("Done. Users preserved; firm/case/watchlist/scan data cleared.")
     return 0
 
 

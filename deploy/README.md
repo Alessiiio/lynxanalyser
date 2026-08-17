@@ -50,6 +50,15 @@ Caddy obtains a Let’s Encrypt certificate for `$DOMAIN` automatically.
 
 ## Reset operational data (keeps users)
 
+On the VPS, after rsync of the latest `scripts/`:
+
+```bash
+cd /opt/lynx
+bash scripts/hard-reset-server.sh
+```
+
+Type `RESET` to confirm. Equivalent without the wrapper:
+
 ```bash
 docker compose exec app python scripts/reset_runtime_data.py
 ```
