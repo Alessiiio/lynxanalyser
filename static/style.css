@@ -8825,6 +8825,99 @@ div.vis-tooltip {
 }
 .watch-bulk-results { margin-top: 0.75rem; }
 .watch-bulk-row--person td { color: var(--c-muted); }
+.watch-bulk-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.watch-bulk-review {
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-card, var(--c-surface, #12141a));
+  padding: 1rem 1.1rem 1.15rem;
+}
+.watch-bulk-review-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+.watch-bulk-review-kicker {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+.watch-bulk-review-head h3 {
+  margin: 0.2rem 0 0.15rem;
+  font-size: 1.15rem;
+}
+.watch-bulk-section {
+  margin-top: 0.85rem;
+}
+.watch-bulk-section h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.watch-bulk-section-tools {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.watch-bulk-section-tools button {
+  background: none;
+  border: 0;
+  color: var(--c-primary, #00d4ff);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+.watch-bulk-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  margin-bottom: 0.35rem;
+  cursor: pointer;
+}
+.watch-bulk-pick:hover {
+  border-color: color-mix(in srgb, var(--c-primary, #00d4ff) 45%, var(--c-border));
+}
+.watch-bulk-pick.is-on {
+  border-color: var(--c-primary, #00d4ff);
+  background: color-mix(in srgb, var(--c-primary, #00d4ff) 8%, transparent);
+}
+.watch-bulk-pick input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+.watch-bulk-pick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.watch-bulk-pick-body strong { font-weight: 600; }
+.watch-bulk-miss {
+  margin-top: 0.75rem;
+  color: var(--c-muted);
+  font-size: 0.85rem;
+}
 .watch-company-row { align-items: center; }
 .watch-flag-box {
   margin-top: 0.75rem;

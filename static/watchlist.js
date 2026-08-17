@@ -27,6 +27,10 @@ let currentDossier = null;
 let currentUserRole = "";
 let bulkPollTimer = null;
 let bulkJobId = null;
+let bulkJobCache = null;
+let bulkReviewIndex = 0;
+let bulkPicks = new Map();
+let bulkHydrated = new Set();
 
 async function loadMe() {
   const resp = await fetch("/api/me");
@@ -737,56 +741,382 @@ function setBulkStatus(msg) {
   if (el) el.textContent = msg || "";
 }
 
-function renderBulkResults(job) {
-  const wrap = document.getElementById("bulkResults");
+function resetBulkReview() {
+  bulkReviewIndex = 0;
+  bulkPicks = new Map();
+  bulkHydrated = new Set();
+  bulkJobCache = null;
+}
+
+function matchedBulkItems(job) {
+  return (job.items || []).filter((it) => it.status === "matched");
+}
+
+function missedBulkItems(job) {
+  return (job.items || []).filter((it) => it.status !== "matched");
+}
+
+function companyPickKey(itemId, uid, name) {
+  return `c:${itemId}:${String(uid || name || "").toLowerCase()}`;
+}
+
+function personPickKey(itemId, name, residence) {
+  return `p:${itemId}:${String(name || "").toLowerCase()}:${String(residence || "").toLowerCase()}`;
+}
+
+function seedFromItem(it) {
+  const company = (it.result && it.result.company) || {};
+  return {
+    name: company.name || it.resolved_name || it.input_name || "",
+    uid: company.uid || it.resolved_uid || "",
+    address: company.address || it.address || "",
+    seat: company.legal_seat || it.legal_seat || "",
+    ehraid: company.ehraid || it.ehraid || "",
+  };
+}
+
+function companyEntry(seed) {
+  return {
+    type: "company",
+    company_name: seed.name,
+    company_uid: seed.uid || null,
+    address: seed.address || null,
+    legal_seat: seed.seat || null,
+    company_ehraid: seed.ehraid ? Number(seed.ehraid) : null,
+  };
+}
+
+function personEntry(p, seed) {
+  return {
+    type: "person",
+    display_name: p.name,
+    residence: p.residence || null,
+    source_company_name: seed.name || null,
+    source_company_uid: seed.uid || null,
+    company_ehraid: seed.ehraid ? Number(seed.ehraid) : null,
+    role: (p.roles || []).join(", ") || null,
+  };
+}
+
+function hydrateItemPicks(it) {
+  if (bulkHydrated.has(it.id)) return;
+  bulkHydrated.add(it.id);
+  const seed = seedFromItem(it);
+  bulkPicks.set(companyPickKey(it.id, seed.uid, seed.name), companyEntry(seed));
+  const persons = (it.result && it.result.persons) || [];
+  persons
+    .filter((p) => p && p.name && (p.status || "current") === "current")
+    .forEach((p) => {
+      bulkPicks.set(personPickKey(it.id, p.name, p.residence), personEntry(p, seed));
+    });
+}
+
+function pickCounts() {
+  let companies = 0;
+  let persons = 0;
+  bulkPicks.forEach((e) => {
+    if (e.type === "company") companies += 1;
+    else if (e.type === "person") persons += 1;
+  });
+  return { companies, persons, total: companies + persons };
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  if (/[;"\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+
+function setReviewActionsVisible(show) {
+  const actions = document.getElementById("bulkReviewActions");
   const addBtn = document.getElementById("bulkAddBtn");
-  const items = job.items || [];
-  if (!items.length) {
-    wrap.innerHTML = "";
-    addBtn?.classList.add("hidden");
+  actions?.classList.toggle("hidden", !show);
+  addBtn?.classList.toggle("hidden", !show);
+}
+
+function renderBulkProgress(items) {
+  const wrap = document.getElementById("bulkResults");
+  const rows = items
+    .map((it) => {
+      const seed = seedFromItem(it);
+      return `<tr>
+        <td>${esc(it.input_name)}</td>
+        <td>${esc(seed.name || "—")}</td>
+        <td>${esc(it.status)}${it.error_message ? ` · ${esc(it.error_message)}` : ""}</td>
+      </tr>`;
+    })
+    .join("");
+  wrap.innerHTML = `<div class="watch-table-wrap"><table class="watch-table">
+    <thead><tr><th>Eingabe</th><th>Treffer</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function renderPick(key, checked, title, meta) {
+  return `<label class="watch-bulk-pick${checked ? " is-on" : ""}">
+    <input type="checkbox" data-pick-key="${esc(key)}" ${checked ? "checked" : ""} />
+    <span class="watch-bulk-pick-body">
+      <strong>${title}</strong>
+      ${meta ? `<span class="fraud-help">${meta}</span>` : ""}
+    </span>
+  </label>`;
+}
+
+function renderBulkReview(job) {
+  const wrap = document.getElementById("bulkResults");
+  const matched = matchedBulkItems(job);
+  const missed = missedBulkItems(job);
+  if (!matched.length) {
+    wrap.innerHTML = `<p class="fraud-help">Keine Treffer zum Reviewen.${
+      missed.length ? ` ${missed.length} ohne Fund.` : ""
+    }</p>`;
+    setReviewActionsVisible(false);
     return;
   }
-  const rows = [];
-  items.forEach((it) => {
-    const company = (it.result && it.result.company) || {};
-    const name = company.name || it.resolved_name || it.input_name;
-    const uid = company.uid || it.resolved_uid || "";
-    const addr = company.address || it.address || "";
-    const ehraid = company.ehraid || it.ehraid || "";
-    const seat = company.legal_seat || it.legal_seat || "";
-    const ok = it.status === "matched";
-    rows.push(`<tr class="watch-bulk-row">
-      <td>${ok ? `<input type="checkbox" class="bulk-pick" data-kind="company"
-        data-name="${esc(name)}" data-uid="${esc(uid)}" data-address="${esc(addr)}"
-        data-seat="${esc(seat)}" data-ehraid="${esc(ehraid)}" />` : ""}</td>
-      <td><strong>Firma</strong> ${esc(d(name, "company"))}</td>
-      <td>${esc(uid || "—")}</td>
-      <td>${esc(addr || "—")}</td>
-      <td>${esc(it.status)}${it.error_message ? ` · ${esc(it.error_message)}` : ""}</td>
-    </tr>`);
-    const persons = (it.result && it.result.persons) || [];
-    persons
-      .filter((p) => (p.status || "current") === "current")
-      .forEach((p) => {
-        if (!ok || !p.name) return;
-        rows.push(`<tr class="watch-bulk-row watch-bulk-row--person">
-          <td><input type="checkbox" class="bulk-pick" data-kind="person"
-            data-name="${esc(p.name)}" data-residence="${esc(p.residence || "")}"
-            data-company-name="${esc(name)}" data-company-uid="${esc(uid)}"
-            data-ehraid="${esc(ehraid)}" data-role="${esc((p.roles || []).join(", "))}" /></td>
-          <td>↳ Person ${esc(d(p.name, "person"))}</td>
-          <td>—</td>
-          <td>${esc(p.residence || "—")}</td>
-          <td>Organ ${esc((p.roles || []).join(", ") || "")}</td>
-        </tr>`);
-      });
+  if (bulkReviewIndex >= matched.length) bulkReviewIndex = matched.length - 1;
+  if (bulkReviewIndex < 0) bulkReviewIndex = 0;
+  const it = matched[bulkReviewIndex];
+  hydrateItemPicks(it);
+  const seed = seedFromItem(it);
+  const related = ((it.result && it.result.related_companies) || []).filter(
+    (c) => c && (c.name || c.uid)
+  );
+  const persons = (it.result && it.result.persons) || [];
+  const current = persons.filter((p) => p && p.name && (p.status || "current") === "current");
+  const former = persons.filter((p) => p && p.name && (p.status || "") === "former");
+
+  const seedKey = companyPickKey(it.id, seed.uid, seed.name);
+  const counts = pickCounts();
+
+  const relatedHtml = related.length
+    ? related
+        .map((c) => {
+          const key = companyPickKey(it.id, c.uid, c.name);
+          const meta = [c.uid, c.address || c.legal_seat].filter(Boolean).join(" · ");
+          return renderPick(key, bulkPicks.has(key), esc(d(c.name, "company")), esc(meta));
+        })
+        .join("")
+    : `<p class="fraud-help">Keine verwandten Firmen in Suchweite.</p>`;
+
+  const personHtml = (list) =>
+    list
+      .map((p) => {
+        const key = personPickKey(it.id, p.name, p.residence);
+        const meta = [p.residence, (p.roles || []).join(", ")].filter(Boolean).join(" · ");
+        return renderPick(key, bulkPicks.has(key), esc(d(p.name, "person")), esc(meta));
+      })
+      .join("") || `<p class="fraud-help">Keine Personen gefunden.</p>`;
+
+  const missHtml = missed.length
+    ? `<p class="watch-bulk-miss">Ohne Treffer: ${missed
+        .map((m) => esc(m.input_name))
+        .join(", ")}</p>`
+    : "";
+
+  wrap.innerHTML = `<div class="watch-bulk-review" data-item-id="${esc(it.id)}">
+    <div class="watch-bulk-review-head">
+      <div>
+        <p class="watch-bulk-review-kicker">Firma ${bulkReviewIndex + 1} von ${matched.length}</p>
+        <h3>${esc(d(seed.name, "company"))}</h3>
+        <p class="fraud-help">${esc([seed.uid, seed.address || seed.seat].filter(Boolean).join(" · ") || "—")}</p>
+      </div>
+      <p class="fraud-help" id="bulkPickCount">${counts.total} gewählt · ${counts.companies} Firmen · ${counts.persons} Personen</p>
+    </div>
+    <div class="watch-bulk-section">
+      <h4>Suspect-Firma</h4>
+      ${renderPick(
+        seedKey,
+        bulkPicks.has(seedKey),
+        esc(d(seed.name, "company")),
+        esc([seed.uid, seed.address].filter(Boolean).join(" · "))
+      )}
+    </div>
+    <div class="watch-bulk-section" data-section="related">
+      <h4>Verwandte Firmen
+        ${
+          related.length
+            ? `<span class="watch-bulk-section-tools">
+                <button type="button" data-toggle-section="related" data-on="1">alle</button>
+                · <button type="button" data-toggle-section="related" data-on="0">keine</button>
+              </span>`
+            : ""
+        }
+      </h4>
+      ${relatedHtml}
+    </div>
+    <div class="watch-bulk-section" data-section="current">
+      <h4>Aktuelle Organe
+        ${
+          current.length
+            ? `<span class="watch-bulk-section-tools">
+                <button type="button" data-toggle-section="current" data-on="1">alle</button>
+                · <button type="button" data-toggle-section="current" data-on="0">keine</button>
+              </span>`
+            : ""
+        }
+      </h4>
+      ${personHtml(current)}
+    </div>
+    ${
+      former.length
+        ? `<div class="watch-bulk-section" data-section="former">
+            <h4>Ehemalige Organe
+              <span class="watch-bulk-section-tools">
+                <button type="button" data-toggle-section="former" data-on="1">alle</button>
+                · <button type="button" data-toggle-section="former" data-on="0">keine</button>
+              </span>
+            </h4>
+            ${personHtml(former)}
+          </div>`
+        : ""
+    }
+    ${missHtml}
+  </div>`;
+
+  const prev = document.getElementById("bulkPrevBtn");
+  const next = document.getElementById("bulkNextBtn");
+  if (prev) prev.disabled = bulkReviewIndex <= 0;
+  if (next) {
+    next.disabled = false;
+    next.textContent =
+      bulkReviewIndex >= matched.length - 1 ? "Fertig — zur CSV" : "Nächste Firma";
+  }
+  setReviewActionsVisible(true);
+  bindBulkReview(job, it, seed);
+}
+
+function bindBulkReview(job, it, seed) {
+  const wrap = document.getElementById("bulkResults");
+  wrap?.querySelectorAll("input[data-pick-key]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const key = input.dataset.pickKey;
+      const label = input.closest(".watch-bulk-pick");
+      if (input.checked) {
+        const entry = entryFromKey(key, it, seed);
+        if (entry) bulkPicks.set(key, entry);
+        label?.classList.add("is-on");
+      } else {
+        bulkPicks.delete(key);
+        label?.classList.remove("is-on");
+      }
+      updateBulkCountLabel();
+    });
   });
-  wrap.innerHTML = `<div class="watch-table-wrap"><table class="watch-table">
-    <thead><tr><th></th><th>Name</th><th>UID</th><th>Adresse</th><th>Status</th></tr></thead>
-    <tbody>${rows.join("")}</tbody>
-  </table></div>`;
-  if (job.status === "done") addBtn?.classList.remove("hidden");
-  else addBtn?.classList.add("hidden");
+  wrap?.querySelectorAll("[data-toggle-section]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const section = btn.dataset.toggleSection;
+      const on = btn.dataset.on === "1";
+      const box = wrap.querySelector(`[data-section="${section}"]`);
+      box?.querySelectorAll("input[data-pick-key]").forEach((input) => {
+        if (input.checked === on) return;
+        input.checked = on;
+        input.dispatchEvent(new Event("change"));
+      });
+    });
+  });
+}
+
+function entryFromKey(key, it, seed) {
+  if (key.startsWith("c:")) {
+    if (key === companyPickKey(it.id, seed.uid, seed.name)) return companyEntry(seed);
+    const related = (it.result && it.result.related_companies) || [];
+    const hit = related.find((c) => companyPickKey(it.id, c.uid, c.name) === key);
+    if (!hit) return null;
+    return companyEntry({
+      name: hit.name || "",
+      uid: hit.uid || "",
+      address: hit.address || "",
+      seat: hit.legal_seat || "",
+      ehraid: hit.ehraid || "",
+    });
+  }
+  const persons = (it.result && it.result.persons) || [];
+  const hit = persons.find((p) => personPickKey(it.id, p.name, p.residence) === key);
+  return hit ? personEntry(hit, seed) : null;
+}
+
+function updateBulkCountLabel() {
+  const el = document.getElementById("bulkPickCount");
+  if (!el) return;
+  const counts = pickCounts();
+  el.textContent = `${counts.total} gewählt · ${counts.companies} Firmen · ${counts.persons} Personen`;
+}
+
+function renderBulkResults(job) {
+  const wrap = document.getElementById("bulkResults");
+  const items = job.items || [];
+  if (!wrap) return;
+  if (!items.length) {
+    wrap.innerHTML = "";
+    setReviewActionsVisible(false);
+    return;
+  }
+  if (job.status === "pending" || job.status === "running") {
+    renderBulkProgress(items);
+    setReviewActionsVisible(false);
+    return;
+  }
+  renderBulkReview(job);
+}
+
+function stepBulkReview(delta) {
+  const job = bulkJobCache;
+  if (!job) return;
+  const matched = matchedBulkItems(job);
+  if (!matched.length) return;
+  const nextIdx = bulkReviewIndex + delta;
+  if (nextIdx >= matched.length) {
+    exportBulkCsv();
+    return;
+  }
+  bulkReviewIndex = Math.max(0, nextIdx);
+  renderBulkReview(job);
+}
+
+function exportBulkCsv() {
+  const counts = pickCounts();
+  if (!counts.total) {
+    setBulkStatus("Bitte zuerst Zusammenhänge auswählen");
+    return;
+  }
+  const lines = ["Typ;Name;Adresse;UID;Rolle;Herkunftsfirma"];
+  bulkPicks.forEach((e) => {
+    if (e.type === "company") {
+      lines.push(
+        [
+          csvCell("Firma"),
+          csvCell(e.company_name),
+          csvCell(e.address || e.legal_seat || ""),
+          csvCell(e.company_uid || ""),
+          csvCell(""),
+          csvCell(""),
+        ].join(";")
+      );
+    } else {
+      lines.push(
+        [
+          csvCell("Person"),
+          csvCell(e.display_name),
+          csvCell(e.residence || ""),
+          csvCell(""),
+          csvCell(e.role || ""),
+          csvCell(e.source_company_name || ""),
+        ].join(";")
+      );
+    }
+  });
+  const blob = new Blob(["\uFEFF" + lines.join("\n") + "\n"], {
+    type: "text/csv;charset=utf-8",
+  });
+  const a = document.createElement("a");
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  a.href = URL.createObjectURL(blob);
+  a.download = `lynx_bulk_review_${day}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setBulkStatus(
+    `CSV für Data Science: ${counts.persons} Personen, ${counts.companies} Firmen (Excel: Semikolon, UTF-8)`
+  );
 }
 
 async function pollBulkJob() {
@@ -799,6 +1129,7 @@ async function pollBulkJob() {
   }
   const data = await resp.json();
   const job = data.job || {};
+  bulkJobCache = job;
   const total = job.total_items || 0;
   const done = job.completed_items || 0;
   const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
@@ -827,6 +1158,7 @@ async function startBulkScan() {
   const btn = document.getElementById("bulkStartBtn");
   if (btn) btn.disabled = true;
   stopBulkPoll();
+  resetBulkReview();
   try {
     const resp = await fetch("/api/bulk-scan", {
       method: "POST",
@@ -848,32 +1180,11 @@ async function startBulkScan() {
 }
 
 async function addBulkSelection() {
-  const picks = [...document.querySelectorAll(".bulk-pick:checked")];
-  if (!picks.length) {
-    setBulkStatus("Bitte Zeilen auswählen");
+  const entries = [...bulkPicks.values()];
+  if (!entries.length) {
+    setBulkStatus("Bitte zuerst Zusammenhänge auswählen");
     return;
   }
-  const entries = picks.map((el) => {
-    if (el.dataset.kind === "person") {
-      return {
-        type: "person",
-        display_name: el.dataset.name,
-        residence: el.dataset.residence || null,
-        source_company_name: el.dataset.companyName || null,
-        source_company_uid: el.dataset.companyUid || null,
-        company_ehraid: el.dataset.ehraid ? Number(el.dataset.ehraid) : null,
-        role: el.dataset.role || null,
-      };
-    }
-    return {
-      type: "company",
-      company_name: el.dataset.name,
-      company_uid: el.dataset.uid || null,
-      address: el.dataset.address || null,
-      legal_seat: el.dataset.seat || null,
-      company_ehraid: el.dataset.ehraid ? Number(el.dataset.ehraid) : null,
-    };
-  });
   const resp = await fetch("/api/watchlist/bulk-add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1101,6 +1412,9 @@ document.getElementById("deleteCompaniesBtn")?.addEventListener("click", async (
 });
 document.getElementById("bulkStartBtn")?.addEventListener("click", startBulkScan);
 document.getElementById("bulkAddBtn")?.addEventListener("click", addBulkSelection);
+document.getElementById("bulkPrevBtn")?.addEventListener("click", () => stepBulkReview(-1));
+document.getElementById("bulkNextBtn")?.addEventListener("click", () => stepBulkReview(1));
+document.getElementById("bulkExportCsvBtn")?.addEventListener("click", exportBulkCsv);
 
 const params = new URLSearchParams(location.search);
 const personParam = params.get("person");

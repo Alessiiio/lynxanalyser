@@ -852,7 +852,7 @@ class WatchlistBulkAddEntry(BaseModel):
 
 
 class WatchlistBulkAddBody(BaseModel):
-    entries: list[WatchlistBulkAddEntry] = Field(..., min_length=1, max_length=200)
+    entries: list[WatchlistBulkAddEntry] = Field(..., min_length=1, max_length=1000)
     source_reason: str = Field(SOURCE_BULK_SCAN, max_length=64)
 
 

@@ -158,8 +158,9 @@
           <h2>Bulk-Scan</h2>
         </div>
         <p class="fraud-help">
-          Firmennamen einfügen (eine pro Zeile oder CSV-Spalte Name). Lynx scannt asynchron mit Suchweite&nbsp;3,
-          zeigt Fortschritt und lässt dich Treffer zur Watchlist übernehmen.
+          Firmennamen einfügen (eine pro Zeile). Nach dem Scan prüfst du <strong>Firma für Firma</strong>
+          die verwandten Gesellschaften und Personen, wählst die Zusammenhänge aus
+          und lädst danach die Liste für Data Science (CSV / Excel).
         </p>
         <label class="fraud-help" for="bulkNames">Firmennamen</label>
         <textarea id="bulkNames" class="watch-bulk-textarea" rows="8" placeholder="Muster AG&#10;Beispiel GmbH&#10;CHE-123.456.789"></textarea>
@@ -178,7 +179,10 @@
         </div>
         <p id="bulkStatus" class="fraud-help"></p>
         <div id="bulkResults" class="watch-bulk-results"></div>
-        <div class="fraud-inline-actions" style="margin-top:0.75rem">
+        <div id="bulkReviewActions" class="fraud-inline-actions watch-bulk-actions hidden">
+          <button type="button" class="btn-nav" id="bulkPrevBtn">Zurück</button>
+          <button type="button" class="btn-nav" id="bulkNextBtn">Nächste Firma</button>
+          <button type="button" class="btn-check" id="bulkExportCsvBtn">CSV für Data Science</button>
           <button type="button" class="btn-check hidden" id="bulkAddBtn">Auswahl zur Watchlist</button>
         </div>
       </div>
