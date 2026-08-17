@@ -37,8 +37,7 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Changed
 
-- **Demo-Firma Analyse**: DEMO-FRAUD zeigt jetzt exakt dieselbe Firmenanalyse-Ansicht wie jede echte Firma (Tabs, Toolbar, Suchweite) — keine Sonderbehandlung mehr.
-- **Personen-Seitenleiste**: Karten mit Initialen, eine Zeile zu Wohnort, andere Firmen als Chips («Auch bei»), ohne UID/Jargon. Fraudfall bleibt klar markiert. Gilt für alle Firmen.
+- **Firmenanalyse (alle Firmen)**: Ruhigere Ansicht — weniger Aktionen (Mehr + Fall eröffnen), Graph zuerst mit Schritt-für-Schritt vertiefen, Tabs Verlauf/Firma. Personen als Karten mit Chips.
 - **Posteingang**: Wie ein kleines Postfach — Liste links, Meldung rechts. Ohne interne Codes; Filter «Wichtig», Suche, Tastatur ↑↓.
 - **DS-Namenslisten getrennt**: Firmennamen (Betrug + In Abklärung) und Personennamen (nur aus Betrug / In Abklärung, nicht aus jedem offenen Fall) als eigene Downloads.
 - **Firmenanalyse Idle-Optik**: Begrüssung und Metrik-Pills in einer Zeile; Suche als Fokus (stärkerer Rahmen, solid «Analysieren»); Abstände enger, Block vertikal zentriert.

@@ -10926,7 +10926,7 @@ body.watch-modal-open { overflow: hidden; }
   max-width: 14rem;
 }
 
-/* Demo-Firma only: quieter analysis chrome (does not affect live searches). */
+/* Analysis results: quieter chrome (graph first, compact actions). */
 .ca-demo-graph-foot { display: none; }
 .ca-page--demo-ui .ca-demo-graph-foot {
   display: flex !important;
