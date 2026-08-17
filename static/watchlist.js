@@ -31,6 +31,7 @@ let bulkJobCache = null;
 let bulkReviewIndex = 0;
 let bulkPicks = new Map();
 let bulkHydrated = new Set();
+let bulkGraphNetwork = null;
 
 async function loadMe() {
   const resp = await fetch("/api/me");
@@ -746,6 +747,162 @@ function resetBulkReview() {
   bulkPicks = new Map();
   bulkHydrated = new Set();
   bulkJobCache = null;
+  destroyBulkGraph();
+}
+
+function destroyBulkGraph() {
+  if (bulkGraphNetwork) {
+    try {
+      bulkGraphNetwork.destroy();
+    } catch (_) { /* ignore */ }
+    bulkGraphNetwork = null;
+  }
+}
+
+function analysisHref(seed) {
+  const qs = new URLSearchParams();
+  if (seed.name) qs.set("company", seed.name);
+  if (seed.uid) qs.set("uid", seed.uid);
+  return `/?${qs}`;
+}
+
+function pickKeyForGraphNode(it, node) {
+  if (!node) return "";
+  if (node.type === "company") {
+    return companyPickKey(it.id, node.uid, node.label);
+  }
+  const persons = (it.result && it.result.persons) || [];
+  const want = String(node.label || "").toLowerCase();
+  const hit = persons.find((p) => String(p.name || "").toLowerCase() === want);
+  if (hit) return personPickKey(it.id, hit.name, hit.residence);
+  return personPickKey(it.id, node.label, node.residence);
+}
+
+function bulkNodeColor(it, node, selected) {
+  const former = node.person_status === "former";
+  if (node.type === "person") {
+    return {
+      background: selected ? "#0e7490" : (former ? "#1f2937" : "#164e63"),
+      border: selected ? "#22d3ee" : (former ? "#6b7280" : "#67e8f9"),
+      highlight: { background: "#155e75", border: "#a5f3fc" },
+    };
+  }
+  if (node.is_seed) {
+    return {
+      background: selected ? "#083344" : "#111827",
+      border: "#22d3ee",
+      highlight: { background: "#164e63", border: "#67e8f9" },
+    };
+  }
+  return {
+    background: selected ? "#083344" : "#1f2937",
+    border: selected ? "#22d3ee" : "#64748b",
+    highlight: { background: "#164e63", border: "#67e8f9" },
+  };
+}
+
+function colorBulkGraph(it) {
+  if (!bulkGraphNetwork) return;
+  const graph = (it.result && it.result.graph) || {};
+  const nodes = graph.nodes || [];
+  nodes.forEach((n) => {
+    const key = pickKeyForGraphNode(it, n);
+    const selected = key && bulkPicks.has(key);
+    try {
+      bulkGraphNetwork.body.data.nodes.update({
+        id: n.id,
+        color: bulkNodeColor(it, n, selected),
+        borderWidth: selected || n.is_seed ? 3 : 1.5,
+      });
+    } catch (_) { /* ignore */ }
+  });
+}
+
+function paintBulkGraph(it, seed) {
+  destroyBulkGraph();
+  const el = document.getElementById("bulkGraph");
+  if (!el) return;
+  const graph = (it.result && it.result.graph) || {};
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  if (typeof vis === "undefined") {
+    el.innerHTML = `<p class="fraud-help">Graph-Bibliothek nicht geladen.</p>`;
+    return;
+  }
+  if (!nodes.length) {
+    el.innerHTML = `<p class="fraud-help">Kein Netz in diesem Scan — Scan erneut starten, dann erscheint das Beziehungsnetz.</p>`;
+    return;
+  }
+  el.innerHTML = "";
+  const visNodes = new vis.DataSet(
+    nodes.map((n) => {
+      const isPerson = n.type === "person";
+      const former = n.person_status === "former";
+      const key = pickKeyForGraphNode(it, n);
+      const selected = key && bulkPicks.has(key);
+      const roles = (n.roles || []).slice(0, 3).join(" · ");
+      return {
+        id: n.id,
+        label: d(n.label, isPerson ? "person" : "company") + (roles ? `\n${roles}` : ""),
+        shape: isPerson ? "dot" : "box",
+        size: isPerson ? (former ? 12 : 16) : undefined,
+        font: {
+          color: former ? "#9ca3af" : "#f8fafc",
+          face: "Rajdhani",
+          size: n.is_seed ? 15 : 12,
+          bold: !!n.is_seed,
+          multi: true,
+        },
+        color: bulkNodeColor(it, n, selected),
+        borderWidth: selected || n.is_seed ? 3 : 1.5,
+        opacity: former ? 0.65 : 1,
+      };
+    })
+  );
+  const visEdges = new vis.DataSet(
+    edges.map((e, i) => {
+      const former = e.person_status === "former";
+      return {
+        id: `e${i}`,
+        from: e.from,
+        to: e.to,
+        label: e.label || "",
+        font: { color: "#94a3b8", size: 10, face: "Rajdhani", strokeWidth: 0 },
+        color: { color: former ? "#6b7280" : "#22d3ee", opacity: former ? 0.45 : 0.75 },
+        dashes: former,
+        arrows: "to",
+        width: former ? 1 : 1.4,
+      };
+    })
+  );
+  bulkGraphNetwork = new vis.Network(
+    el,
+    { nodes: visNodes, edges: visEdges },
+    {
+      interaction: { hover: true, tooltipDelay: 80, zoomView: true, dragView: true },
+      physics: { stabilization: { iterations: 80 }, barnesHut: { gravitationalConstant: -2800, springLength: 90 } },
+      nodes: { margin: 8 },
+      edges: { smooth: { type: "continuous" } },
+    }
+  );
+  bulkGraphNetwork.on("click", (params) => {
+    const nid = params.nodes && params.nodes[0];
+    if (!nid) return;
+    const node = nodes.find((n) => n.id === nid);
+    const key = pickKeyForGraphNode(it, node);
+    if (!key) return;
+    const on = !bulkPicks.has(key);
+    const entry = entryFromKey(key, it, seed);
+    if (on && entry) bulkPicks.set(key, entry);
+    else if (!on) bulkPicks.delete(key);
+    const input = document.querySelector(`input[data-pick-key="${CSS.escape(key)}"]`);
+    if (input) {
+      input.checked = on;
+      input.closest(".watch-bulk-pick")?.classList.toggle("is-on", on);
+    }
+    updateBulkCountLabel();
+    colorBulkGraph(it);
+  });
 }
 
 function matchedBulkItems(job) {
@@ -892,7 +1049,10 @@ function renderBulkReview(job) {
     ? related
         .map((c) => {
           const key = companyPickKey(it.id, c.uid, c.name);
-          const meta = [c.uid, c.address || c.legal_seat].filter(Boolean).join(" · ");
+          const via = (c.via || []).map((n) => d(n, "person")).filter(Boolean);
+          const meta = [c.uid, c.address || c.legal_seat, via.length ? `über ${via.join(", ")}` : ""]
+            .filter(Boolean)
+            .join(" · ");
           return renderPick(key, bulkPicks.has(key), esc(d(c.name, "company")), esc(meta));
         })
         .join("")
@@ -921,6 +1081,16 @@ function renderBulkReview(job) {
         <p class="fraud-help">${esc([seed.uid, seed.address || seed.seat].filter(Boolean).join(" · ") || "—")}</p>
       </div>
       <p class="fraud-help" id="bulkPickCount">${counts.total} gewählt · ${counts.companies} Firmen · ${counts.persons} Personen</p>
+    </div>
+    <div class="watch-bulk-graph-wrap">
+      <div class="watch-bulk-graph-head">
+        <h4>Beziehungsnetz</h4>
+        <a class="btn-nav" href="${esc(analysisHref(seed))}" target="_blank" rel="noopener">In Analyse öffnen</a>
+      </div>
+      <p class="fraud-help">Klick auf Firma oder Person wählt sie aus. Gestrichelte Linie = ehemaliges Mandat.${
+        it.result && it.result.cached ? " · aus Cache" : ""
+      }</p>
+      <div id="bulkGraph" class="watch-bulk-graph"></div>
     </div>
     <div class="watch-bulk-section">
       <h4>Suspect-Firma</h4>
@@ -983,6 +1153,7 @@ function renderBulkReview(job) {
   }
   setReviewActionsVisible(true);
   bindBulkReview(job, it, seed);
+  paintBulkGraph(it, seed);
 }
 
 function bindBulkReview(job, it, seed) {
@@ -1000,6 +1171,7 @@ function bindBulkReview(job, it, seed) {
         label?.classList.remove("is-on");
       }
       updateBulkCountLabel();
+      colorBulkGraph(it);
     });
   });
   wrap?.querySelectorAll("[data-toggle-section]").forEach((btn) => {

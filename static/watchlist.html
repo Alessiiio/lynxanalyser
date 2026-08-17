@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -159,8 +160,8 @@
         </div>
         <p class="fraud-help">
           Firmennamen einfügen (eine pro Zeile). Nach dem Scan prüfst du <strong>Firma für Firma</strong>
-          die verwandten Gesellschaften und Personen, wählst die Zusammenhänge aus
-          und lädst danach die Liste für Data Science (CSV / Excel).
+          das Beziehungsnetz, wählst die Zusammenhänge aus und lädst die Liste für Data Science.
+          Der Scan landet im Cache (7 Tage) — dieselbe Firma in der Analyse lädt dann ohne neuen Registerlauf.
         </p>
         <label class="fraud-help" for="bulkNames">Firmennamen</label>
         <textarea id="bulkNames" class="watch-bulk-textarea" rows="8" placeholder="Muster AG&#10;Beispiel GmbH&#10;CHE-123.456.789"></textarea>

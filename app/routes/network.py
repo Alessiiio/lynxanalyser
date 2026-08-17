@@ -261,7 +261,7 @@ async def api_analyze_fraud_network(body: FraudNetworkAnalyzeRequest, http_reque
     if body.identity_overrides:
         overrides = [o.model_dump(exclude_none=True) for o in body.identity_overrides]
     # Identity locks must not serve a stale auto-selected graph.
-    use_cache = body.level >= 4 and not body.company_ids and not overrides
+    use_cache = body.level >= 3 and not body.company_ids and not overrides
     if use_cache and (name or uid) and not body.force_refresh:
         hit, key = load_cached_for_company(
             level=body.level, company_name=name, company_uid=uid

@@ -94,8 +94,78 @@ def _item_dict(item: BulkScanItem) -> dict[str, Any]:
     }
 
 
+def _slim_graph(data: dict[str, Any]) -> dict[str, Any]:
+    """Keep enough nodes/edges for the bulk-review network (not the full payload)."""
+    nodes: list[dict[str, Any]] = []
+    for n in data.get("nodes") or []:
+        if not isinstance(n, dict) or not n.get("id"):
+            continue
+        nodes.append(
+            {
+                "id": n.get("id"),
+                "type": n.get("type") or "",
+                "label": n.get("label") or n.get("name") or "",
+                "uid": n.get("uid") or "",
+                "ehraid": n.get("ehraid"),
+                "legal_seat": n.get("legal_seat") or "",
+                "address": n.get("address") or "",
+                "is_seed": bool(n.get("is_seed")),
+                "person_status": n.get("person_status") or "",
+                "roles": list(n.get("roles") or [])[:8],
+                "residence": n.get("residence") or "",
+            }
+        )
+        if len(nodes) >= 200:
+            break
+    keep_ids = {n["id"] for n in nodes}
+    edges: list[dict[str, Any]] = []
+    for e in data.get("edges") or []:
+        if not isinstance(e, dict):
+            continue
+        frm, to = e.get("from"), e.get("to")
+        if frm not in keep_ids or to not in keep_ids:
+            continue
+        edges.append(
+            {
+                "from": frm,
+                "to": to,
+                "label": (e.get("label") or "")[:80],
+                "person_status": e.get("person_status") or "",
+            }
+        )
+        if len(edges) >= 400:
+            break
+    return {"nodes": nodes, "edges": edges}
+
+
+def _via_persons(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    company_id: str,
+) -> list[str]:
+    by_id = {n["id"]: n for n in nodes}
+    names: list[str] = []
+    seen: set[str] = set()
+    for e in edges:
+        ends = {e.get("from"), e.get("to")}
+        if company_id not in ends:
+            continue
+        other = next((x for x in ends if x != company_id), None)
+        node = by_id.get(other or "")
+        if not node or node.get("type") != "person":
+            continue
+        name = (node.get("label") or "").strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        names.append(name)
+        if len(names) >= 4:
+            break
+    return names
+
+
 def _compact_scan_result(data: dict[str, Any]) -> dict[str, Any]:
-    """Compact firm + related persons for selection UI (kein voller Graph)."""
+    """Compact firm + persons + slim graph for review/selection."""
     seed = (data.get("seed_companies") or [None])[0] or {}
     persons: list[dict[str, Any]] = []
     for p in data.get("persons_table") or []:
@@ -112,22 +182,26 @@ def _compact_scan_result(data: dict[str, Any]) -> dict[str, Any]:
                 "nationality": p.get("nationality") or "",
             }
         )
-    # Related companies from graph (non-seed) — useful for SW3 selection context
+    graph = _slim_graph(data if isinstance(data, dict) else {})
+    g_nodes = graph.get("nodes") or []
+    g_edges = graph.get("edges") or []
     related: list[dict[str, Any]] = []
-    for n in data.get("nodes") or []:
-        if not isinstance(n, dict) or n.get("type") != "company":
+    for n in g_nodes:
+        if n.get("type") != "company" or n.get("is_seed"):
             continue
-        if n.get("is_seed"):
-            continue
+        via = _via_persons(g_nodes, g_edges, n.get("id") or "")
         related.append(
             {
-                "name": n.get("label") or n.get("name") or "",
+                "name": n.get("label") or "",
                 "uid": n.get("uid") or "",
                 "ehraid": n.get("ehraid"),
                 "legal_seat": n.get("legal_seat") or "",
                 "address": n.get("address") or "",
+                "via": via,
             }
         )
+        if len(related) >= 40:
+            break
     return {
         "company": {
             "name": seed.get("name") or "",
@@ -138,8 +212,10 @@ def _compact_scan_result(data: dict[str, Any]) -> dict[str, Any]:
             "status": seed.get("status") or "",
         },
         "persons": persons,
-        "related_companies": related[:40],
+        "related_companies": related,
+        "graph": graph,
         "stats": data.get("stats") or {},
+        "cached": bool(data.get("cached")),
     }
 
 
@@ -306,12 +382,25 @@ async def _process_item(
 
     try:
         from app.hr_network.fraud_network import build_fraud_network
-
-        data = await build_fraud_network(
-            level=level,
-            ad_hoc_company={"name": input_name, "uid": ""},
-            max_person_searches=max_person_searches,
+        from app.hr_network.fraud_network_cache import (
+            load_cached_for_company,
+            store_cached_for_company,
         )
+
+        cached = False
+        hit, _key = load_cached_for_company(
+            level=level, company_name=input_name, company_uid=None
+        )
+        if hit is not None:
+            data = dict(hit)
+            data["cached"] = True
+            cached = True
+        else:
+            data = await build_fraud_network(
+                level=level,
+                ad_hoc_company={"name": input_name, "uid": ""},
+                max_person_searches=max_person_searches,
+            )
         if data.get("errors") and not data.get("seed_companies"):
             err = (data["errors"][0] or {}).get("error") or "Firma nicht gefunden"
             async with async_session() as session:
@@ -326,6 +415,21 @@ async def _process_item(
 
         compact = _compact_scan_result(data if isinstance(data, dict) else {})
         company = compact.get("company") or {}
+        store_cached_for_company(
+            level=level,
+            company_name=input_name,
+            company_uid=company.get("uid"),
+            payload={k: v for k, v in data.items() if k not in ("cached", "cached_at")},
+        )
+        resolved_name = (company.get("name") or "").strip()
+        if resolved_name and resolved_name.lower() != (input_name or "").strip().lower():
+            store_cached_for_company(
+                level=level,
+                company_name=resolved_name,
+                company_uid=company.get("uid"),
+                payload={k: v for k, v in data.items() if k not in ("cached", "cached_at")},
+            )
+        compact["cached"] = cached
         async with async_session() as session:
             item = await session.get(BulkScanItem, item_id)
             if not item:

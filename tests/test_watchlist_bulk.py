@@ -214,3 +214,44 @@ async def test_in_abklaerung_fetches_l2_when_no_persons():
     assert out["persons_enrolled"] == 1
     companies = await list_watched_companies(status="active", q="Epsilon")
     assert companies["total"] == 1
+
+
+def test_compact_scan_includes_graph_and_via():
+    from app.hr_network.bulk_scan import _compact_scan_result
+
+    data = {
+        "seed_companies": [{"name": "Alpha AG", "uid": "CHE-1", "address": "ZH"}],
+        "persons_table": [
+            {"name": "Muster, Max", "residence": "Bern", "roles": ["VR"], "status": "current"}
+        ],
+        "nodes": [
+            {"id": "c1", "type": "company", "label": "Alpha AG", "uid": "CHE-1", "is_seed": True},
+            {
+                "id": "c2",
+                "type": "company",
+                "label": "Beta GmbH",
+                "uid": "CHE-2",
+                "is_seed": False,
+            },
+            {
+                "id": "p1",
+                "type": "person",
+                "label": "Muster, Max",
+                "person_status": "current",
+                "roles": ["VR"],
+            },
+        ],
+        "edges": [
+            {"from": "p1", "to": "c1", "label": "VR", "person_status": "current"},
+            {"from": "p1", "to": "c2", "label": "GF", "person_status": "current"},
+        ],
+        "stats": {"node_count": 3},
+    }
+    compact = _compact_scan_result(data)
+    assert compact["company"]["name"] == "Alpha AG"
+    assert compact["graph"]["nodes"]
+    assert compact["graph"]["edges"]
+    related = compact["related_companies"]
+    assert len(related) == 1
+    assert related[0]["name"] == "Beta GmbH"
+    assert "Muster, Max" in related[0]["via"]
