@@ -173,6 +173,12 @@ async def company_analysis_page():
     return FileResponse("static/company-analysis.html")
 
 
+@router.get("/preview/analyse")
+async def company_analysis_preview_page():
+    """Clickable UX mockup of the quieter Firmenanalyse. No live data."""
+    return FileResponse("static/ca-preview.html")
+
+
 @router.get("/watchlist")
 async def watchlist_page():
     return FileResponse("static/watchlist.html")

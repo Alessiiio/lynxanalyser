@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vorschau Firmenanalyse — Lynx</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/static/style.css?v=ca-preview-20260817">
+  <style>
+    .cap-page .container { max-width: 1180px; }
+    .cap-banner {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1rem;
+      margin: 0 0 1rem; padding: 0.7rem 0.9rem;
+      border: 1px solid var(--c-border); border-radius: var(--radius);
+      background: var(--c-card);
+    }
+    .cap-banner p { margin: 0; font-size: 0.88rem; color: var(--c-muted); }
+    .cap-banner strong { color: var(--c-text); }
+    .cap-modes { display: inline-flex; gap: 0.25rem; }
+    .cap-mode {
+      border: 1px solid var(--c-border); background: transparent; color: var(--c-muted);
+      font: inherit; font-size: 0.8rem; font-weight: 650; padding: 0.35rem 0.75rem;
+      border-radius: var(--radius-sm); cursor: pointer;
+    }
+    .cap-mode.is-on { background: var(--c-primary-light); border-color: var(--c-primary); color: var(--c-primary); }
+    .cap-pair {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .cap-pair-btn {
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.48rem 0.95rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      background: transparent;
+    }
+    .cap-pair-btn--more {
+      border: 1px solid var(--c-primary);
+      color: var(--c-primary);
+    }
+    .cap-more.is-open .cap-pair-btn--more {
+      background: var(--c-primary-light);
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.22);
+    }
+    .cap-pair-btn--case {
+      border: 1px solid rgba(139, 156, 179, 0.4);
+      color: var(--c-muted);
+    }
+    .cap-pair-btn--case:hover {
+      border-color: rgba(139, 156, 179, 0.7);
+      color: var(--c-text);
+    }
+    .cap-workspace { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.85fr); gap: 0.75rem; min-height: min(64vh, 680px); }
+    @media (max-width: 980px) { .cap-workspace { grid-template-columns: 1fr; } }
+    .cap-graph-col {
+      display: flex; flex-direction: column; min-height: 0;
+      background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--radius); overflow: hidden;
+    }
+    .cap-graph-stage { position: relative; flex: 1; min-height: 28rem; background: #0b1118; }
+    .cap-graph-stage svg { width: 100%; height: 100%; display: block; }
+    .cap-node-co { fill: #0e3a4a; stroke: var(--c-primary); stroke-width: 2; }
+    .cap-node-pe { fill: #1a2433; stroke: #8b9cb3; stroke-width: 1.6; }
+    .cap-node-extra { opacity: 0; }
+    .cap-graph-col.is-deep .cap-node-extra { opacity: 1; transition: opacity .45s ease; }
+    .cap-graph-foot {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.85rem;
+      padding: 0.55rem 0.8rem; border-top: 1px solid var(--c-border);
+      background: color-mix(in srgb, var(--c-bg) 40%, var(--c-card));
+    }
+    .cap-graph-foot p { margin: 0; font-size: 0.82rem; color: var(--c-muted); }
+    .cap-link {
+      border: 0; background: none; color: var(--c-primary); font: inherit; font-size: 0.82rem; font-weight: 650;
+      cursor: pointer; padding: 0;
+    }
+    .cap-link:disabled { opacity: .55; cursor: default; }
+    .cap-deep { display: none; padding: 0.65rem 0.8rem 0.85rem; border-top: 1px solid var(--c-border); }
+    .cap-deep.is-open { display: block; }
+    .cap-deep-opts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.45rem 0 0.65rem; }
+    .cap-deep-opt {
+      border: 1px solid var(--c-border); background: transparent; color: var(--c-text);
+      font: inherit; font-size: 0.8rem; padding: 0.4rem 0.7rem; border-radius: var(--radius-sm); cursor: pointer;
+    }
+    .cap-deep-opt.is-on { border-color: var(--c-primary); background: var(--c-primary-light); color: var(--c-primary); }
+    .cap-toast {
+      position: absolute; left: 50%; bottom: 0.85rem; transform: translateX(-50%);
+      padding: 0.4rem 0.75rem; border-radius: var(--radius-sm); background: #121a24; border: 1px solid var(--c-border);
+      font-size: 0.8rem; color: var(--c-text); display: none;
+    }
+    .cap-toast.is-on { display: block; }
+    .cap-more { position: relative; }
+    .cap-more-menu {
+      display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 30;
+      min-width: 13.5rem; padding: 0.4rem; background: #0c121c; border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+    }
+    .cap-more.is-open .cap-more-menu { display: flex; flex-direction: column; gap: 0.15rem; }
+    .cap-more-menu button, .cap-more-menu a {
+      all: unset; cursor: pointer; padding: 0.4rem 0.5rem; font-size: 0.8rem; color: var(--c-text); border-radius: 4px;
+    }
+    .cap-more-menu button:hover, .cap-more-menu a:hover { background: var(--c-card-hover); }
+    .cap-note { margin: 0.55rem 0 0; font-size: 0.8rem; color: var(--c-orange); display: none; }
+    .cap-note.is-on { display: block; }
+    .today-clutter { margin-bottom: 0.55rem; padding: 0.65rem 0.75rem; border: 1px solid var(--c-border); border-radius: var(--radius); background: rgba(0,0,0,.22); }
+    .today-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.4rem; margin: 0.5rem 0; }
+    @media (max-width: 900px) { .today-cards { grid-template-columns: 1fr 1fr; } }
+    .today-card {
+      padding: 0.55rem 0.5rem; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-card);
+      font-size: 0.72rem; color: var(--c-muted);
+    }
+    .today-card strong { display: block; color: var(--c-text); font-size: 0.8rem; margin-bottom: 0.2rem; }
+    .today-card.is-on { border-color: var(--c-primary); }
+    .today-graph { height: 220px; display: flex; align-items: center; justify-content: center; color: var(--c-muted); background: #0b1118; border: 1px solid var(--c-border); border-radius: var(--radius); }
+  </style>
+</head>
+<body class="cap-page">
+  <div class="container ca-page">
+    <div class="cap-banner">
+      <p><strong>Testseite</strong> — Mockup der ruhigeren Firmenanalyse. Keine Live-Daten, keine echten Aktionen.</p>
+      <div class="cap-modes" role="tablist" aria-label="Ansicht">
+        <button type="button" class="cap-mode is-on" data-view="proposed">Vorschlag</button>
+        <button type="button" class="cap-mode" data-view="today">Heute</button>
+      </div>
+      <a class="btn-nav" href="/?company=D9%20Performance%20GmbH">Echte Analyse</a>
+    </div>
+
+    <header class="site-header ca-header-compact">
+      <div class="header-row">
+        <div class="brand">
+          <img class="brand-mark" src="/static/img/lynx-mark-64.png?v=2" width="40" height="40" alt="" decoding="async">
+          <div>
+            <p class="header-eyebrow">Lynx</p>
+            <h1>Firmenanalyse</h1>
+          </div>
+        </div>
+        <div class="header-actions">
+          <nav id="siteNav" class="nav-links" aria-label="Hauptnavigation"></nav>
+        </div>
+      </div>
+    </header>
+
+    <div id="viewProposed">
+      <div class="ca-firm-bar">
+        <div class="ca-firm-top">
+          <div class="ca-firm-identity">
+            <h2 class="ca-firm-name">D9 Performance GmbH</h2>
+            <div class="ca-firm-badges">
+              <span class="ca-status ca-status-ok"><span class="ca-status-dot" aria-hidden="true"></span>Aktiv</span>
+            </div>
+          </div>
+          <div class="ca-firm-actions">
+            <div class="cap-pair cap-more" id="capMore">
+              <button type="button" class="cap-pair-btn cap-pair-btn--more" id="capMoreBtn">Mehr</button>
+              <button type="button" class="cap-pair-btn cap-pair-btn--case" id="capCaseBtn">Fall eröffnen</button>
+              <div class="cap-more-menu">
+                <button type="button" data-mock="abklaerung">Als in Abklärung markieren</button>
+                <a href="/">Andere Firma</a>
+                <button type="button" data-mock="hr">HR-Auszug</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ca-firm-meta" style="--ca-meta-cols:4">
+          <button type="button" class="ca-meta ca-meta-uid ca-meta-copy" id="copyUid" title="UID kopieren">
+            <span class="ca-meta-label">UID</span>
+            <strong>CHE-460.161.519</strong>
+          </button>
+          <span class="ca-meta ca-meta-seat" title="Sitz">
+            <span class="ca-meta-label">Sitz</span>
+            <span class="ca-meta-seat-value">
+              <span class="ca-wappen" data-canton="AG" title="Kanton Aargau">
+                <img class="ca-wappen-img" src="/static/cantons/AG.png" width="16" height="16" alt="">
+              </span>
+              <strong>Aargau · Spreitenbach</strong>
+            </span>
+          </span>
+          <span class="ca-meta ca-meta-form">
+            <span class="ca-meta-label-row">
+              <span class="ca-meta-label">Form</span>
+              <span class="ca-form-info-icon" aria-hidden="true">i</span>
+            </span>
+            <strong>GmbH</strong>
+          </span>
+          <span class="ca-meta ca-meta-shab" title="Handelsregister-Meldungen">
+            <span class="ca-meta-label">SHAB</span>
+            <strong>2</strong>
+          </span>
+        </div>
+        <p class="cap-note" id="capNote"></p>
+      </div>
+
+      <div class="cap-workspace">
+        <div class="cap-graph-col" id="capGraphCol">
+          <div class="cap-graph-stage" aria-label="Netzwerk">
+            <svg viewBox="0 0 640 420" role="img">
+              <line x1="320" y1="200" x2="140" y2="118" stroke="rgba(0,212,255,.35)" stroke-width="1.5"/>
+              <line x1="320" y1="200" x2="500" y2="118" stroke="rgba(0,212,255,.35)" stroke-width="1.5"/>
+              <line class="cap-node-extra" x1="140" y1="118" x2="90" y2="310" stroke="rgba(139,156,179,.35)" stroke-width="1.2"/>
+              <line class="cap-node-extra" x1="500" y1="118" x2="560" y2="310" stroke="rgba(139,156,179,.35)" stroke-width="1.2"/>
+              <circle class="cap-node-co" cx="320" cy="200" r="38"/>
+              <text x="320" y="196" text-anchor="middle" fill="#e8edf4" font-size="11" font-family="Rajdhani, sans-serif" font-weight="700">D9 Performance</text>
+              <text x="320" y="212" text-anchor="middle" fill="#8b9cb3" font-size="10" font-family="Rajdhani, sans-serif">GmbH</text>
+              <circle class="cap-node-pe" cx="140" cy="118" r="26"/>
+              <text x="140" y="114" text-anchor="middle" fill="#e8edf4" font-size="10" font-family="Rajdhani, sans-serif">Arunolishappu</text>
+              <text x="140" y="128" text-anchor="middle" fill="#8b9cb3" font-size="9" font-family="Rajdhani, sans-serif">Geschäftsführer</text>
+              <circle class="cap-node-pe" cx="500" cy="118" r="26"/>
+              <text x="500" y="114" text-anchor="middle" fill="#e8edf4" font-size="10" font-family="Rajdhani, sans-serif">Dilaxan</text>
+              <text x="500" y="128" text-anchor="middle" fill="#8b9cb3" font-size="9" font-family="Rajdhani, sans-serif">Vorsitzender</text>
+              <circle class="cap-node-co cap-node-extra" cx="90" cy="310" r="24"/>
+              <text class="cap-node-extra" x="90" y="314" text-anchor="middle" fill="#e8edf4" font-size="10" font-family="Rajdhani, sans-serif">Weitere Firma</text>
+              <circle class="cap-node-co cap-node-extra" cx="560" cy="310" r="24"/>
+              <text class="cap-node-extra" x="560" y="314" text-anchor="middle" fill="#e8edf4" font-size="10" font-family="Rajdhani, sans-serif">Weitere Firma</text>
+            </svg>
+            <div class="cap-toast" id="capToast">Verbindungen werden geladen…</div>
+          </div>
+          <div class="cap-graph-foot">
+            <p id="capGraphStatus">Aktuelle Personen geladen.</p>
+            <button type="button" class="cap-link" id="capDeepen">Weitere Firmen dieser Personen laden</button>
+            <button type="button" class="cap-link" id="capExpert">Tiefer suchen</button>
+          </div>
+          <div class="cap-deep" id="capDeep">
+            <p class="fraud-help" style="margin:0">Nur wenn du mehr brauchst — Standard bleibt die Übersicht.</p>
+            <div class="cap-deep-opts">
+              <button type="button" class="cap-deep-opt is-on" data-lvl="2">Aktuelle Personen</button>
+              <button type="button" class="cap-deep-opt" data-lvl="2b">Auch frühere</button>
+              <button type="button" class="cap-deep-opt" data-lvl="3">Weitere Firmen</button>
+              <button type="button" class="cap-deep-opt" data-lvl="5">Ganzes Netz</button>
+            </div>
+            <button type="button" class="btn-check" id="capDeepLoad">Laden</button>
+          </div>
+        </div>
+
+        <aside class="ca-side">
+          <div class="ca-side-tabs" role="tablist">
+            <button type="button" class="ca-side-tab is-active" data-side="persons">Personen</button>
+            <button type="button" class="ca-side-tab" data-side="timeline">Verlauf</button>
+            <button type="button" class="ca-side-tab" data-side="details">Firma</button>
+          </div>
+          <div id="sidePersons" class="ca-side-panel is-active">
+            <div class="ca-person-group">
+              <div class="fraud-group-label">Aktuell (2)</div>
+              <ul class="ca-persons-list">
+                <li class="ca-person-row">
+                  <div class="ca-person-top"><strong class="ca-person-name">Arunolishappu, Davidappuhamy</strong></div>
+                  <p class="ca-person-roles">Geschäftsführer · Gesellschafter</p>
+                  <dl class="ca-person-facts">
+                    <div class="ca-fact"><dt>Staatsangehörigkeit</dt><dd>sri-lankisch</dd></div>
+                    <div class="ca-fact"><dt>Wohnort</dt><dd>Wohlen</dd></div>
+                  </dl>
+                </li>
+                <li class="ca-person-row">
+                  <div class="ca-person-top"><strong class="ca-person-name">Davidappuhamy, Dilaxan</strong></div>
+                  <p class="ca-person-roles">Vorsitzender</p>
+                  <dl class="ca-person-facts">
+                    <div class="ca-fact"><dt>Staatsangehörigkeit</dt><dd>Schweiz</dd></div>
+                    <div class="ca-fact"><dt>Wohnort</dt><dd>Wohlen</dd></div>
+                  </dl>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div id="sideTimeline" class="ca-side-panel">
+            <p class="fraud-help">2 Handelsregister-Meldungen — hier als Verlauf, nicht als KPI oben.</p>
+            <ul class="ca-persons-list">
+              <li class="ca-person-row"><strong>Neueintragung</strong><p class="ca-person-roles">Firma gegründet</p></li>
+              <li class="ca-person-row"><strong>Organänderung</strong><p class="ca-person-roles">Aktuelle Personen eingetragen</p></li>
+            </ul>
+          </div>
+          <div id="sideDetails" class="ca-side-panel">
+            <dl class="ca-person-facts">
+              <div class="ca-fact"><dt>UID</dt><dd>CHE-460.161.519</dd></div>
+              <div class="ca-fact"><dt>Sitz</dt><dd>Aargau · Spreitenbach</dd></div>
+              <div class="ca-fact"><dt>Form</dt><dd>GmbH</dd></div>
+            </dl>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <div id="viewToday" hidden>
+      <div class="ca-firm-bar">
+        <div class="ca-firm-top">
+          <div class="ca-firm-identity">
+            <h2 class="ca-firm-name">D9 Performance GmbH</h2>
+            <div class="ca-firm-badges">
+              <span class="ca-status ca-status-ok"><span class="ca-status-dot"></span>Aktiv</span>
+            </div>
+          </div>
+          <div class="ca-firm-actions">
+            <div class="ca-firm-tools">
+              <span class="ca-tool-link">Suche ändern</span>
+              <span class="ca-tool-link">Als In Abklärung markieren</span>
+              <span class="ca-tool-link">Mehr</span>
+            </div>
+            <span class="btn-nav ca-btn-fraud ca-firm-primary">Akte eröffnen</span>
+          </div>
+        </div>
+        <div class="ca-firm-meta" style="--ca-meta-cols:4">
+          <span class="ca-meta"><span class="ca-meta-label">UID</span><strong>CHE-460.161.519</strong></span>
+          <span class="ca-meta"><span class="ca-meta-label">Sitz</span><strong>Aargau · Spreitenbach</strong></span>
+          <span class="ca-meta"><span class="ca-meta-label">Form</span><strong>GmbH</strong></span>
+          <span class="ca-meta"><span class="ca-meta-label">SHAB</span><strong>2</strong></span>
+        </div>
+      </div>
+      <div class="today-clutter">
+        <p class="fraud-help" style="margin:0 0 .4rem">Suchweite 2 · Register · geladen</p>
+        <div class="today-cards">
+          <div class="today-card"><strong>1 Firma + aktuelle Organe</strong>Aktuelle Organe der Kernfirma</div>
+          <div class="today-card is-on"><strong>2 + ehemalige Organe</strong>geladen</div>
+          <div class="today-card"><strong>3 Mandate der aktuellen Organe</strong>Netzwerk erweitern</div>
+          <div class="today-card"><strong>4 + Mandate der ehemaligen</strong></div>
+          <div class="today-card"><strong>5 + Personen an Mandatsfirmen</strong></div>
+        </div>
+        <button type="button" class="btn-check" disabled>Mit dieser Suchweite laden</button>
+      </div>
+      <div class="today-graph">Graph — Restfläche unter dem Bedienpult</div>
+    </div>
+  </div>
+
+  <script src="/static/ui-common.js"></script>
+  <script>
+    const proposed = document.getElementById("viewProposed");
+    const today = document.getElementById("viewToday");
+    document.querySelectorAll(".cap-mode").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".cap-mode").forEach((b) => b.classList.toggle("is-on", b === btn));
+        const v = btn.dataset.view;
+        proposed.hidden = v !== "proposed";
+        today.hidden = v !== "today";
+      });
+    });
+
+    document.querySelectorAll(".ca-side-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".ca-side-tab").forEach((t) => t.classList.toggle("is-active", t === tab));
+        ["persons", "timeline", "details"].forEach((name) => {
+          const el = document.getElementById("side" + name[0].toUpperCase() + name.slice(1));
+          el?.classList.toggle("is-active", tab.dataset.side === name);
+        });
+      });
+    });
+
+    const more = document.getElementById("capMore");
+    document.getElementById("capMoreBtn")?.addEventListener("click", () => more.classList.toggle("is-open"));
+    document.addEventListener("click", (e) => {
+      if (!more.contains(e.target)) more.classList.remove("is-open");
+    });
+
+    const note = document.getElementById("capNote");
+    function showNote(text) {
+      note.textContent = text;
+      note.classList.add("is-on");
+    }
+    document.getElementById("capCaseBtn")?.addEventListener("click", () => showNote("Mockup — es wird kein Fall eröffnet."));
+    more.querySelectorAll("[data-mock]").forEach((el) => {
+      el.addEventListener("click", () => showNote("Mockup — Aktion nur zur Ansicht."));
+    });
+    document.getElementById("copyUid")?.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText("CHE-460.161.519"); showNote("UID kopiert."); } catch (_) {}
+    });
+
+    const toast = document.getElementById("capToast");
+    const col = document.getElementById("capGraphCol");
+    const deepen = document.getElementById("capDeepen");
+    const status = document.getElementById("capGraphStatus");
+    function runDeepen() {
+      if (col.classList.contains("is-deep")) return;
+      toast.classList.add("is-on");
+      deepen.disabled = true;
+      deepen.textContent = "Wird geladen…";
+      setTimeout(() => {
+        toast.classList.remove("is-on");
+        col.classList.add("is-deep");
+        status.textContent = "Weitere Firmen geladen.";
+        deepen.textContent = "Verbindungen geladen";
+      }, 900);
+    }
+    deepen?.addEventListener("click", runDeepen);
+    document.getElementById("capExpert")?.addEventListener("click", () => {
+      document.getElementById("capDeep").classList.toggle("is-open");
+    });
+    document.querySelectorAll(".cap-deep-opt").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".cap-deep-opt").forEach((b) => b.classList.toggle("is-on", b === btn));
+      });
+    });
+    document.getElementById("capDeepLoad")?.addEventListener("click", runDeepen);
+  </script>
+</body>
+</html>
