@@ -132,21 +132,6 @@ function updateDemoGraphFoot() {
   }
 }
 
-function setDemoAnalysisUi(on) {
-  const page = document.getElementById("caPage") || document.querySelector(".ca-page");
-  page?.classList.toggle("ca-page--demo-ui", !!on);
-  const tl = document.querySelector('.ca-side-tab[data-side="timeline"]');
-  const det = document.querySelector('.ca-side-tab[data-side="details"]');
-  if (tl) tl.textContent = on ? "Verlauf" : "Timeline";
-  if (det) det.textContent = on ? "Firma" : "Details";
-  if (on) {
-    applySuchweiteExpanded(false, { persist: false });
-    updateDemoGraphFoot();
-  } else {
-    applySuchweiteExpanded(readSuchweiteExpanded(), { persist: false });
-  }
-}
-
 function applySuchweiteExpanded(expanded, { persist = true } = {}) {
   const wrap = document.getElementById("caSuchweite");
   const body = document.getElementById("caSuchweiteBody");
@@ -1480,7 +1465,7 @@ async function transitionToIdle() {
     caResults.classList.remove("ca-results-leave");
   }
   caResults.classList.add("hidden");
-  setDemoAnalysisUi(false);
+  applySuchweiteExpanded(readSuchweiteExpanded(), { persist: false });
   setIdleHome(true);
   expandSearch();
   page?.classList.remove("is-transitioning", "is-analyzing");
@@ -2168,7 +2153,7 @@ function hideNotify() {
 
 function renderSearchResults(data) {
   const company = data.company || {};
-  setDemoAnalysisUi(isDemoFirm(company));
+  applySuchweiteExpanded(readSuchweiteExpanded(), { persist: false });
   renderFirmBar(company, data);
   const warnings = [...(data.warnings || [])];
   if (currentCaseHit) {
@@ -3038,22 +3023,6 @@ function renderFirmBar(company, data) {
         </div>
       </div>
       <div class="ca-firm-actions">
-        ${isDemoFirm(company) ? `
-        <div class="ca-demo-pair">
-          <details class="ca-firm-more ca-demo-more">
-            <summary class="ca-demo-pair-btn ca-demo-pair-btn--more">Mehr</summary>
-            <div class="ca-firm-more-menu" role="menu">
-              <button type="button" class="ca-tool-link" id="caChangeSearchBtn" role="menuitem" title="Andere Firma suchen">Andere Firma</button>
-              <button type="button" class="ca-tool-link ca-tag-toggle${onTag ? " is-active" : ""}" id="caTagToggleBtn" role="menuitem" title="${escHtml(tagToggleTitle)}" aria-pressed="${onTag ? "true" : "false"}">${escHtml(tagToggleLabel)}</button>
-              ${hr ? `<a class="ca-tool-link" role="menuitem" href="${escHtml(hr)}" target="_blank" rel="noopener">HR-Auszug ↗</a>` : ""}
-              <button type="button" class="ca-tool-link ca-profiler-enter hidden" role="menuitem" id="profilerEnterBtn" title="Fall-Cockpit">Profiler</button>
-            </div>
-          </details>
-          ${onCase && currentCaseHit.id
-            ? `<a class="ca-demo-pair-btn ca-demo-pair-btn--case" href="/cases/${currentCaseHit.id}">Zur Akte</a>`
-            : `<button type="button" class="ca-demo-pair-btn ca-demo-pair-btn--case" id="openCaseBtn">${onCase && caseClosed ? "Neue Akte" : "Fall eröffnen"}</button>`}
-        </div>
-        ` : `
         <div class="ca-firm-tools">
           <button type="button" class="ca-tool-link" id="caChangeSearchBtn" title="Andere Firma suchen">Suche ändern</button>
           <button type="button" class="ca-tool-link ca-tag-toggle${onTag ? " is-active" : ""}" id="caTagToggleBtn" title="${escHtml(tagToggleTitle)}" aria-pressed="${onTag ? "true" : "false"}">${escHtml(tagToggleLabel)}</button>
@@ -3071,7 +3040,6 @@ function renderFirmBar(company, data) {
         ${onCase && currentCaseHit.id
           ? `<a class="btn-nav ca-btn-fraud is-listed ca-firm-primary" href="/cases/${currentCaseHit.id}">Zur Akte</a>`
           : `<button type="button" class="btn-nav ca-btn-fraud ca-firm-primary" id="openCaseBtn" title="Akte jederzeit möglich — Netzwerkprüfung empfohlen">Akte eröffnen</button>`}
-        `}
       </div>
     </div>
     ${caseSoftNote}
