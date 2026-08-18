@@ -1290,15 +1290,27 @@ function setReviewActionsVisible(show) {
   addBtn?.classList.toggle("hidden", !show);
 }
 
+function bulkItemStatusLabel(it) {
+  const status = it.status || "";
+  if (status === "running") return "wird gescannt…";
+  if (status === "pending") return "in der Warteschlange";
+  if (status === "matched") return "gefunden";
+  if (status === "not_found") return "kein Treffer";
+  if (status === "error") return "Fehler";
+  return status;
+}
+
 function renderBulkProgress(items) {
   const wrap = document.getElementById("bulkResults");
   const rows = items
     .map((it) => {
       const seed = seedFromItem(it);
-      return `<tr>
+      const running = it.status === "running";
+      const err = it.error_message ? ` · ${esc(it.error_message)}` : "";
+      return `<tr class="${running ? "watch-bulk-row--running" : ""}">
         <td>${esc(it.input_name)}</td>
         <td>${esc(seed.name || "—")}</td>
-        <td>${esc(it.status)}${it.error_message ? ` · ${esc(it.error_message)}` : ""}</td>
+        <td>${esc(bulkItemStatusLabel(it))}${err}</td>
       </tr>`;
     })
     .join("");
@@ -1609,11 +1621,41 @@ async function pollBulkJob() {
   wrap?.classList.remove("hidden");
   wrap?.setAttribute("aria-hidden", "false");
   if (bar) bar.style.width = `${pct}%`;
+  renderBulkResults(job);
+  const nowBox = document.getElementById("bulkNow");
+  const nowNames = document.getElementById("bulkNowNames");
+  const nowTitle = document.getElementById("bulkNowTitle");
+  const scanning = job.currently_scanning || (job.items || []).filter((it) => it.status === "running");
+  const queued = job.queued_count ?? (job.items || []).filter((it) => it.status === "pending").length;
+  const live = job.status === "pending" || job.status === "running";
+  if (nowBox) {
+    nowBox.classList.toggle("hidden", !live);
+    const names = scanning.map((it) => it.input_name).filter(Boolean);
+    if (nowTitle) {
+      nowTitle.textContent = names.length
+        ? (names.length === 1 ? "Gerade im Scan" : `Gerade im Scan (${names.length})`)
+        : queued
+          ? "Nächste Firma wird vorbereitet…"
+          : "Scan läuft";
+    }
+    if (nowNames) {
+      nowNames.textContent = names.length
+        ? names.join(" · ")
+        : queued
+          ? `${queued} Firma(en) in der Warteschlange`
+          : "Bitte warten…";
+    }
+  }
+  const currentBit = scanning.length
+    ? ` · gerade: ${scanning.map((it) => it.input_name).filter(Boolean).join(", ")}`
+    : "";
+  const queueBit = live && queued ? ` · ${queued} in der Warteschlange` : "";
   setBulkStatus(
-    `Job #${job.id}: ${job.status} · ${done}/${total}` +
+    `Job #${job.id}: ${job.status === "running" ? "läuft" : job.status} · ${done}/${total}` +
+      currentBit +
+      queueBit +
       (job.error_count ? ` · ${job.error_count} ohne Treffer/Fehler` : "")
   );
-  renderBulkResults(job);
   if (job.status === "done" || job.status === "failed" || job.status === "cancelled") {
     stopBulkPoll();
   }

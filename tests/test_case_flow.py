@@ -446,6 +446,13 @@ async def test_demo_network_l5_ready_with_hits():
     # L5-only person from fixture
     labels = [h["label"] for h in net["hits"]]
     assert any("Jonas" in x or "Fiktiv" in x for x in labels) or len(labels) >= 1
+    assert net.get("graph") and net["graph"].get("nodes")
+    groups = {h.get("group") for h in net["hits"]}
+    assert "related_company" in groups or "seed_current" in groups or "related_person" in groups
+    related_people = [h for h in net["hits"] if h.get("group") == "related_person"]
+    if related_people:
+        assert any("nicht Organ" in (h.get("hint") or "") for h in related_people)
+        assert not any(h.get("default_selected") for h in related_people)
 
     # Apply one person hit
     person_hits = [h for h in net["hits"] if h["kind"] == "person"]

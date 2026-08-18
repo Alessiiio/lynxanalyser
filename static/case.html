@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -45,8 +46,23 @@
         <p class="fraud-help" id="l5BannerText"></p>
       </div>
       <div id="l5HitsBox" class="case-l5-hits hidden">
-        <p class="fraud-help">Neue Hinweise aus dem Netzwerk — auswählen und auf Watchlist / Checkliste übernehmen:</p>
-        <ul id="l5HitsList" class="case-l5-hits-list"></ul>
+        <p class="fraud-help">
+          Beziehungsnetz der Fraud-Firma. Markiere <strong>aktive Organe</strong> und
+          <strong>umliegende Firmen</strong>, die verdächtig sind — Unbeteiligte nicht übernehmen.
+        </p>
+        <div class="case-l5-graph-wrap">
+          <div class="case-l5-graph-head">
+            <h4>Beziehungsnetz</h4>
+            <p class="fraud-help">Klick auf Knoten markiert die Person oder Firma. Gestrichelt = ehemaliges Mandat.</p>
+          </div>
+          <div id="l5Graph" class="case-l5-graph" role="img" aria-label="Beziehungsnetz"></div>
+        </div>
+        <div class="case-l5-hit-tools">
+          <button type="button" class="btn-nav" id="l5SelectSeedBtn">Aktive Organe markieren</button>
+          <button type="button" class="btn-nav" id="l5SelectFirmsBtn">Umliegende Firmen markieren</button>
+          <button type="button" class="btn-nav" id="l5SelectNoneBtn">Keine</button>
+        </div>
+        <div id="l5HitsList" class="case-l5-hits-list"></div>
         <div class="fraud-inline-actions case-l5-hits-actions">
           <button type="button" class="btn-case-equal btn-case-confirm" id="l5ApplyHitsBtn" style="width:auto;min-width:12rem">Ausgewählte übernehmen</button>
           <button type="button" class="btn-nav" id="l5DismissHitsBtn">Später</button>
@@ -88,12 +104,14 @@
       <div class="fraud-panel-head"><h2>Bestätigung</h2></div>
       <p class="fraud-help">
         Interne Einschätzung festhalten: Betrug bestätigt, entkräftet, oder als verdächtig (In Abklärung) markieren.
-        Während die Netzwerk-Suche läuft, ist die Bestätigung gesperrt — ausser du wählst «Trotzdem fortfahren».
       </p>
-      <p id="l5ConfirmGate" class="case-l5-confirm-gate hidden" role="status">
-        <span id="l5ConfirmGateText"></span>
-        <button type="button" class="btn-nav case-l5-bypass" id="l5BypassBtn">Trotzdem fortfahren (ohne Netzwerk-Treffer)</button>
-      </p>
+      <div id="l5ConfirmGate" class="case-l5-confirm-gate hidden" role="alert" aria-live="assertive">
+        <strong id="l5ConfirmGateTitle" class="case-l5-confirm-gate-title">Netzwerk-Suche läuft noch</strong>
+        <p id="l5ConfirmGateText" class="case-l5-confirm-gate-text"></p>
+        <button type="button" class="btn btn-primary case-l5-bypass-btn" id="l5BypassBtn">
+          Trotzdem fortfahren (ohne Netzwerk-Treffer)
+        </button>
+      </div>
       <div class="case-confirm-block" id="confirmActions">
         <label class="case-confirm-label" for="fraudType">Betrugsart</label>
         <select id="fraudType" class="ca-select case-confirm-select">
@@ -149,6 +167,6 @@
     </section>
   </div>
   <script src="/static/ui-common.js"></script>
-  <script src="/static/case.js?v=case-l5-gate-20260818b"></script>
+  <script src="/static/case.js?v=case-l5-graph-20260818"></script>
 </body>
 </html>

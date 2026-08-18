@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from unittest.mock import AsyncMock, patch
@@ -310,3 +311,99 @@ def test_households_group_via_cached_graph():
     assert len(groups) == 1
     assert groups[0]["size"] == 2
     assert "Osman" in groups[0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_scan_item_timeout_skips_and_finishes():
+    from app.hr_network.bulk_scan import create_bulk_scan_job, get_bulk_scan_job
+
+    async def _hang(**_kwargs):
+        await asyncio.sleep(8)
+        return {"seed_companies": [], "errors": []}
+
+    with (
+        patch(
+            "app.hr_network.fraud_network.build_fraud_network",
+            new=AsyncMock(side_effect=_hang),
+        ),
+        patch(
+            "app.hr_network.fraud_network_cache.load_cached_for_company",
+            return_value=(None, None),
+        ),
+        patch(
+            "app.hr_network.fraud_network_cache.store_cached_for_company",
+            return_value=None,
+        ),
+    ):
+        job = await create_bulk_scan_job(
+            names=["Hang AG"],
+            created_by="tester",
+            timeout_sec=0.2,
+        )
+        data = None
+        for _ in range(40):
+            data = await get_bulk_scan_job(job["id"])
+            if data and data["status"] == "done":
+                break
+            await asyncio.sleep(0.08)
+    assert data is not None
+    assert data["status"] == "done"
+    assert data["items"][0]["status"] == "error"
+    assert "Zeitüberschreitung" in (data["items"][0]["error_message"] or "")
+
+
+@pytest.mark.asyncio
+async def test_resume_unfinished_resets_running_and_spawns():
+    from datetime import datetime, timezone
+
+    from app.database import BulkScanItem, BulkScanJob, async_session
+    from app.hr_network.bulk_scan import resume_unfinished_bulk_scans
+
+    async with async_session() as session:
+        job = BulkScanJob(
+            created_by="tester",
+            created_at=datetime.now(timezone.utc),
+            status="running",
+            level=3,
+            options_json={"concurrency": 1, "item_timeout_sec": 30},
+            total_items=2,
+            completed_items=0,
+            error_count=0,
+        )
+        session.add(job)
+        await session.flush()
+        session.add(
+            BulkScanItem(
+                job_id=job.id,
+                sort_order=0,
+                input_name="Stuck AG",
+                status="running",
+            )
+        )
+        session.add(
+            BulkScanItem(
+                job_id=job.id,
+                sort_order=1,
+                input_name="Next GmbH",
+                status="pending",
+            )
+        )
+        await session.commit()
+        job_id = job.id
+
+    spawned: list[int] = []
+    with patch(
+        "app.hr_network.bulk_scan._spawn_worker",
+        side_effect=lambda jid: spawned.append(jid) or True,
+    ):
+        out = await resume_unfinished_bulk_scans()
+
+    assert job_id in out["resumed"]
+    assert spawned == [job_id]
+    data = None
+    from app.hr_network.bulk_scan import get_bulk_scan_job
+
+    data = await get_bulk_scan_job(job_id)
+    assert data["status"] == "running" or data["items"]
+    assert all(it["status"] != "running" for it in data["items"])
+    assert {it["status"] for it in data["items"]} == {"pending"}

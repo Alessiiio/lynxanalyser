@@ -16,11 +16,14 @@ logger = logging.getLogger(__name__)
 
 # Keep a strong ref so GC does not cancel background workers.
 _RUNNING_TASKS: set[asyncio.Task] = set()
+_JOB_TASKS: dict[int, asyncio.Task] = {}
 
 DEFAULT_LEVEL = 3
 DEFAULT_MAX_PERSON_SEARCHES = 4
 DEFAULT_CONCURRENCY = 2
 MAX_NAMES_PER_JOB = 80
+# Per-firm cap so one slow Zefix/Moneyhouse call cannot stall the whole job.
+_TIMEOUT_BY_LEVEL = {1: 90.0, 2: 120.0, 3: 300.0, 4: 420.0, 5: 540.0}
 
 
 def _iso_utc(dt: datetime | None) -> str | None:
@@ -61,7 +64,22 @@ def parse_company_names(raw: str | list[str]) -> list[str]:
     return names
 
 
-def _job_dict(job: BulkScanJob) -> dict[str, Any]:
+def item_timeout_sec(level: int, override: float | None = None) -> float:
+    if override is not None:
+        try:
+            return max(0.05, min(900.0, float(override)))
+        except (TypeError, ValueError):
+            pass
+    return _TIMEOUT_BY_LEVEL.get(int(level or DEFAULT_LEVEL), 300.0)
+
+
+def _job_dict(job: BulkScanJob, *, items: list[BulkScanItem] | None = None) -> dict[str, Any]:
+    running = [
+        {"id": r.id, "input_name": r.input_name or "", "status": r.status}
+        for r in (items or [])
+        if r.status == "running"
+    ]
+    queued = sum(1 for r in (items or []) if r.status == "pending")
     return {
         "id": job.id,
         "status": job.status,
@@ -74,6 +92,12 @@ def _job_dict(job: BulkScanJob) -> dict[str, Any]:
         "completed_items": job.completed_items or 0,
         "error_count": job.error_count or 0,
         "options": job.options_json or {},
+        "currently_scanning": running,
+        "queued_count": queued,
+        "item_timeout_sec": item_timeout_sec(
+            job.level or DEFAULT_LEVEL,
+            (job.options_json or {}).get("item_timeout_sec"),
+        ),
     }
 
 
@@ -227,6 +251,7 @@ async def create_bulk_scan_job(
     created_by_username: str | None = None,
     max_person_searches: int = DEFAULT_MAX_PERSON_SEARCHES,
     concurrency: int = DEFAULT_CONCURRENCY,
+    timeout_sec: float | None = None,
 ) -> dict[str, Any]:
     cleaned = parse_company_names(names)
     if not cleaned:
@@ -237,6 +262,7 @@ async def create_bulk_scan_job(
     opts = {
         "max_person_searches": max(0, min(12, int(max_person_searches))),
         "concurrency": max(1, min(4, int(concurrency))),
+        "item_timeout_sec": item_timeout_sec(level_i, timeout_sec),
     }
     async with async_session() as session:
         job = BulkScanJob(
@@ -270,15 +296,87 @@ async def create_bulk_scan_job(
     return payload
 
 
-def _spawn_worker(job_id: int) -> None:
+def _spawn_worker(job_id: int) -> bool:
+    existing = _JOB_TASKS.get(job_id)
+    if existing is not None and not existing.done():
+        return False
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         logger.error("No event loop to start bulk-scan job %s", job_id)
-        return
+        return False
     task = loop.create_task(run_bulk_scan_job(job_id), name=f"bulk-scan-{job_id}")
     _RUNNING_TASKS.add(task)
-    task.add_done_callback(_RUNNING_TASKS.discard)
+    _JOB_TASKS[job_id] = task
+
+    def _cleanup(done: asyncio.Task) -> None:
+        _RUNNING_TASKS.discard(done)
+        if _JOB_TASKS.get(job_id) is done:
+            _JOB_TASKS.pop(job_id, None)
+
+    task.add_done_callback(_cleanup)
+    return True
+
+
+async def resume_unfinished_bulk_scans() -> dict[str, Any]:
+    """After process restart: reset stuck 'running' items and continue unfinished jobs."""
+    async with async_session() as session:
+        jobs = list(
+            (
+                await session.execute(
+                    select(BulkScanJob).where(BulkScanJob.status.in_(("pending", "running")))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        job_ids = [j.id for j in jobs]
+        if job_ids:
+            items = list(
+                (
+                    await session.execute(
+                        select(BulkScanItem).where(BulkScanItem.job_id.in_(job_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for item in items:
+                if item.status == "running":
+                    item.status = "pending"
+                    item.error_message = None
+            await session.commit()
+
+    resumed: list[int] = []
+    finished: list[int] = []
+    for job_id in job_ids:
+        async with async_session() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(BulkScanItem).where(BulkScanItem.job_id == job_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            leftover = [r for r in rows if r.status in ("pending", "running")]
+            job = await session.get(BulkScanJob, job_id)
+            if not job:
+                continue
+            if not leftover:
+                job.status = "done"
+                job.finished_at = datetime.now(timezone.utc)
+                job.completed_items = sum(
+                    1 for r in rows if r.status not in ("pending", "running")
+                )
+                await session.commit()
+                finished.append(job_id)
+                continue
+        if _spawn_worker(job_id):
+            resumed.append(job_id)
+            logger.info("Resumed bulk-scan job %s (%s items left)", job_id, len(leftover))
+    return {"resumed": resumed, "marked_done": finished}
 
 
 async def get_bulk_scan_job(job_id: int, *, include_items: bool = True) -> dict[str, Any] | None:
@@ -286,7 +384,7 @@ async def get_bulk_scan_job(job_id: int, *, include_items: bool = True) -> dict[
         job = await session.get(BulkScanJob, job_id)
         if not job:
             return None
-        out = _job_dict(job)
+        rows: list[BulkScanItem] = []
         if include_items:
             rows = list(
                 (
@@ -299,6 +397,21 @@ async def get_bulk_scan_job(job_id: int, *, include_items: bool = True) -> dict[
                 .scalars()
                 .all()
             )
+        else:
+            rows = list(
+                (
+                    await session.execute(
+                        select(BulkScanItem).where(
+                            BulkScanItem.job_id == job_id,
+                            BulkScanItem.status.in_(("pending", "running")),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        out = _job_dict(job, items=rows)
+        if include_items:
             out["items"] = [_item_dict(r) for r in rows]
         return out
 
@@ -318,6 +431,7 @@ async def run_bulk_scan_job(job_id: int) -> None:
 
     concurrency = max(1, min(4, int(opts.get("concurrency") or DEFAULT_CONCURRENCY)))
     max_ps = max(0, min(12, int(opts.get("max_person_searches") or DEFAULT_MAX_PERSON_SEARCHES)))
+    timeout_sec = item_timeout_sec(level, opts.get("item_timeout_sec"))
     sem = asyncio.Semaphore(concurrency)
 
     async with async_session() as session:
@@ -332,14 +446,19 @@ async def run_bulk_scan_job(job_id: int) -> None:
             .scalars()
             .all()
         )
-        item_ids = [i.id for i in items]
+        item_ids = [i.id for i in items if i.status in ("pending", "running")]
 
     async def _one(item_id: int) -> None:
         async with sem:
-            await _process_item(item_id, level=level, max_person_searches=max_ps)
+            await _process_item(
+                item_id,
+                level=level,
+                max_person_searches=max_ps,
+                timeout_sec=timeout_sec,
+            )
 
     try:
-        await asyncio.gather(*[_one(iid) for iid in item_ids])
+        await asyncio.gather(*[_one(iid) for iid in item_ids], return_exceptions=True)
     except Exception:
         logger.exception("Bulk-scan job %s failed", job_id)
 
@@ -370,6 +489,7 @@ async def _process_item(
     *,
     level: int,
     max_person_searches: int,
+    timeout_sec: float,
 ) -> None:
     async with async_session() as session:
         item = await session.get(BulkScanItem, item_id)
@@ -396,10 +516,13 @@ async def _process_item(
             data["cached"] = True
             cached = True
         else:
-            data = await build_fraud_network(
-                level=level,
-                ad_hoc_company={"name": input_name, "uid": ""},
-                max_person_searches=max_person_searches,
+            data = await asyncio.wait_for(
+                build_fraud_network(
+                    level=level,
+                    ad_hoc_company={"name": input_name, "uid": ""},
+                    max_person_searches=max_person_searches,
+                ),
+                timeout=timeout_sec,
             )
         if data.get("errors") and not data.get("seed_companies"):
             err = (data["errors"][0] or {}).get("error") or "Firma nicht gefunden"
@@ -455,6 +578,23 @@ async def _process_item(
                 return
             item.status = "not_found"
             item.error_message = str(e)[:512]
+            await session.commit()
+        await _bump_job_progress(job_id, error=True)
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.warning(
+            "Bulk-scan item %s timed out after %.0fs (%s)",
+            item_id,
+            timeout_sec,
+            input_name,
+        )
+        async with async_session() as session:
+            item = await session.get(BulkScanItem, item_id)
+            if not item:
+                return
+            item.status = "error"
+            item.error_message = (
+                f"Zeitüberschreitung nach {int(timeout_sec)}s — Firma übersprungen, Rest läuft weiter."
+            )[:512]
             await session.commit()
         await _bump_job_progress(job_id, error=True)
     except Exception as e:

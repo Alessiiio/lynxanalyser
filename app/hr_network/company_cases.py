@@ -1505,8 +1505,52 @@ def _seed_uid_digits(uid: str | None) -> str:
     return re.sub(r"\D", "", uid or "")
 
 
+def _l5_seed_node_id(
+    nodes: list[dict[str, Any]],
+    *,
+    seed_uid: str,
+    seed_name: str,
+) -> str | None:
+    for n in nodes:
+        if n.get("type") != "company":
+            continue
+        if n.get("is_seed"):
+            return n.get("id")
+    for n in nodes:
+        if n.get("type") != "company":
+            continue
+        digits = _seed_uid_digits(n.get("uid"))
+        if seed_uid and digits == seed_uid:
+            return n.get("id")
+        label = (n.get("label") or "").strip().lower()
+        if seed_name and label == seed_name:
+            return n.get("id")
+    return None
+
+
+def _l5_neighbors(
+    edges: list[dict[str, Any]],
+    node_id: str,
+) -> set[str]:
+    out: set[str] = set()
+    for e in edges:
+        frm, to = e.get("from"), e.get("to")
+        if frm == node_id and to:
+            out.add(to)
+        elif to == node_id and frm:
+            out.add(frm)
+    return out
+
+
 def _extract_l5_hits(payload: dict[str, Any], case: dict[str, Any]) -> list[dict[str, Any]]:
-    """Persons/companies from L5 not already on the case bank checklist."""
+    """Hits with relation context (seed organs vs surrounding firms)."""
+    return _l5_review_bundle(payload, case)["hits"]
+
+
+def _l5_review_bundle(payload: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+    """Slim graph + grouped hits so the case manager can see *why* someone appears."""
+    from app.hr_network.bulk_scan import _slim_graph, _via_persons
+
     checks = case.get("bank_checks") or []
     seen: set[tuple[str, str]] = set()
     for row in checks:
@@ -1520,11 +1564,29 @@ def _extract_l5_hits(payload: dict[str, Any], case: dict[str, Any]) -> list[dict
 
     seed_uid = _seed_uid_digits(case.get("company_uid"))
     seed_name = (case.get("company_name") or "").strip().lower()
+    graph = _slim_graph(payload if isinstance(payload, dict) else {})
+    nodes = graph.get("nodes") or []
+    edges = graph.get("edges") or []
+    by_id = {n.get("id"): n for n in nodes if n.get("id")}
+    seed_id = _l5_seed_node_id(nodes, seed_uid=seed_uid, seed_name=seed_name)
+    seed_neighbors = _l5_neighbors(edges, seed_id) if seed_id else set()
+
     hits: list[dict[str, Any]] = []
     hit_keys: set[tuple[str, str]] = set()
 
-    def add_hit(kind: str, label: str, *, ref: str | None = None, roles: list | None = None,
-                status: str | None = None, hint: str = "") -> None:
+    def add_hit(
+        kind: str,
+        label: str,
+        *,
+        ref: str | None = None,
+        roles: list | None = None,
+        status: str | None = None,
+        hint: str = "",
+        group: str = "",
+        via: list[str] | None = None,
+        node_id: str | None = None,
+        default_selected: bool = False,
+    ) -> None:
         lab = (label or "").strip()
         if not lab:
             return
@@ -1544,54 +1606,111 @@ def _extract_l5_hits(payload: dict[str, Any], case: dict[str, Any]) -> list[dict
             "roles": list(roles or []),
             "status": status or "",
             "hint": hint,
+            "group": group,
+            "via": list(via or [])[:4],
+            "node_id": node_id or None,
+            "default_selected": bool(default_selected),
         })
 
+    for n in nodes:
+        if n.get("type") != "person" or not n.get("id"):
+            continue
+        if seed_id and n["id"] not in seed_neighbors:
+            continue
+        hr = (n.get("person_status") or n.get("status") or "current").lower()
+        if hr not in ("current", "former"):
+            hr = "current"
+        former = hr == "former"
+        add_hit(
+            "person",
+            n.get("label") or "",
+            ref=(n.get("id") or "").removeprefix("person:") or None,
+            roles=n.get("roles") or [],
+            status=hr,
+            hint="Aktives Organ der Fraud-Firma" if not former else "Früheres Organ der Fraud-Firma",
+            group="seed_former" if former else "seed_current",
+            node_id=n.get("id"),
+            default_selected=not former,
+        )
+
     for p in payload.get("persons_table") or []:
+        if not isinstance(p, dict):
+            continue
         name = (p.get("name") or p.get("display_name") or "").strip()
-        pid = p.get("person_id") or p.get("id")
         hr = (p.get("status") or "current").lower()
-        hint = "Ehemaliges Organ" if hr == "former" else "Person aus Netzwerk L5"
+        former = hr == "former"
         add_hit(
             "person",
             name,
-            ref=str(pid) if pid else None,
+            ref=str(p.get("person_id") or p.get("id") or "") or None,
             roles=p.get("roles") or [],
             status=hr,
-            hint=hint,
+            hint="Aktives Organ der Fraud-Firma" if not former else "Früheres Organ der Fraud-Firma",
+            group="seed_former" if former else "seed_current",
+            default_selected=not former,
         )
 
-    # Node fallback for persons not listed in persons_table
-    for node in payload.get("nodes") or []:
-        if not isinstance(node, dict):
+    for n in nodes:
+        if n.get("type") != "company" or not n.get("id"):
             continue
-        ntype = (node.get("type") or "").lower()
-        label = (node.get("label") or node.get("name") or "").strip()
-        if ntype == "person":
-            nid = (node.get("id") or "").removeprefix("person:")
-            add_hit(
-                "person",
-                label,
-                ref=nid or None,
-                roles=node.get("roles") or [],
-                status=(node.get("status") or "").lower(),
-                hint="Person aus Netzwerk L5",
-            )
-        elif ntype == "company":
-            cuid = node.get("uid") or ""
-            digits = _seed_uid_digits(cuid)
-            if digits and digits == seed_uid:
-                continue
-            if label.strip().lower() == seed_name:
-                continue
-            add_hit(
-                "company",
-                label,
-                ref=cuid or None,
-                hint="Verbundene Firma (L5)",
-            )
+        if n.get("id") == seed_id or n.get("is_seed"):
+            continue
+        digits = _seed_uid_digits(n.get("uid"))
+        label = (n.get("label") or "").strip()
+        if digits and digits == seed_uid:
+            continue
+        if label.lower() == seed_name:
+            continue
+        via = _via_persons(nodes, edges, n.get("id") or "")
+        hint = (
+            f"über {', '.join(via)}"
+            if via
+            else "im Netzwerk, ohne direkte Organ-Brücke zur Fraud-Firma"
+        )
+        add_hit(
+            "company",
+            label,
+            ref=n.get("uid") or None,
+            hint=hint,
+            group="related_company",
+            via=via,
+            node_id=n.get("id"),
+            default_selected=False,
+        )
 
-    # Prefer network expansion over already-known seed officers: cap for UI
-    return hits[:40]
+    for n in nodes:
+        if n.get("type") != "person" or not n.get("id"):
+            continue
+        if seed_id and n["id"] in seed_neighbors:
+            continue
+        firms = []
+        for nid in _l5_neighbors(edges, n["id"]):
+            other = by_id.get(nid) or {}
+            if other.get("type") == "company" and other.get("id") != seed_id:
+                name = (other.get("label") or "").strip()
+                if name:
+                    firms.append(name)
+        firms = firms[:3]
+        hr = (n.get("person_status") or "").lower()
+        hint = (
+            f"Organ bei {', '.join(firms)} — nicht Organ der Fraud-Firma"
+            if firms
+            else "Person im erweiterten Netz, nicht Organ der Fraud-Firma"
+        )
+        add_hit(
+            "person",
+            n.get("label") or "",
+            ref=(n.get("id") or "").removeprefix("person:") or None,
+            roles=n.get("roles") or [],
+            status=hr,
+            hint=hint,
+            group="related_person",
+            via=firms,
+            node_id=n.get("id"),
+            default_selected=False,
+        )
+
+    return {"hits": hits[:40], "graph": graph}
 
 
 async def get_case_network_l5(
@@ -1626,14 +1745,15 @@ async def get_case_network_l5(
             store_cached_for_company(
                 level=5, company_name=name, company_uid=uid, payload=payload
             )
-            hits = _extract_l5_hits(payload, case)
+            bundle = _l5_review_bundle(payload, case)
             return {
                 "status": "ready",
                 "demo_only": True,
                 "l5_cached": True,
                 "l5_started": False,
-                "hits": hits,
-                "hit_count": len(hits),
+                "hits": bundle["hits"],
+                "hit_count": len(bundle["hits"]),
+                "graph": bundle["graph"],
                 "company_name": name,
                 "company_uid": uid,
             }
@@ -1643,15 +1763,16 @@ async def get_case_network_l5(
     hit, key = load_cached_for_company(level=5, company_name=name, company_uid=uid)
     if hit is not None:
         _L5_RUNNING.discard(identity)
-        hits = _extract_l5_hits(hit, case)
+        bundle = _l5_review_bundle(hit, case)
         return {
             "status": "ready",
             "demo_only": False,
             "l5_cached": True,
             "l5_started": False,
             "cached_at": cached_at_iso(key) if key else None,
-            "hits": hits,
-            "hit_count": len(hits),
+            "hits": bundle["hits"],
+            "hit_count": len(bundle["hits"]),
+            "graph": bundle["graph"],
             "company_name": name,
             "company_uid": uid,
         }
@@ -1672,6 +1793,7 @@ async def get_case_network_l5(
         "l5_started": running,
         "hits": [],
         "hit_count": 0,
+        "graph": {"nodes": [], "edges": []},
         "company_name": name,
         "company_uid": uid,
     }

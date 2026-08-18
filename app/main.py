@@ -58,6 +58,14 @@ async def lifespan(app: FastAPI):
     await init_db()
     await log_ollama_startup_status()
     start_monitoring_scheduler()
+    try:
+        from app.hr_network.bulk_scan import resume_unfinished_bulk_scans
+
+        await resume_unfinished_bulk_scans()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Bulk-scan resume on startup failed")
     yield
     shutdown_monitoring_scheduler()
 
