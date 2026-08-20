@@ -31,7 +31,7 @@ async function loadQueue() {
   el.innerHTML = `<ul class="fraud-side-list">${cases.map((c) => `
     <li>
       <div class="fraud-side-item-title">${esc(c.company_name)}
-        <span class="fraud-speed-hint">${esc(c.fraud_type || "")}</span>
+        <span class="fraud-speed-hint">${esc(c.fraud_type_label || c.fraud_type || "")}</span>
       </div>
       <div class="fraud-entry-meta">
         <span>Report: ${esc(c.reported_by || "")} · ${esc(c.reported_at || "")}</span>

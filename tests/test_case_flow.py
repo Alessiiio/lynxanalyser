@@ -28,6 +28,11 @@ import app.database as db  # noqa: E402
 db.engine = create_async_engine(f"sqlite+aiosqlite:///{_DB_PATH}", echo=False)
 db.async_session = async_sessionmaker(db.engine, expire_on_commit=False)
 
+from app.hr_network import company_cases as company_cases_mod  # noqa: E402
+from app.hr_network import company_tags as company_tags_mod  # noqa: E402
+from app.hr_network import person_monitoring as person_monitoring_mod  # noqa: E402
+from app.hr_network import watch_intake as watch_intake_mod  # noqa: E402
+from app.hr_network import watched_companies as watched_companies_mod  # noqa: E402
 from app.hr_network.company_cases import (  # noqa: E402
     assert_l5_confirm_allowed,
     close_documented_case,
@@ -45,8 +50,20 @@ from app.hr_network.watch_intake import SOURCE_CASE_OPEN, upsert_watched_person 
 from app.hr_network.watched_companies import list_watched_companies  # noqa: E402
 
 
+def _rebind_sessions() -> None:
+    company_cases_mod.async_session = db.async_session
+    company_tags_mod.async_session = db.async_session
+    person_monitoring_mod.async_session = db.async_session
+    watch_intake_mod.async_session = db.async_session
+    watched_companies_mod.async_session = db.async_session
+
+
+_rebind_sessions()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _fresh_db():
+    _rebind_sessions()
     async with db.engine.begin() as conn:
         await conn.run_sync(db.Base.metadata.drop_all)
         await conn.run_sync(db.Base.metadata.create_all)

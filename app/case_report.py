@@ -10,6 +10,7 @@ from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 
 from app.date_format import format_datetime_display, now_display
+from app.hr_network.fraud_types import fraud_type_label
 
 
 def _draw_wrapped(c: canvas.Canvas, text: str, x: float, y: float, *, max_chars: int = 100) -> float:
@@ -57,7 +58,7 @@ def build_company_case_report(
     y = _draw_wrapped(
         c,
         f"{case.get('company_name')} · UID: {case.get('company_uid') or '—'} · "
-        f"Typ: {case.get('fraud_type') or '—'} · Status: {case.get('status')}",
+        f"Typ: {fraud_type_label(case.get('fraud_type'))} · Status: {case.get('status')}",
         2 * cm,
         y,
     )

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/img/lynx-mark-64.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/style.css?v=demo-ui-20260818b">
+  <link rel="stylesheet" href="/static/style.css?v=focus-heute-20260820">
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
@@ -65,6 +65,11 @@
           <button type="submit" class="btn-check" id="searchBtn">Analysieren</button>
         </div>
       </form>
+    </section>
+
+    <section id="caIdleFocus" class="ca-idle-focus hidden" aria-label="Fokus heute">
+      <h2 class="ca-idle-focus-title">Fokus heute</h2>
+      <div id="caIdleFocusGrid" class="ca-idle-focus-grid"></div>
     </section>
 
     <section id="caRecentSearches" class="ca-recent search-card is-collapsed" aria-label="Zuletzt im Team gesucht">
@@ -221,7 +226,7 @@
 
   <script src="/static/ui-common.js"></script>
   <script src="/static/cantons.js"></script>
-  <script src="/static/company-analysis.js?v=demo-ui-20260818b"></script>
+  <script src="/static/company-analysis.js?v=focus-heute-20260820"></script>
   <script src="/static/profiler-enter.js"></script>
 </body>
 </html>

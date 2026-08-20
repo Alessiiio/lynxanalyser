@@ -1279,7 +1279,10 @@ function renderCase(c) {
 
   if (c.fraud_type) {
     const sel = document.getElementById("fraudType");
-    if (sel) sel.value = c.fraud_type;
+    if (sel) {
+      const code = c.fraud_type === "fake_bank_employee" ? "phone_scam" : c.fraud_type;
+      sel.value = code;
+    }
   }
 
   const payCb = document.getElementById("paymentBlocked");

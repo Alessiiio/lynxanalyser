@@ -28,6 +28,7 @@ from app.hr_network.company_cases import (
     get_case_network_l5,
     get_case_report_path,
     get_company_case,
+    get_idle_focus_summary,
     list_company_cases,
     mark_case_suspicious,
     open_case,
@@ -36,6 +37,7 @@ from app.hr_network.company_cases import (
     update_hit_context,
     update_payment_flags,
 )
+from app.hr_network.fraud_types import fraud_type_choices, is_valid_fraud_type
 from app.routes.deps import enforce_rate_limit, get_current_user, require_role
 
 router = APIRouter(dependencies=[Depends(enforce_rate_limit)])
@@ -112,12 +114,28 @@ async def case_detail_page(case_id: int, _user: User = Depends(get_current_user)
     return FileResponse("static/case.html")
 
 
+@router.get("/api/cases/focus-summary")
+async def api_focus_summary(_user: User = Depends(get_current_user)):
+    """Idle home «Fokus heute» metrics (all authenticated roles)."""
+    return await get_idle_focus_summary()
+
+
 @router.get("/api/company-cases")
 async def api_list_cases(
     status: Optional[str] = Query(None),
+    fraud_type: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
     _user: User = Depends(get_current_user),
 ):
-    return {"cases": await list_company_cases(status=status)}
+    return {
+        "cases": await list_company_cases(status=status, fraud_type=fraud_type, q=q),
+        "fraud_types": fraud_type_choices(),
+    }
+
+
+@router.get("/api/fraud-types")
+async def api_fraud_types(_user: User = Depends(get_current_user)):
+    return {"fraud_types": fraud_type_choices()}
 
 
 @router.get("/api/company-cases/branch-signal")
@@ -186,7 +204,7 @@ async def api_confirm(
     body: ConfirmBody,
     user: User = Depends(require_role("case_manager", "admin")),
 ):
-    if body.fraud_type not in FRAUD_TYPES:
+    if not is_valid_fraud_type(body.fraud_type):
         raise HTTPException(status_code=400, detail=f"fraud_type: {FRAUD_TYPES}")
     try:
         return await confirm_fraud(

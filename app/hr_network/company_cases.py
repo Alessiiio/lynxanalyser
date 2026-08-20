@@ -21,6 +21,7 @@ from app.database import (
     CompanyCase,
     CompanyTag,
     NetworkAlert,
+    ShabDailyPublication,
     WatchedCompany,
     WatchedPerson,
     async_session,
@@ -28,11 +29,11 @@ from app.database import (
 
 logger = logging.getLogger(__name__)
 
-FRAUD_TYPES = (
-    "investment_scam",
-    "fake_bank_employee",
-    "romance_scam",
-    "other",
+from app.hr_network.fraud_types import (  # noqa: E402
+    FRAUD_TYPES,
+    fraud_type_label,
+    is_valid_fraud_type,
+    normalize_fraud_type,
 )
 
 ACTIVE_FRAUD_STATUSES = (
@@ -97,7 +98,8 @@ def _case_dict(
         "company_name": case.company_name,
         "company_uid": case.company_uid,
         "company_purpose": case.company_purpose,
-        "fraud_type": case.fraud_type,
+        "fraud_type": normalize_fraud_type(case.fraud_type) or case.fraud_type,
+        "fraud_type_label": fraud_type_label(case.fraud_type),
         "status": case.status,
         "opened_by": case.opened_by,
         "opened_at": case.opened_at.isoformat() if case.opened_at else None,
@@ -131,17 +133,33 @@ def _case_dict(
 async def list_company_cases(
     *,
     status: str | None = None,
+    fraud_type: str | None = None,
+    q: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     async with async_session() as session:
-        q = select(CompanyCase).order_by(CompanyCase.opened_at.desc()).limit(limit)
+        q_stmt = select(CompanyCase).order_by(CompanyCase.opened_at.desc()).limit(max(1, min(limit, 5000)))
         if status:
             statuses = [s.strip() for s in status.split(",") if s.strip()]
             if len(statuses) == 1:
-                q = q.where(CompanyCase.status == statuses[0])
+                q_stmt = q_stmt.where(CompanyCase.status == statuses[0])
             elif statuses:
-                q = q.where(CompanyCase.status.in_(statuses))
-        cases = list((await session.execute(q)).scalars().all())
+                q_stmt = q_stmt.where(CompanyCase.status.in_(statuses))
+        ft = normalize_fraud_type(fraud_type)
+        if ft:
+            # Include legacy alias rows until migration runs
+            aliases = [ft]
+            if ft == "phone_scam":
+                aliases.append("fake_bank_employee")
+            q_stmt = q_stmt.where(CompanyCase.fraud_type.in_(aliases))
+        needle = (q or "").strip()
+        if needle:
+            like = f"%{needle}%"
+            q_stmt = q_stmt.where(
+                (CompanyCase.company_name.ilike(like))
+                | (CompanyCase.company_uid.ilike(like))
+            )
+        cases = list((await session.execute(q_stmt)).scalars().all())
         out = []
         for case in cases:
             checks = await _load_checks(session, case.id)
@@ -179,7 +197,7 @@ async def export_fraud_companies_csv(*, include_cleared: bool = False) -> str:
             [
                 c.get("company_name") or "",
                 c.get("company_uid") or "",
-                c.get("fraud_type") or "",
+                fraud_type_label(c.get("fraud_type")),
                 c.get("status") or "",
                 (c.get("opened_at") or "")[:19],
                 (c.get("confirmed_at") or "")[:19],
@@ -264,6 +282,114 @@ async def export_flagged_person_names_csv() -> str:
     for name in _unique_csv_names([(r[0] or "") for r in rows]):
         writer.writerow([name])
     return buf.getvalue()
+
+
+def _uid_digits_case(uid: str | None) -> str:
+    return re.sub(r"\D", "", uid or "")
+
+
+def _name_key_case(name: str | None) -> str:
+    return re.sub(r"\s+", " ", (name or "").strip().lower())
+
+
+def _tag_has_matching_case(
+    *,
+    tag_uid: str | None,
+    tag_name: str | None,
+    case_uids: set[str],
+    case_names: set[str],
+) -> bool:
+    digits = _uid_digits_case(tag_uid)
+    if digits and digits in case_uids:
+        return True
+    name_n = _name_key_case(tag_name)
+    return bool(name_n and name_n in case_names)
+
+
+async def get_idle_focus_summary() -> dict[str, Any]:
+    """Four focus metrics for Firmenanalyse idle home («Fokus heute»)."""
+    import datetime as dt
+
+    from sqlalchemy import func, select
+
+    from app.hr_network.company_tags import TAG_UNDER_INVESTIGATION
+    from app.hr_network.shab_daily import shab_daily_status
+    from app.hr_network.zefix_rest import network_status_from_health, zefix_health
+
+    now = datetime.now(timezone.utc)
+    week_start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    today_s = dt.date.today().isoformat()
+
+    async with async_session() as session:
+        new_cases_week = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(CompanyCase)
+                    .where(CompanyCase.opened_at >= week_start)
+                )
+            ).scalar_one()
+            or 0
+        )
+        tags = list(
+            (
+                await session.execute(
+                    select(CompanyTag).where(CompanyTag.tag == TAG_UNDER_INVESTIGATION)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        case_rows = list(
+            (
+                await session.execute(
+                    select(CompanyCase.company_uid, CompanyCase.company_name)
+                )
+            ).all()
+        )
+        shab_today = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(ShabDailyPublication)
+                    .where(ShabDailyPublication.publication_date == today_s)
+                )
+            ).scalar_one()
+            or 0
+        )
+
+    case_uids = {_uid_digits_case(uid) for uid, _ in case_rows if _uid_digits_case(uid)}
+    case_names = {_name_key_case(name) for _, name in case_rows if _name_key_case(name)}
+    tagged_without_case = sum(
+        1
+        for t in tags
+        if not _tag_has_matching_case(
+            tag_uid=t.company_uid,
+            tag_name=t.company_name,
+            case_uids=case_uids,
+            case_names=case_names,
+        )
+    )
+
+    shab_status = await shab_daily_status()
+    health = zefix_health()
+    net = network_status_from_health(health)
+    net_labels = {"ok": "OK", "degraded": "Eingeschränkt", "down": "Störung"}
+    return {
+        "new_cases_week": new_cases_week,
+        "tagged_without_case": tagged_without_case,
+        "shab_today": shab_today,
+        "shab_status": shab_status,
+        "network_status": {
+            "status": net,
+            "label": net_labels.get(net, net),
+            "health": health,
+        },
+        "week_start": week_start.isoformat(),
+        "shab_date": today_s,
+    }
 
 
 async def get_company_case(case_id: int) -> dict[str, Any]:
@@ -738,8 +864,8 @@ async def confirm_fraud(
     l5_gate_bypass: bool = False,
 ) -> dict[str, Any]:
     await assert_l5_confirm_allowed(case_id, bypass=l5_gate_bypass)
-    fraud_type = (fraud_type or "").strip()
-    if fraud_type not in FRAUD_TYPES:
+    fraud_type = normalize_fraud_type(fraud_type) or (fraud_type or "").strip()
+    if not is_valid_fraud_type(fraud_type):
         raise ValueError(f"fraud_type muss einer von {FRAUD_TYPES} sein")
 
     async with async_session() as session:

@@ -1426,9 +1426,124 @@ async function refreshIdleHomeStats() {
   }
 }
 
+const _FOCUS_ICONS = {
+  cases: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  tagged: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  shab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
+};
+
+function _escapeFocusHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderIdleFocusTiles(data) {
+  const grid = document.getElementById("caIdleFocusGrid");
+  if (!grid || !data) return;
+
+  const shabHint = (data.shab_status && data.shab_status.hint) || "";
+  const net = data.network_status || {};
+  const netStatus = net.status || "ok";
+  const netLabel = net.label || "OK";
+  const lastError = (net.health && net.health.last_error) || "";
+  const netTone = netStatus === "ok" ? "ok" : netStatus === "degraded" ? "warn" : "bad";
+  const netTitle =
+    (netStatus === "degraded" || netStatus === "down") && lastError
+      ? lastError
+      : "Zefix-/Netzwerk-Status (Prozess)";
+
+  const tiles = [
+    {
+      key: "cases",
+      href: "/cases",
+      tone: "info",
+      icon: _FOCUS_ICONS.cases,
+      value: String(Number(data.new_cases_week) || 0),
+      label: "Neue Fälle diese Woche",
+      sub: "",
+      clickable: true,
+    },
+    {
+      key: "tagged",
+      href: "/watchlist?tab=companies",
+      tone: "warn",
+      icon: _FOCUS_ICONS.tagged,
+      value: String(Number(data.tagged_without_case) || 0),
+      label: "In Abklärung ohne Akte",
+      sub: "",
+      clickable: true,
+    },
+    {
+      key: "shab",
+      href: null,
+      tone: "info",
+      icon: _FOCUS_ICONS.shab,
+      value: String(Number(data.shab_today) || 0),
+      label: "SHAB-Meldungen heute",
+      sub: shabHint,
+      clickable: false,
+    },
+    {
+      key: "network",
+      href: null,
+      tone: netTone,
+      icon: `<span class="ca-status-dot" aria-hidden="true"></span>`,
+      value: _escapeFocusHtml(netLabel),
+      label: "Netzwerk-Status",
+      sub: "",
+      clickable: false,
+      title: netTitle,
+      statusClass: `ca-status-${netTone === "ok" ? "ok" : netTone === "warn" ? "warn" : "bad"}`,
+    },
+  ];
+
+  grid.innerHTML = tiles
+    .map((t) => {
+      const tag = t.clickable ? "a" : "div";
+      const hrefAttr = t.clickable && t.href ? ` href="${t.href}"` : "";
+      const titleAttr = t.title ? ` title="${_escapeFocusHtml(t.title)}"` : "";
+      const clickableClass = t.clickable ? " is-clickable" : "";
+      const statusClass = t.statusClass ? ` ${t.statusClass}` : "";
+      const subHtml = t.sub
+        ? `<span class="ca-idle-focus-sub">${_escapeFocusHtml(t.sub)}</span>`
+        : "";
+      return (
+        `<${tag} class="ca-idle-focus-tile ca-idle-focus-tile--${t.tone}${clickableClass}${statusClass}"` +
+        `${hrefAttr}${titleAttr} data-focus="${t.key}">` +
+        `<span class="ca-idle-focus-icon">${t.icon}</span>` +
+        `<span class="ca-idle-focus-value">${t.value}</span>` +
+        `<span class="ca-idle-focus-label">${_escapeFocusHtml(t.label)}</span>` +
+        subHtml +
+        `</${tag}>`
+      );
+    })
+    .join("");
+}
+
+async function refreshIdleFocusRow() {
+  const wrap = document.getElementById("caIdleFocus");
+  if (!wrap) return;
+  try {
+    const resp = await fetch("/api/cases/focus-summary");
+    if (!resp.ok) {
+      wrap.classList.add("hidden");
+      return;
+    }
+    const data = await resp.json();
+    renderIdleFocusTiles(data);
+    wrap.classList.remove("hidden");
+  } catch (_) {
+    wrap.classList.add("hidden");
+  }
+}
+
 function refreshIdleHomeContext() {
   renderIdleGreeting(window.__lynxUser);
   refreshIdleHomeStats();
+  refreshIdleFocusRow();
 }
 
 const _prevLynxUserReady = window.onLynxUserReady;

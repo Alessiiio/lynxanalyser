@@ -12,6 +12,10 @@ Die Texte sind bewusst **einfach gehalten**, damit das ganze Team sie versteht.
 
 ### Added
 
+- **«Fokus heute»** auf der Firmenanalyse-Startseite: vier Kacheln (neue Fälle diese Woche, In Abklärung ohne Akte, SHAB heute inkl. letztem Check, Netzwerk-Status).
+- **Betrugsarten (Broschüre)**: Alle Typen aus «Betrug entdecken» in der Akte; deutsche Labels in Fallliste und Export. Alt: `fake_bank_employee` → Telefonbetrug.
+- **Fallliste**: Karten mit Status-/Betrugsart-Badges, Suche, Filter Betrugsart, «In Prüfung» zuerst.
+- **CM-Playbook DS-Namen**: [docs/CASE_MANAGER_DS_NAMES.md](docs/CASE_MANAGER_DS_NAMES.md) — wie Suspect-Namen sauber für Data Science bleiben.
 - **Fraudfall im Audit-Log**: Eröffnen, Betrug bestätigt, kein Betrug, verdächtig, Dokumentation abgeschlossen — wer hat wann was gemacht.
 - **Namenslisten für Data Science**: Im Admin unter Exporte zwei schlanke CSVs (nur Firmennamen bzw. nur Personennamen) für den Abgleich bei Zahlungen. Die ausführlichen Fraud-/Watchlist-Exporte bleiben.
 - **Startseite (Idle)**: Dezente Begrüssung «Hallo, {Vorname}» sowie Watchlist-Anzahl (und offene Alerts, falls vorhanden) — klickbar, ohne Dashboard.

@@ -19,7 +19,7 @@
           <div>
             <p class="header-eyebrow">Lynx</p>
             <h1>Firmenfälle</h1>
-            <p class="header-sub">Akten vom Gespräch bis zum Compliance-Abschluss.</p>
+            <p class="header-sub">Akte → Watchlist → Suspect-Namen für Data Science.</p>
           </div>
         </div>
         <div class="header-actions">
@@ -28,23 +28,29 @@
       </div>
     </header>
 
-    <section class="fraud-panel">
-      <div class="fraud-panel-head">
-        <h2>Filter</h2>
-        <select id="statusFilter" class="ca-select" aria-label="Statusfilter">
-          <option value="" selected>Alle</option>
-          <option value="under_review">In Prüfung</option>
-          <option value="confirmed_fraud,ready_for_report">Bestätigt / Doku</option>
-          <option value="reported">Gemeldet</option>
-          <option value="closed">Fraudfall aktiv (dokumentiert)</option>
-          <option value="cleared">Kein Betrug</option>
-        </select>
+    <section class="fraud-panel cases-panel">
+      <div class="fraud-panel-head cases-toolbar">
+        <h2>Fälle <span id="casesCount" class="inbox-count">0</span></h2>
+        <div class="cases-toolbar-actions">
+          <input type="search" id="casesSearch" class="cases-search" placeholder="Firma oder UID…" aria-label="Suche">
+          <select id="statusFilter" class="ca-select" aria-label="Statusfilter">
+            <option value="" selected>Alle Status</option>
+            <option value="under_review">In Prüfung</option>
+            <option value="confirmed_fraud,ready_for_report">Bestätigt / Doku</option>
+            <option value="reported">Gemeldet</option>
+            <option value="closed">Fraudfall aktiv</option>
+            <option value="cleared">Kein Betrug</option>
+          </select>
+          <select id="fraudTypeFilter" class="ca-select" aria-label="Betrugsart">
+            <option value="">Alle Betrugsarten</option>
+          </select>
+        </div>
       </div>
       <div id="casesList"></div>
       <p id="casesMsg" class="fraud-help"></p>
     </section>
   </div>
   <script src="/static/ui-common.js"></script>
-  <script src="/static/cases.js"></script>
+  <script src="/static/cases.js?v=fraud-types-20260820"></script>
 </body>
 </html>

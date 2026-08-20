@@ -547,6 +547,7 @@ async def init_db() -> None:
         await conn.run_sync(_migrate_watched_person_columns)
         await conn.run_sync(_migrate_company_case_columns)
         await conn.run_sync(_migrate_add_clearance_reason)
+        await conn.run_sync(_migrate_fraud_type_aliases)
         await conn.run_sync(_migrate_user_2fa_columns)
     await seed_default_users()
 
@@ -773,6 +774,26 @@ def _migrate_add_clearance_reason(conn) -> None:
     if "clearance_reason" not in existing:
         conn.execute(text("ALTER TABLE company_cases ADD COLUMN clearance_reason VARCHAR(32)"))
         logger.info("Added company_cases.clearance_reason")
+
+
+def _migrate_fraud_type_aliases(conn) -> None:
+    """Map legacy fraud_type codes to brochure taxonomy (e.g. fake_bank_employee → phone_scam)."""
+    insp = inspect(conn)
+    if "company_cases" not in insp.get_table_names():
+        return
+    existing = {col["name"] for col in insp.get_columns("company_cases")}
+    if "fraud_type" not in existing:
+        return
+    result = conn.execute(
+        text(
+            "UPDATE company_cases SET fraud_type = 'phone_scam' "
+            "WHERE fraud_type = 'fake_bank_employee'"
+        )
+    )
+    # SQLAlchemy 2: rowcount on Result
+    n = getattr(result, "rowcount", None) or 0
+    if n:
+        logger.info("Migrated %s company_cases.fraud_type fake_bank_employee → phone_scam", n)
 
 
 def _migrate_user_2fa_columns(conn) -> None:
